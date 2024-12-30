@@ -214,62 +214,94 @@ export function getUserInfoWebviewContent(userObject: any): string {
 	const orgType = org.orgType ?? 'N/A';
 	const subscriptionType = org.subscription?.type ?? 'N/A';
 	const subscriptionExp = org.subscription?.expiration ?? 'N/A';
-  
 	return /* html */ `
 	<!DOCTYPE html>
 	<html lang="en">
 	  <head>
 		<meta charset="UTF-8" />
-		 <style>
-        body {
-          font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto,
-                       Oxygen, Ubuntu, Cantarell, "Open Sans", "Helvetica Neue",
-                       sans-serif;
-          margin: 0;
-          padding: 16px;
-          background-color: #f3f3f3;
-          color: #333; /* Ensure text is dark (black/near-black) */
-        }
-        h1, h2 {
-          margin-top: 0;
-        }
-        .container {
-          max-width: 800px;
-          margin: 0 auto;
-          background: #fff;
-          padding: 16px;
-          border-radius: 8px;
-          box-shadow: 0 2px 5px rgba(0, 0, 0, 0.2);
-        }
-        .section-title {
-          margin: 24px 0 8px;
-          font-size: 1.25rem;
-          border-bottom: 2px solid #007acc;
-          color: #007acc; /* Section title in VS Code's blue accent */
-        }
-        table {
-          border-collapse: collapse;
-          width: 100%;
-          margin-bottom: 16px;
-        }
-        th, td {
-          text-align: left;
-          padding: 8px;
-        }
-        th {
-          background-color: #007acc; /* Table header background */
-          color: #ffffff;           /* Table header text color */
-        }
-        tr:nth-child(even) {
-          background-color: #f9f9f9; 
-        }
-      </style>
+		<style>
+		  /* Overall Page Styling */
+		  body {
+			margin: 0;
+			padding: 24px;
+			background-color: #fff;
+			color: #333;
+			font-family: "Segoe UI", Arial, sans-serif;
+			line-height: 1.5;
+		  }
+  
+		  /* Heading / Title Styles */
+		  h1, h2 {
+			margin: 0 0 16px 0;
+			font-weight: 400;
+		  }
+		  h1 {
+			font-size: 1.5rem;
+			margin-bottom: 24px;
+		  }
+		  h2 {
+			font-size: 1.2rem;
+			margin-top: 32px;
+			margin-bottom: 16px;
+		  }
+  
+		  /* Container for spacing (optional) */
+		  .container {
+			max-width: 900px;
+			margin: 0 auto;
+		  }
+  
+		  /* Basic table styling */
+		  table {
+			width: 100%;
+			border-collapse: collapse;
+			margin-bottom: 24px;
+		  }
+		  th, td {
+			text-align: left;
+			padding: 12px;
+			vertical-align: middle;
+		  }
+		  th {
+			font-weight: 500;
+			background-color: #f9f9f9;
+			border-bottom: 1px solid #e0e0e0;
+		  }
+		  tr:not(:first-child) {
+			border-top: 1px solid #e0e0e0;
+		  }
+		  
+		  /* Subtle styling for labels or less prominent text */
+		  .subtle {
+			color: #666;
+			font-size: 0.9rem;
+		  }
+  
+		  /* Example layout: two columns (like screenshot) - optional */
+		  .two-columns {
+			display: flex;
+			flex-wrap: wrap;
+			gap: 24px;
+		  }
+		  .column {
+			flex: 1 1 400px;
+			min-width: 300px;
+		  }
+  
+		  /* Minor heading style inside columns */
+		  .column h3 {
+			margin: 16px 0 8px 0;
+			font-size: 1rem;
+			font-weight: 500;
+		  }
+		</style>
 	  </head>
 	  <body>
 		<div class="container">
 		  <h1>Anypoint User Info</h1>
-  
-		  <div class="section-title">User Details</div>
+		  
+		  <!-- Basic user details -->
+		  <h2>User Details</h2>
 		  <table>
 			<tr>
 			  <th>Field</th>
@@ -277,7 +309,7 @@ export function getUserInfoWebviewContent(userObject: any): string {
 			</tr>
 			<tr>
 			  <td>ID</td>
-			  <td>${user.id}</td>
+			  <td>${user.id ?? 'N/A'}</td>
 			</tr>
 			<tr>
 			  <td>First Name</td>
@@ -301,11 +333,12 @@ export function getUserInfoWebviewContent(userObject: any): string {
 			</tr>
 			<tr>
 			  <td>Last Login</td>
-			  <td>${lastLogin}</td>
+			  <td class="subtle">${lastLogin}</td>
 			</tr>
 		  </table>
   
-		  <div class="section-title">Organization</div>
+		  <!-- Organization info -->
+		  <h2>Organization</h2>
 		  <table>
 			<tr>
 			  <th>Field</th>
@@ -329,7 +362,7 @@ export function getUserInfoWebviewContent(userObject: any): string {
 			</tr>
 			<tr>
 			  <td>Subscription Expires</td>
-			  <td>${subscriptionExp}</td>
+			  <td class="subtle">${subscriptionExp}</td>
 			</tr>
 		  </table>
 		</div>
