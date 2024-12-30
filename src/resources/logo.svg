@@ -1,0 +1,49 @@
+<!-- 
+  SAMPLE PLACEHOLDER SVG LOGO FOR "Anypoint Monitor"
+  Note: This is not affiliated with or endorsed by MuleSoft.
+  You can modify colors, shapes, and text to suit your needs.
+-->
+
+<svg 
+    version="1.1" 
+    baseProfile="full"
+    width="250" 
+    height="100"
+    viewBox="0 0 250 100"
+    xmlns="http://www.w3.org/2000/svg">
+
+  <!-- Background rectangle (optional) -->
+  <rect 
+    x="0" 
+    y="0"
+    width="250"
+    height="100" 
+    fill="#FFFFFF" 
+  />
+
+  <!-- Stylized pulse or wave path to represent "monitoring" -->
+  <path 
+    d="M 30 50 
+       L 50 50 
+       L 60 30 
+       L 70 70 
+       L 80 50 
+       L 110 50" 
+    stroke="#007ACC" 
+    stroke-width="3" 
+    fill="none"
+    stroke-linecap="round" 
+    stroke-linejoin="round" 
+  />
+
+  <!-- Circular element to suggest the "Anypoint" concept or a "portal" icon -->
+  <circle 
+    cx="130" 
+    cy="50" 
+    r="15" 
+    stroke="#007ACC" 
+    stroke-width="3" 
+    fill="none" 
+  />
+
+</svg>
