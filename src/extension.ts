@@ -43,40 +43,92 @@ export function activate(context: vscode.ExtensionContext) {
 
 
 async function getUserInfo(context: vscode.ExtensionContext) {
-	// Retrieve tokens from SecretStorage
-	const accessToken = await context.secrets.get('anypoint.accessToken');
+	// Retrieve the stored access token
+	let accessToken = await context.secrets.get('anypoint.accessToken');
 	if (!accessToken) {
 	  throw new Error('No access token found. Please log in first.');
 	}
   
-	// Example: calling a random MuleSoft API endpoint
-	// Replace with your actual endpoint
+	// Our MuleSoft endpoint
 	const apiUrl = 'https://anypoint.mulesoft.com/accounts/api/me';
   
-	const response = await axios.get(apiUrl, {
-	  headers: {
-		Authorization: `Bearer ${accessToken}`
+	try {
+	  // 1. Attempt the initial API call
+	  const response = await axios.get(apiUrl, {
+		headers: {
+		  Authorization: `Bearer ${accessToken}`
+		}
+	  });
+  
+	  // 2. Check for non-200
+	  if (response.status !== 200) {
+		throw new Error(`API request failed with status ${response.status}`);
 	  }
-	});
   
-	if (response.status !== 200) {
-	  throw new Error(`API request failed with status ${response.status}`);
-	}
+	  // 3. If we got here, the call succeeded!
+	  const data = response.data;
   
-	// Log or display data
-	const data = response.data;
-
-	const panel = vscode.window.createWebviewPanel(
+	  // Create a webview to display user info
+	  const panel = vscode.window.createWebviewPanel(
 		'userInfoWebview',
 		'User Information',
 		vscode.ViewColumn.One,
 		{ enableScripts: true }
 	  );
-  
-	  // Use the helper function to generate HTML
 	  panel.webview.html = getUserInfoWebviewContent(data);
-
-	 vscode.window.showInformationMessage(`API response: ${JSON.stringify(data)}`);
+  
+	  vscode.window.showInformationMessage(`API response: ${JSON.stringify(data)}`);
+  
+	} catch (error: any) {
+	  // 4. If we got a 401, try to refresh
+	  if (error.response?.status === 401) {
+		vscode.window.showInformationMessage('Access token expired. Attempting to refresh...');
+  
+		const didRefresh = await refreshAccessToken(context);
+		if (!didRefresh) {
+		  vscode.window.showErrorMessage('Unable to refresh token. Please log in again.');
+		  return;
+		}
+  
+		// 5. Token refreshed, retrieve the new access token and retry
+		accessToken = await context.secrets.get('anypoint.accessToken');
+		if (!accessToken) {
+		  vscode.window.showErrorMessage('No new access token found after refresh. Please log in again.');
+		  return;
+		}
+  
+		// Retry the request
+		try {
+		  const retryResponse = await axios.get(apiUrl, {
+			headers: {
+			  Authorization: `Bearer ${accessToken}`
+			}
+		  });
+  
+		  if (retryResponse.status !== 200) {
+			throw new Error(`Retry API request failed with status ${retryResponse.status}`);
+		  }
+  
+		  const data = retryResponse.data;
+  
+		  // Display or log data
+		  const panel = vscode.window.createWebviewPanel(
+			'userInfoWebview',
+			'User Information',
+			vscode.ViewColumn.One,
+			{ enableScripts: true }
+		  );
+		  panel.webview.html = getUserInfoWebviewContent(data);
+  
+		  vscode.window.showInformationMessage(`API response (after refresh): ${JSON.stringify(data)}`);
+		} catch (retryError: any) {
+		  vscode.window.showErrorMessage(`API request failed after refresh: ${retryError.message}`);
+		}
+	  } else {
+		// Another error (not 401) - handle as needed
+		vscode.window.showErrorMessage(`Error calling API: ${error.message}`);
+	  }
+	}
   }
 
 
@@ -371,5 +423,60 @@ export function getUserInfoWebviewContent(userObject: any): string {
 	`;
   }
 
+  async function refreshAccessToken(context: vscode.ExtensionContext): Promise<boolean> {
+	// Retrieve the stored refresh token
+	const storedRefreshToken = await context.secrets.get('anypoint.refreshToken');
+	if (!storedRefreshToken) {
+	  vscode.window.showErrorMessage('No refresh token found. Please log in again.');
+	  return false;
+	}
+  
+	// MuleSoft Token Endpoint
+	const refreshData = new URLSearchParams();
+	refreshData.append('grant_type', 'refresh_token');
+	refreshData.append('refresh_token', storedRefreshToken);
+  
+	// If your MuleSoft config requires client ID/secret here:
+	refreshData.append('client_id', CLIENT_ID);
+	refreshData.append('client_secret', CLIENT_SECRET);
+  
+	// Build Basic Auth header (if needed)
+	const base64Creds = Buffer.from(`${CLIENT_ID}:${CLIENT_SECRET}`).toString('base64');
+  
+	try {
+	  const response = await axios.post(TOKEN_ENDPOINT, refreshData.toString(), {
+		headers: {
+		  'Authorization': `Basic ${base64Creds}`,
+		  'Content-Type': 'application/x-www-form-urlencoded'
+		}
+	  });
+  
+	  if (response.status !== 200) {
+		throw new Error(`Refresh token request failed with status ${response.status}`);
+	  }
+  
+	  const tokenData = response.data as {
+		access_token?: string;
+		refresh_token?: string;
+	  };
+  
+	  if (!tokenData.access_token) {
+		throw new Error(`No new access_token in refresh response: ${JSON.stringify(tokenData)}`);
+	  }
+  
+	  // Store the new tokens
+	  await context.secrets.store('anypoint.accessToken', tokenData.access_token);
+	  if (tokenData.refresh_token) {
+		await context.secrets.store('anypoint.refreshToken', tokenData.refresh_token);
+	  }
+  
+	  vscode.window.showInformationMessage('Access token refreshed successfully!');
+	  return true;
+	} catch (err: any) {
+	  vscode.window.showErrorMessage(`Failed to refresh token: ${err.message}`);
+	  return false;
+	}
+  }
+  
 // This method is called when your extension is deactivated
 export function deactivate() {}
