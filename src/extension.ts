@@ -3,6 +3,7 @@
 import * as vscode from 'vscode';
 import axios from 'axios';
 import * as http from 'http';
+import { showApplicationsWebview } from './showApplications';
 
 
 // Replace these with your actual MuleSoft OAuth client details
@@ -12,6 +13,7 @@ const CLIENT_SECRET = 'b5d7dBEe693c4C3fa50C183A3f6570D2';
 // MuleSoft OAuth Endpoints
 const AUTHORIZATION_ENDPOINT = 'https://anypoint.mulesoft.com/accounts/api/v2/oauth2/authorize';
 const TOKEN_ENDPOINT = 'https://anypoint.mulesoft.com/accounts/api/v2/oauth2/token';
+const REVOKE_ENDPOINT = 'https://anypoint.mulesoft.com/accounts/api/v2/oauth2/revoke';
 
 // Example redirect URL (You must configure something like http://localhost:3000/callback
 // in your MuleSoft OAuth app settings, or use a custom URI scheme).
@@ -36,6 +38,99 @@ export function activate(context: vscode.ExtensionContext) {
 		} catch (error: any) {
 		  vscode.window.showErrorMessage(`Error: ${error.message || error}`);
 		}
+	  });
+
+	  const revokeAccessCommand = vscode.commands.registerCommand('anypoint-monitor.logout', async () => {
+		try {
+		  await revokeAnypointToken(context, 'access');
+		} catch (err: any) {
+		  vscode.window.showErrorMessage(`Failed to revoke access token: ${err.message}`);
+		}
+	  });
+
+	  const disposable = vscode.commands.registerCommand('anypoint-monitor.showApps', async () => {
+
+		// Retrieve the stored access token
+		let accessToken = await context.secrets.get('anypoint.accessToken');
+		if (!accessToken) {
+		throw new Error('No access token found. Please log in first.');
+		}
+	
+		// Our MuleSoft endpoint
+		const apiUrl = 'https://anypoint.mulesoft.com/cloudhub/api/applications';
+
+
+		try {
+			// 1. Attempt the initial API call
+			const response = await axios.get(apiUrl, {
+			  headers: {
+				Authorization: `Bearer ${accessToken}`
+			  }
+			});
+		
+			// 2. Check for non-200
+			if (response.status !== 200) {
+			  throw new Error(`API request failed with status ${response.status}`);
+			}
+		
+			// 3. If we got here, the call succeeded!
+			const data = response.data;
+		
+			
+			// Show them in a webview
+			showApplicationsWebview(context, data);
+		
+		  } catch (error: any) {
+			// 4. If we got a 401, try to refresh
+			if (error.response?.status === 401) {
+			  vscode.window.showInformationMessage('Access token expired. Attempting to refresh...');
+		
+			  const didRefresh = await refreshAccessToken(context);
+			  if (!didRefresh) {
+				vscode.window.showErrorMessage('Unable to refresh token. Please log in again.');
+				return;
+			  }
+		
+			  // 5. Token refreshed, retrieve the new access token and retry
+			  accessToken = await context.secrets.get('anypoint.accessToken');
+			  if (!accessToken) {
+				vscode.window.showErrorMessage('No new access token found after refresh. Please log in again.');
+				return;
+			  }
+		
+			  // Retry the request
+			  try {
+				const retryResponse = await axios.get(apiUrl, {
+				  headers: {
+					Authorization: `Bearer ${accessToken}`
+				  }
+				});
+		
+				if (retryResponse.status !== 200) {
+				  throw new Error(`Retry API request failed with status ${retryResponse.status}`);
+				}
+		
+				const data = retryResponse.data;
+		
+				// Display or log data
+				const panel = vscode.window.createWebviewPanel(
+				  'userInfoWebview',
+				  'User Information',
+				  vscode.ViewColumn.One,
+				  { enableScripts: true }
+				);
+				panel.webview.html = getUserInfoWebviewContent(data);
+		
+				vscode.window.showInformationMessage(`API response (after refresh): ${JSON.stringify(data)}`);
+			  } catch (retryError: any) {
+				vscode.window.showErrorMessage(`API request failed after refresh: ${retryError.message}`);
+			  }
+			} else {
+			  // Another error (not 401) - handle as needed
+			  vscode.window.showErrorMessage(`Error calling API: ${error.message}`);
+			}
+		  }
+
 	  });
 
 	context.subscriptions.push(loginCommand);
@@ -131,6 +226,53 @@ async function getUserInfo(context: vscode.ExtensionContext) {
 	}
   }
 
+  /**
+ * Revokes the token and removes it from SecretStorage.
+ * @param context The VS Code extension context (to access secrets).
+ * @param tokenType 'access' or 'refresh' depending on which token you want to revoke.
+ */
+export async function revokeAnypointToken(context: vscode.ExtensionContext, tokenType: 'access' | 'refresh') {
+	// 1. Retrieve the token from VS Code's SecretStorage
+	const storageKey = tokenType === 'access' ? 'anypoint.accessToken' : 'anypoint.refreshToken';
+	const token = await context.secrets.get(storageKey);
+	
+	if (!token) {
+	  vscode.window.showWarningMessage(`No ${tokenType} token found to revoke.`);
+	  return;
+	}
+  
+	// 2. Build form data (POST x-www-form-urlencoded)
+	const formData = new URLSearchParams();
+	// MuleSoft expects the parameter to be "token" (the one you want to revoke)
+	formData.append('token', token);
+  
+	// If your org requires client_id/client_secret in the body or Basic Auth:
+	formData.append('client_id', CLIENT_ID);
+	formData.append('client_secret', CLIENT_SECRET);
+  
+	// Basic Auth header (if required):
+	const base64Creds = Buffer.from(`${CLIENT_ID}:${CLIENT_SECRET}`).toString('base64');
+  
+	try {
+	  // 3. Make the request to revoke
+	  const response = await axios.post(REVOKE_ENDPOINT, formData.toString(), {
+		headers: {
+		  'Authorization': `Basic ${base64Creds}`,
+		  'Content-Type': 'application/x-www-form-urlencoded'
+		}
+	  });
+  
+	  if (response.status === 200) {
+		vscode.window.showInformationMessage(`Successfully revoked the ${tokenType} token.`);
+		// 4. Remove the token from storage
+		await context.secrets.delete(storageKey);
+	  } else {
+		throw new Error(`Revoke endpoint returned status ${response.status}`);
+	  }
+	} catch (error: any) {
+	  vscode.window.showErrorMessage(`Error revoking token: ${error.message}`);
+	}
+  }
 
 // A command to start the OAuth flow
 export async function loginToAnypointWithOAuth(context: vscode.ExtensionContext) {
@@ -477,6 +619,6 @@ export function getUserInfoWebviewContent(userObject: any): string {
 	  return false;
 	}
   }
-  
+
 // This method is called when your extension is deactivated
 export function deactivate() {}

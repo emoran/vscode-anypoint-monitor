@@ -22,11 +22,19 @@
     "commands": [
       {
         "command": "anypoint-monitor.userInfo",
-        "title": "Show User Info"
+        "title": "am:Show my user Information"
       },
       {
         "command": "anypoint-monitor.login",
-        "title": "Login Anypoint Platform"
+        "title": "am:Login into Anypoint Platform"
+      },
+      {
+        "command": "anypoint-monitor.showApps",
+        "title": "am:Show all Anypoint Applications"
+      },
+      {
+        "command": "anypoint-monitor.logout",
+        "title": "am:Logout"
       }
     ]
   },
