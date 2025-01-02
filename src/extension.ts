@@ -143,7 +143,7 @@ export function activate(context: vscode.ExtensionContext) {
 	context.subscriptions.push(userInfo);
 	context.subscriptions.push(revokeAccessCommand);
 	context.subscriptions.push(disposable);
-	context.subscriptions.push(loginCommand);
+	context.subscriptions.push(loginCommand); 
 }
 
 /**
