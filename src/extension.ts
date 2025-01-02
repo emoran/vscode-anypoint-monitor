@@ -3,17 +3,20 @@
 import * as vscode from 'vscode';
 import axios from 'axios';
 import * as http from 'http';
-import { showApplicationsWebview } from './showApplications';
+import { showApplicationsWebview } from './anypoint/showApplications';
+import { getUserInfoWebviewContent } from './anypoint/userInfoContent'; 
 
 
 // Replace these with your actual MuleSoft OAuth client details
 const CLIENT_ID = '05ce4abd0fc047b4bcd512f15b3445c9';
 const CLIENT_SECRET = 'b5d7dBEe693c4C3fa50C183A3f6570D2';
 
+const BASE_URL = 'https://anypoint.mulesoft.com';
+
 // MuleSoft OAuth Endpoints
-const AUTHORIZATION_ENDPOINT = 'https://anypoint.mulesoft.com/accounts/api/v2/oauth2/authorize';
-const TOKEN_ENDPOINT = 'https://anypoint.mulesoft.com/accounts/api/v2/oauth2/token';
-const REVOKE_ENDPOINT = 'https://anypoint.mulesoft.com/accounts/api/v2/oauth2/revoke';
+const AUTHORIZATION_ENDPOINT = BASE_URL + '/accounts/api/v2/oauth2/authorize';
+const TOKEN_ENDPOINT = BASE_URL + '/accounts/api/v2/oauth2/token';
+const REVOKE_ENDPOINT = BASE_URL + '/accounts/api/v2/oauth2/revoke';
 
 // Example redirect URL (You must configure something like http://localhost:3000/callback
 // in your MuleSoft OAuth app settings, or use a custom URI scheme).
@@ -24,120 +27,131 @@ const LOCAL_REDIRECT_URI = 'http://localhost:8082/callback';
 export function activate(context: vscode.ExtensionContext) {
 
 	 // Register a command for the login
-	 const loginCommand = vscode.commands.registerCommand('anypoint-monitor.login', async () => {
+	const loginCommand = vscode.commands.registerCommand('anypoint-monitor.login', async () => {
 		try {
-		  await loginToAnypointWithOAuth(context);
-		} catch (error: any) {
-		  vscode.window.showErrorMessage(`Login failed: ${error.message || error}`);
+			await loginToAnypointWithOAuth(context);
 		}
-	  });
+		catch (error: any) {
+			vscode.window.showErrorMessage(`Login failed: ${error.message || error}`);
+		}
+	});
 
-	  const userInfo = vscode.commands.registerCommand('anypoint-monitor.userInfo', async () => {
+	const userInfo = vscode.commands.registerCommand('anypoint-monitor.userInfo', async () => {
 		try {
-		  await getUserInfo(context);
-		} catch (error: any) {
-		  vscode.window.showErrorMessage(`Error: ${error.message || error}`);
+			await getUserInfo(context);
+		} 
+		catch (error: any) {
+			vscode.window.showErrorMessage(`Error: ${error.message || error}`);
 		}
-	  });
+	});
 
-	  const revokeAccessCommand = vscode.commands.registerCommand('anypoint-monitor.logout', async () => {
+	const revokeAccessCommand = vscode.commands.registerCommand('anypoint-monitor.logout', async () => {
 		try {
-		  await revokeAnypointToken(context, 'access');
-		} catch (err: any) {
-		  vscode.window.showErrorMessage(`Failed to revoke access token: ${err.message}`);
+			await revokeAnypointToken(context, 'access');
+		} 
+		catch (err: any) {
+			vscode.window.showErrorMessage(`Failed to revoke access token: ${err.message}`);
 		}
-	  });
+	});
 
-	  const disposable = vscode.commands.registerCommand('anypoint-monitor.showApps', async () => {
+	const disposable = vscode.commands.registerCommand('anypoint-monitor.showApps', async () => {
 
-		// Retrieve the stored access token
-		let accessToken = await context.secrets.get('anypoint.accessToken');
-		if (!accessToken) {
-		throw new Error('No access token found. Please log in first.');
+	// Retrieve the stored access token
+	let accessToken = await context.secrets.get('anypoint.accessToken');
+	if (!accessToken) {
+	throw new Error('No access token found. Please log in first.');
+	}
+
+	// Our MuleSoft endpoint
+	const apiUrl = 'https://anypoint.mulesoft.com/cloudhub/api/applications';
+
+
+	try {
+		// 1. Attempt the initial API call
+		const response = await axios.get(apiUrl, {
+			headers: {
+			Authorization: `Bearer ${accessToken}`
+			}
+		});
+	
+		// 2. Check for non-200
+		if (response.status !== 200) {
+			throw new Error(`API request failed with status ${response.status}`);
 		}
 	
-		// Our MuleSoft endpoint
-		const apiUrl = 'https://anypoint.mulesoft.com/cloudhub/api/applications';
-
-
-		try {
-			// 1. Attempt the initial API call
-			const response = await axios.get(apiUrl, {
-			  headers: {
+		// 3. If we got here, the call succeeded!
+		const data = response.data;
+	
+		
+		// Show them in a webview
+		showApplicationsWebview(context, data);
+	
+		} catch (error: any) {
+		// 4. If we got a 401, try to refresh
+		if (error.response?.status === 401) {
+			vscode.window.showInformationMessage('Access token expired. Attempting to refresh...');
+	
+			const didRefresh = await refreshAccessToken(context);
+			if (!didRefresh) {
+			vscode.window.showErrorMessage('Unable to refresh token. Please log in again.');
+			return;
+			}
+	
+			// 5. Token refreshed, retrieve the new access token and retry
+			accessToken = await context.secrets.get('anypoint.accessToken');
+			if (!accessToken) {
+			vscode.window.showErrorMessage('No new access token found after refresh. Please log in again.');
+			return;
+			}
+	
+			// Retry the request
+			try {
+			const retryResponse = await axios.get(apiUrl, {
+				headers: {
 				Authorization: `Bearer ${accessToken}`
-			  }
-			});
-		
-			// 2. Check for non-200
-			if (response.status !== 200) {
-			  throw new Error(`API request failed with status ${response.status}`);
-			}
-		
-			// 3. If we got here, the call succeeded!
-			const data = response.data;
-		
-			
-			// Show them in a webview
-			showApplicationsWebview(context, data);
-		
-		  } catch (error: any) {
-			// 4. If we got a 401, try to refresh
-			if (error.response?.status === 401) {
-			  vscode.window.showInformationMessage('Access token expired. Attempting to refresh...');
-		
-			  const didRefresh = await refreshAccessToken(context);
-			  if (!didRefresh) {
-				vscode.window.showErrorMessage('Unable to refresh token. Please log in again.');
-				return;
-			  }
-		
-			  // 5. Token refreshed, retrieve the new access token and retry
-			  accessToken = await context.secrets.get('anypoint.accessToken');
-			  if (!accessToken) {
-				vscode.window.showErrorMessage('No new access token found after refresh. Please log in again.');
-				return;
-			  }
-		
-			  // Retry the request
-			  try {
-				const retryResponse = await axios.get(apiUrl, {
-				  headers: {
-					Authorization: `Bearer ${accessToken}`
-				  }
-				});
-		
-				if (retryResponse.status !== 200) {
-				  throw new Error(`Retry API request failed with status ${retryResponse.status}`);
 				}
-		
-				const data = retryResponse.data;
-		
-				// Display or log data
-				const panel = vscode.window.createWebviewPanel(
-				  'userInfoWebview',
-				  'User Information',
-				  vscode.ViewColumn.One,
-				  { enableScripts: true }
-				);
-				panel.webview.html = getUserInfoWebviewContent(data);
-		
-				vscode.window.showInformationMessage(`API response (after refresh): ${JSON.stringify(data)}`);
-			  } catch (retryError: any) {
-				vscode.window.showErrorMessage(`API request failed after refresh: ${retryError.message}`);
-			  }
-			} else {
-			  // Another error (not 401) - handle as needed
-			  vscode.window.showErrorMessage(`Error calling API: ${error.message}`);
+			});
+	
+			if (retryResponse.status !== 200) {
+				throw new Error(`Retry API request failed with status ${retryResponse.status}`);
 			}
-		  }
+	
+			const data = retryResponse.data;
+	
+			// Display or log data
+			const panel = vscode.window.createWebviewPanel(
+				'userInfoWebview',
+				'User Information',
+				vscode.ViewColumn.One,
+				{ enableScripts: true }
+			);
+			panel.webview.html = getUserInfoWebviewContent(data);
+	
+			vscode.window.showInformationMessage(`API response (after refresh): ${JSON.stringify(data)}`);
+			} catch (retryError: any) {
+			vscode.window.showErrorMessage(`API request failed after refresh: ${retryError.message}`);
+			}
+		} else {
+			// Another error (not 401) - handle as needed
+			vscode.window.showErrorMessage(`Error calling API: ${error.message}`);
+		}
+		}
 
-	  });
+	});
 
+	context.subscriptions.push(loginCommand);
+	context.subscriptions.push(userInfo);
+	context.subscriptions.push(revokeAccessCommand);
+	context.subscriptions.push(disposable);
 	context.subscriptions.push(loginCommand);
 }
 
-
-async function getUserInfo(context: vscode.ExtensionContext) {
+/**
+ * getUserInfo get the user information from the Anypoint platform.
+ * @param context 
+ * @returns 
+ */
+export async function getUserInfo(context: vscode.ExtensionContext) {
 	// Retrieve the stored access token
 	let accessToken = await context.secrets.get('anypoint.accessToken');
 	if (!accessToken) {
@@ -224,9 +238,9 @@ async function getUserInfo(context: vscode.ExtensionContext) {
 		vscode.window.showErrorMessage(`Error calling API: ${error.message}`);
 	  }
 	}
-  }
+}
 
-  /**
+/**
  * Revokes the token and removes it from SecretStorage.
  * @param context The VS Code extension context (to access secrets).
  * @param tokenType 'access' or 'refresh' depending on which token you want to revoke.
@@ -272,7 +286,7 @@ export async function revokeAnypointToken(context: vscode.ExtensionContext, toke
 	} catch (error: any) {
 	  vscode.window.showErrorMessage(`Error revoking token: ${error.message}`);
 	}
-  }
+}
 
 // A command to start the OAuth flow
 export async function loginToAnypointWithOAuth(context: vscode.ExtensionContext) {
@@ -322,10 +336,9 @@ export async function loginToAnypointWithOAuth(context: vscode.ExtensionContext)
 			}
 		  });
 	  });
-	}
+}
 
-
-	// Helper function to exchange authorization code for tokens
+// Helper function to exchange authorization code for tokens
 async function exchangeAuthorizationCodeForTokens(context: vscode.ExtensionContext, code: string) {
 	// Prepare request body (x-www-form-urlencoded)
 	const data = new URLSearchParams();
@@ -375,197 +388,9 @@ async function exchangeAuthorizationCodeForTokens(context: vscode.ExtensionConte
   
 	// After storing, you can perform additional steps, like calling user info:
 	// await getUserInfo(result.access_token);
-  }
+}
 
-/**
- * Returns an HTML string that displays selected user info from the JSON in a styled table.
- * @param userJson The JSON object containing user data (the entire object you provided).
- */
-export function getUserInfoWebviewContent(userObject: any): string {
-	// Extract the "user" object from the JSON
-	const user = userObject.user;
-	if (!user) {
-	  return `<html>
-		<body>
-		  <h2>No user data found.</h2>
-		</body>
-	  </html>`;
-	}
-  
-	// Safely access nested objects (like organization)
-	const org = user.organization || {};
-	
-	// Example fields to display
-	const firstName = user.firstName ?? 'N/A';
-	const lastName = user.lastName ?? 'N/A';
-	const email = user.email ?? 'N/A';
-	const phoneNumber = user.phoneNumber ?? 'N/A';
-	const username = user.username ?? 'N/A';
-	const lastLogin = user.lastLogin ?? 'N/A';
-  
-	const orgName = org.name ?? 'N/A';
-	const orgId = org.id ?? 'N/A';
-	const orgType = org.orgType ?? 'N/A';
-	const subscriptionType = org.subscription?.type ?? 'N/A';
-	const subscriptionExp = org.subscription?.expiration ?? 'N/A';
-	return /* html */ `
-	<!DOCTYPE html>
-	<html lang="en">
-	  <head>
-		<meta charset="UTF-8" />
-		<style>
-		  /* Overall Page Styling */
-		  body {
-			margin: 0;
-			padding: 24px;
-			background-color: #fff;
-			color: #333;
-			font-family: "Segoe UI", Arial, sans-serif;
-			line-height: 1.5;
-		  }
-  
-		  /* Heading / Title Styles */
-		  h1, h2 {
-			margin: 0 0 16px 0;
-			font-weight: 400;
-		  }
-		  h1 {
-			font-size: 1.5rem;
-			margin-bottom: 24px;
-		  }
-		  h2 {
-			font-size: 1.2rem;
-			margin-top: 32px;
-			margin-bottom: 16px;
-		  }
-  
-		  /* Container for spacing (optional) */
-		  .container {
-			max-width: 900px;
-			margin: 0 auto;
-		  }
-  
-		  /* Basic table styling */
-		  table {
-			width: 100%;
-			border-collapse: collapse;
-			margin-bottom: 24px;
-		  }
-		  th, td {
-			text-align: left;
-			padding: 12px;
-			vertical-align: middle;
-		  }
-		  th {
-			font-weight: 500;
-			background-color: #f9f9f9;
-			border-bottom: 1px solid #e0e0e0;
-		  }
-		  tr:not(:first-child) {
-			border-top: 1px solid #e0e0e0;
-		  }
-		  
-		  /* Subtle styling for labels or less prominent text */
-		  .subtle {
-			color: #666;
-			font-size: 0.9rem;
-		  }
-  
-		  /* Example layout: two columns (like screenshot) - optional */
-		  .two-columns {
-			display: flex;
-			flex-wrap: wrap;
-			gap: 24px;
-		  }
-		  .column {
-			flex: 1 1 400px;
-			min-width: 300px;
-		  }
-  
-		  /* Minor heading style inside columns */
-		  .column h3 {
-			margin: 16px 0 8px 0;
-			font-size: 1rem;
-			font-weight: 500;
-		  }
-		</style>
-	  </head>
-	  <body>
-		<div class="container">
-		  <h1>Anypoint User Info</h1>
-		  
-		  <!-- Basic user details -->
-		  <h2>User Details</h2>
-		  <table>
-			<tr>
-			  <th>Field</th>
-			  <th>Value</th>
-			</tr>
-			<tr>
-			  <td>ID</td>
-			  <td>${user.id ?? 'N/A'}</td>
-			</tr>
-			<tr>
-			  <td>First Name</td>
-			  <td>${firstName}</td>
-			</tr>
-			<tr>
-			  <td>Last Name</td>
-			  <td>${lastName}</td>
-			</tr>
-			<tr>
-			  <td>Email</td>
-			  <td>${email}</td>
-			</tr>
-			<tr>
-			  <td>Phone Number</td>
-			  <td>${phoneNumber}</td>
-			</tr>
-			<tr>
-			  <td>Username</td>
-			  <td>${username}</td>
-			</tr>
-			<tr>
-			  <td>Last Login</td>
-			  <td class="subtle">${lastLogin}</td>
-			</tr>
-		  </table>
-  
-		  <!-- Organization info -->
-		  <h2>Organization</h2>
-		  <table>
-			<tr>
-			  <th>Field</th>
-			  <th>Value</th>
-			</tr>
-			<tr>
-			  <td>Organization ID</td>
-			  <td>${orgId}</td>
-			</tr>
-			<tr>
-			  <td>Organization Name</td>
-			  <td>${orgName}</td>
-			</tr>
-			<tr>
-			  <td>Organization Type</td>
-			  <td>${orgType}</td>
-			</tr>
-			<tr>
-			  <td>Subscription Type</td>
-			  <td>${subscriptionType}</td>
-			</tr>
-			<tr>
-			  <td>Subscription Expires</td>
-			  <td class="subtle">${subscriptionExp}</td>
-			</tr>
-		  </table>
-		</div>
-	  </body>
-	</html>
-	`;
-  }
-
-  async function refreshAccessToken(context: vscode.ExtensionContext): Promise<boolean> {
+async function refreshAccessToken(context: vscode.ExtensionContext): Promise<boolean> {
 	// Retrieve the stored refresh token
 	const storedRefreshToken = await context.secrets.get('anypoint.refreshToken');
 	if (!storedRefreshToken) {
@@ -618,7 +443,7 @@ export function getUserInfoWebviewContent(userObject: any): string {
 	  vscode.window.showErrorMessage(`Failed to refresh token: ${err.message}`);
 	  return false;
 	}
-  }
+}
 
 // This method is called when your extension is deactivated
 export function deactivate() {}
