@@ -22,19 +22,23 @@
     "commands": [
       {
         "command": "anypoint-monitor.userInfo",
-        "title": "am:Show my user Information"
+        "title": "AM: My User Info"
       },
       {
         "command": "anypoint-monitor.login",
-        "title": "am:Login into Anypoint Platform"
+        "title": "AM: Login into Anypoint Platform"
       },
       {
-        "command": "anypoint-monitor.showApps",
-        "title": "am:Show all Anypoint Applications"
+        "command": "anypoint-monitor.cloudhub2Apps",
+        "title": "AM: Show Cloudhub 2.0 Applications"
+      },
+      {
+        "command": "anypoint-monitor.cloudhub1Apps",
+        "title": "AM: Show Cloudhub 1.0 Applications"
       },
       {
         "command": "anypoint-monitor.logout",
-        "title": "am:Logout"
+        "title": "AM: Logout"
       }
     ]
   },
