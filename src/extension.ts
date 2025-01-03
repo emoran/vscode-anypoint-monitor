@@ -3,6 +3,7 @@
 import * as vscode from 'vscode';
 import axios from 'axios';
 import * as http from 'http';
+import * as path from 'path';
 import { showApplicationsWebview } from './anypoint/cloudhub2Applications';
 import { showApplicationsWebview1 } from './anypoint/cloudhub1Applications';
 import { getUserInfoWebviewContent } from './anypoint/userInfoContent'; 
@@ -213,7 +214,10 @@ export async function getUserInfo(context: vscode.ExtensionContext) {
 		vscode.ViewColumn.One,
 		{ enableScripts: true }
 	  );
-	  panel.webview.html = getUserInfoWebviewContent(data);
+
+
+	  panel.webview.html = getUserInfoWebviewContent(data,panel.webview,context.extensionUri);
+	
   
 	  vscode.window.showInformationMessage(`API response: ${JSON.stringify(data)}`);
   
@@ -443,7 +447,7 @@ export async function getCH2Applications(context: vscode.ExtensionContext,enviro
 					vscode.ViewColumn.One,
 					{ enableScripts: true }
 				);
-				panel.webview.html = getUserInfoWebviewContent(data);
+				panel.webview.html = getUserInfoWebviewContent(data,panel.webview,context.extensionUri);
 		
 				vscode.window.showInformationMessage(`API response (after refresh): ${JSON.stringify(data)}`);
 				} catch (retryError: any) {
@@ -537,7 +541,7 @@ export async function getCH1Applications(context: vscode.ExtensionContext,enviro
 					vscode.ViewColumn.One,
 					{ enableScripts: true }
 				);
-				panel.webview.html = getUserInfoWebviewContent(data);
+				panel.webview.html = getUserInfoWebviewContent(data,panel.webview,context.extensionUri);
 		
 				vscode.window.showInformationMessage(`API response (after refresh): ${JSON.stringify(data)}`);
 				} catch (retryError: any) {
