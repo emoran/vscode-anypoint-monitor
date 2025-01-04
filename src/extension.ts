@@ -637,7 +637,7 @@ export async function loginToAnypointWithOAuth(context: vscode.ExtensionContext)
 	});
 
 	server.listen(8082, () => {
-		vscode.window.showInformationMessage('Starting local server on port 8082 for OAuth callback...');
+		//vscode.window.showInformationMessage('Starting local server on port 8082 for OAuth callback...');
 	
 		// 3. Build the authorization URL
 		const authUrl = new URL(AUTHORIZATION_ENDPOINT);

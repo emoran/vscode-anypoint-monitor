@@ -46,7 +46,7 @@ export function showApplicationsWebview1(context: vscode.ExtensionContext, data:
 function getApplicationsHtml(apps: any[],  webview: vscode.Webview,
   extensionUri: vscode.Uri): string {
       // Construct the webview-safe URI for logo
-      const logoPath = vscode.Uri.joinPath(extensionUri, 'src', 'resources', 'logo.png');
+      const logoPath = vscode.Uri.joinPath(extensionUri, 'logo.png');
       const logoSrc = webview.asWebviewUri(logoPath);
   return /* html */ `
     <!DOCTYPE html>
@@ -192,12 +192,12 @@ function getApplicationsHtml(apps: any[],  webview: vscode.Webview,
         <nav class="navbar">
           <div class="navbar-left">
             <!-- If you have a logo, place it here -->
-            <img src="${logoSrc}" alt="My Logo" />
+            <img src="${logoSrc}" />
             <h1>Anypoint Monitor Extension</h1>
           </div>
           <div class="navbar-right">
-            <a href="#">About the Extension</a>
-            <a href="#">Buy Me a Coffee</a>
+            <a href="https://marketplace.visualstudio.com/items?itemName=EdgarMoran.anypoint-monitor">About the Extension</a>
+            <a href="https://www.buymeacoffee.com/yucelmoran">Buy Me a Coffee</a>
           </div>
         </nav>
 

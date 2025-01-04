@@ -7,7 +7,7 @@ import * as fs from 'fs';
  * @param data The data returned by your API call (response JSON).
  */
 export function showApplicationsWebview(context: vscode.ExtensionContext, data: any) {
-  // 1. Extract items from the data
+  // 1. Extract items from data
   const appsArray = Array.isArray(data.items) ? data.items : [];
 
   // 2. Create the webview panel
@@ -18,23 +18,18 @@ export function showApplicationsWebview(context: vscode.ExtensionContext, data: 
     { enableScripts: true }
   );
 
-  // 3. Build the HTML with the application data
+  // 3. Set the HTML content
   panel.webview.html = getApplicationsHtml(appsArray, panel.webview, context.extensionUri);
 
-  // 4. Handle messages from the webview
+  // 4. Listen for messages (CSV export, etc.)
   panel.webview.onDidReceiveMessage(async (message) => {
     if (message.command === 'downloadCsv') {
-      // Generate the CSV content
       const csvData = generateCsvContent(appsArray);
-
-      // Prompt the user for a save location
       const uri = await vscode.window.showSaveDialog({
         filters: { 'CSV Files': ['csv'] },
         saveLabel: 'Save Applications as CSV',
       });
-
       if (uri) {
-        // Save the file to the chosen location
         fs.writeFileSync(uri.fsPath, csvData, 'utf-8');
         vscode.window.showInformationMessage(`CSV file saved to ${uri.fsPath}`);
       }
@@ -43,22 +38,89 @@ export function showApplicationsWebview(context: vscode.ExtensionContext, data: 
 }
 
 /**
- * Generates HTML to display the applications in a styled table 
- * and provide a CSV download button matching the screenshot style.
+ * Helper to flatten a nested object into dot-notation keys.
+ * e.g. { target: { provider: 'MC' } } -> { 'target.provider': 'MC' }
  */
-function getApplicationsHtml(apps: any[], webview: vscode.Webview,
-  extensionUri: vscode.Uri): string {
+function flattenObject(obj: any, parentKey = '', res: any = {}): any {
+  for (const key of Object.keys(obj)) {
+    const value = obj[key];
+    const newKey = parentKey ? `${parentKey}.${key}` : key;
 
-      // Construct the webview-safe URI for logo
-      const logoPath = vscode.Uri.joinPath(extensionUri, 'src', 'resources', 'logo.png');
-      const logoSrc = webview.asWebviewUri(logoPath);
+    if (value && typeof value === 'object' && !Array.isArray(value)) {
+      flattenObject(value, newKey, res);
+    } else {
+      res[newKey] = value;
+    }
+  }
+  return res;
+}
+
+/**
+ * Renders a cell value given the key + original value.
+ * - Skips entire "id" column.
+ * - If key ends with "Date", treat the numeric value as a timestamp in ms and format as YYYY-MM-DD.
+ * - If key is "application.status", show a green or red icon depending on RUNNING vs STOPPED.
+ */
+function renderCell(key: string, value: any): string {
+  if (key === 'id') {
+    return ''; // We'll filter out the 'id' column altogether, but this is just a safeguard
+  }
+
+  // Format date fields (ends with "Date")
+  if (key.match(/Date$/i)) {
+    const ms = parseInt(value, 10);
+    if (!isNaN(ms)) {
+      const dateObj = new Date(ms);
+      return dateObj.toISOString().split('T')[0]; // yyyy-mm-dd
+    }
+  }
+
+  // Show icon for application.status
+  if (key === 'application.status') {
+    if (value === 'RUNNING') {
+      return '🟢 RUNNING';
+    } else if (value === 'STOPPED') {
+      return '🔴 STOPPED';
+    }
+  }
+
+  // Otherwise, just show the value
+  return value ?? '';
+}
+
+/**
+ * Generates HTML for the webview with a dynamic table that
+ * shows all JSON attributes (flattened).
+ */
+function getApplicationsHtml(
+  apps: any[],
+  webview: vscode.Webview,
+  extensionUri: vscode.Uri
+): string {
+  // 1. Flatten each item, gather all keys
+  const allKeys = new Set<string>();
+  const flattenedApps = apps.map((app) => {
+    const flat = flattenObject(app);
+    Object.keys(flat).forEach((k) => allKeys.add(k));
+    return flat;
+  });
+
+  // 2. Convert to array, remove "id", and sort
+  let allKeysArray = Array.from(allKeys).filter((k) => k !== 'id');
+  allKeysArray.sort();
+
+  // 3. (Optional) Logo path
+  const logoPath = vscode.Uri.joinPath(extensionUri, 'logo.png');
+  const logoSrc = webview.asWebviewUri(logoPath);
+
+  // 4. Build the HTML
   return /* html */ `
-  <!DOCTYPE html>
-  <html lang="en">
-    <head>
-      <meta charset="UTF-8" />
-      <title>CloudHub 2.0 Applications</title>
-      <style>
+    <!DOCTYPE html>
+    <html lang="en">
+      <head>
+        <meta charset="UTF-8" />
+        <title>CloudHub 2.0 Applications</title>
+        <style>
           body {
             margin: 0;
             padding: 0;
@@ -67,13 +129,12 @@ function getApplicationsHtml(apps: any[], webview: vscode.Webview,
             color: #212529;
             background-color: #ffffff;
           }
-
-          /* Top Navbar */
+          /* Navbar */
           .navbar {
             display: flex;
             align-items: center;
             justify-content: space-between;
-            background-color: #1e1a41; /* Dark purple/blue */
+            background-color: #1e1a41;
             padding: 0.75rem 1rem;
           }
           .navbar-left {
@@ -104,14 +165,12 @@ function getApplicationsHtml(apps: any[], webview: vscode.Webview,
             text-decoration: underline;
           }
 
-          /* Hero / Gradient Section */
+          /* Hero section */
           .hero {
-            position: relative;
             background: linear-gradient(90deg, #262158 0%, #463f96 50%, #5d54b5 100%);
             color: #ffffff;
             padding: 2rem 1rem;
             display: flex;
-            flex-direction: row;
             justify-content: space-between;
             align-items: center;
           }
@@ -128,7 +187,7 @@ function getApplicationsHtml(apps: any[], webview: vscode.Webview,
             line-height: 1.4;
           }
 
-          /* Main Container */
+          /* Container */
           .container {
             max-width: 1100px;
             margin: 0 auto;
@@ -136,7 +195,7 @@ function getApplicationsHtml(apps: any[], webview: vscode.Webview,
             background-color: #ffffff;
           }
 
-          /* Page Title (above the table) */
+          /* Title & button */
           .title-bar {
             display: flex;
             align-items: center;
@@ -147,7 +206,6 @@ function getApplicationsHtml(apps: any[], webview: vscode.Webview,
             font-size: 1.25rem;
             margin: 0;
           }
-
           .button {
             padding: 10px 16px;
             font-size: 14px;
@@ -162,18 +220,28 @@ function getApplicationsHtml(apps: any[], webview: vscode.Webview,
             background-color: #49359a;
           }
 
-          /* Table styling */
-          .app-table {
+          /* Scrollable table container */
+          .table-container {
             width: 100%;
+            overflow-x: auto;
+            margin-bottom: 2rem;
+          }
+          /* Table */
+          .app-table {
             border-collapse: collapse;
             background-color: #fff;
             box-shadow: 0 0 5px rgba(0,0,0,0.15);
+            width: auto;
           }
           .app-table th,
           .app-table td {
-            padding: 12px;
+            padding: 8px; /* reduce padding so content is more compact */
             border-bottom: 1px solid #e2e2e2;
             text-align: left;
+            vertical-align: top;
+            white-space: nowrap;
+            /* MAKE FONT SMALLER */
+            font-size: 0.81rem; 
           }
           .app-table th {
             background-color: #f4f4f4;
@@ -182,114 +250,121 @@ function getApplicationsHtml(apps: any[], webview: vscode.Webview,
           .app-table tr:hover {
             background-color: #f9f9f9;
           }
-          .link {
-            color: #007bff;
-            text-decoration: none;
-          }
-          .link:hover {
-            text-decoration: underline;
-          }
-      </style>
-    </head>
-    <body>
-      <!-- Navbar -->
-      <nav class="navbar">
-        <div class="navbar-left">
-          <!-- Replace the src with your actual logo path or use webview.asWebviewUri -->
-          <img src="${logoSrc}" alt="Extension Logo" />
-          <h1 class="extension-name">Anypoint Monitor Extension</h1>
+        </style>
+      </head>
+      <body>
+        <!-- Navbar -->
+        <nav class="navbar">
+          <div class="navbar-left">
+            <img src="${logoSrc}" />
+            <h1 class="extension-name">Anypoint Monitor Extension</h1>
+          </div>
+          <div class="navbar-right">
+            <a href="https://marketplace.visualstudio.com/items?itemName=EdgarMoran.anypoint-monitor">About</a>
+            <a href="https://www.buymeacoffee.com/yucelmoran">Buy Me a Coffee</a>
+          </div>
+        </nav>
+
+        <!-- Hero -->
+        <section class="hero">
+          <div class="hero-text">
+            <h2>CloudHub Applications</h2>
+            <p>Below is a list of your Mule applications deployed to CloudHub 2.0</p>
+          </div>
+        </section>
+
+        <!-- Main container -->
+        <div class="container">
+          <div class="title-bar">
+            <h3>All JSON Attributes</h3>
+            <button id="downloadCsv" class="button">Download as CSV</button>
+          </div>
+
+          <!-- Scrollable container for table -->
+          <div class="table-container">
+            <table class="app-table">
+              <thead>
+                <tr>
+                  ${allKeysArray.map((key) => `<th>${key}</th>`).join('')}
+                </tr>
+              </thead>
+              <tbody>
+                ${flattenedApps
+                  .map((flatApp) => {
+                    // Build each row by iterating columns in sorted order
+                    const rowCells = allKeysArray.map((key) => {
+                      const originalValue = flatApp[key];
+                      return `<td>${renderCell(key, originalValue)}</td>`;
+                    });
+                    return `<tr>${rowCells.join('')}</tr>`;
+                  })
+                  .join('')}
+              </tbody>
+            </table>
+          </div>
         </div>
-        <div class="navbar-right">
-          <a href="#">About the Extension</a>
-          <a href="#">Buy Me a Coffee</a>
-        </div>
-      </nav>
 
-      <!-- Hero Section -->
-      <section class="hero">
-        <div class="hero-text">
-          <h2>CloudHub Applications</h2>
-          <p>Below is a list of your Mule applications deployed to CloudHub.</p>
-        </div>
-      </section>
-
-      <!-- Main content container -->
-      <div class="container">
-        <div class="title-bar">
-          <h3>Mule Applications</h3>
-          <button id="downloadCsv" class="button">Download as CSV</button>
-        </div>
-
-        <!-- Table -->
-        <table class="app-table">
-          <thead>
-            <tr>
-              <th>Domain</th>
-              <th>Full Domain</th>
-              <th>Status</th>
-              <th>Workers</th>
-              <th>Worker Type</th>
-              <th>Region</th>
-              <th>Last Update</th>
-              <th>Link</th>
-            </tr>
-          </thead>
-          <tbody>
-            ${apps
-              .map(
-                (app) => `
-                  <tr>
-                    <td>${app.domain ?? 'N/A'}</td>
-                    <td>${app.fullDomain ?? 'N/A'}</td>
-                    <td>${app.status ?? 'N/A'}</td>
-                    <td>${app.workers ?? 'N/A'}</td>
-                    <td>${app.workerType ?? 'N/A'}</td>
-                    <td>${app.region ?? 'N/A'}</td>
-                    <td>${
-                      app.lastUpdateTime
-                        ? new Date(app.lastUpdateTime).toLocaleString()
-                        : 'N/A'
-                    }</td>
-                    <td>
-                      <a href="${app.href ?? '#'}" target="_blank" class="link">
-                        Open Application
-                      </a>
-                    </td>
-                  </tr>
-                `
-              )
-              .join('')}
-          </tbody>
-        </table>
-      </div>
-
-      <script>
-        const vscode = acquireVsCodeApi();
-
-        // CSV download handler
-        document.getElementById('downloadCsv').addEventListener('click', () => {
-          vscode.postMessage({ command: 'downloadCsv' });
-        });
-      </script>
-    </body>
-  </html>
+        <script>
+          const vscode = acquireVsCodeApi();
+          document.getElementById('downloadCsv').addEventListener('click', () => {
+            vscode.postMessage({ command: 'downloadCsv' });
+          });
+        </script>
+      </body>
+    </html>
   `;
 }
 
 /**
- * Generates the CSV content from the application data.
+ * Generates CSV content (skips "id" column, formats date columns, etc.).
  */
 function generateCsvContent(apps: any[]): string {
-  // Example columns; adapt as needed
-  const headers = ['Domain', 'Full Domain', 'Status', 'Workers', 'Worker Type', 'Region', 'Last Update'];
-  const rows = apps.map((app) => [
-    app.domain ?? '',
-    app.fullDomain ?? '',
-    app.status ?? '',
-    app.workers ?? '',
-    app.workerType ?? '',
-    app.region ?? '',
-    app.lastUpdateTime ? new Date(app.lastUpdateTime).toLocaleString() : '',
-  ]);
-  return [headers.join(','), ...rows.map((row) => row.join(','))].join('\n');
+  // Flatten each app to get all keys
+  const allKeys = new Set<string>();
+  const flattenedApps = apps.map((app) => {
+    const flat = flattenObject(app);
+    Object.keys(flat).forEach((k) => allKeys.add(k));
+    return flat;
+  });
+
+  // Remove "id" from columns & sort
+  let allKeysArray = Array.from(allKeys).filter((k) => k !== 'id');
+  allKeysArray.sort();
+
+  // Build CSV header
+  const headerRow = allKeysArray.join(',');
+
+  // Convert each row
+  const rows = flattenedApps.map((flatApp) => {
+    return allKeysArray
+      .map((key) => {
+        let val = flatApp[key] !== undefined ? flatApp[key] : '';
+
+        // If it's a date field (ends with "Date"), format as yyyy-mm-dd
+        if (key.match(/Date$/i)) {
+          const ms = parseInt(val, 10);
+          if (!isNaN(ms)) {
+            const dateObj = new Date(ms);
+            val = dateObj.toISOString().split('T')[0];
+          }
+        }
+
+        // If it's application.status, replace with 🟢 or 🔴
+        if (key === 'application.status') {
+          if (val === 'RUNNING') {
+            val = '🟢 RUNNING';
+          } else if (val === 'STOPPED') {
+            val = '🔴 STOPPED';
+          }
+        }
+
+        // CSV-escape (wrap in quotes, double internal quotes)
+        const safe = String(val).replace(/"/g, '""');
+        return `"${safe}"`;
+      })
+      .join(',');
+  });
+
+  // Join header + rows
+  return [headerRow, ...rows].join('\n');
 }

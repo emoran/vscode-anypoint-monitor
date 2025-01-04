@@ -35,7 +35,7 @@ export function getUserInfoWebviewContent(
   const additionalInfo = JSON.stringify(org.entitlements, null, 2);
 
   // Construct the webview-safe URI for logo
-  const logoPath = vscode.Uri.joinPath(extensionUri, 'src', 'resources', 'logo.png');
+  const logoPath = vscode.Uri.joinPath(extensionUri, 'logo.png');
   const logoSrc = webview.asWebviewUri(logoPath);
 
   return /* html */ `
@@ -238,7 +238,7 @@ export function getUserInfoWebviewContent(
 
       </div>
       <ul class="nav-menu">
-        <li><a href="#">About the Extension</li>
+        <li><a href="https://marketplace.visualstudio.com/items?itemName=EdgarMoran.anypoint-monitor">About the Extension</li>
         <li><a href="https://www.buymeacoffee.com/yucelmoran" >Buy Me a Coffee</a></li>
       </ul>
     </nav>

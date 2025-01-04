@@ -2,10 +2,20 @@
   "name": "anypoint-monitor",
   "displayName": "anypoint-monitor",
   "description": "Allows to monitor anypoint platform",
+  "publisher": "EdgarMoran",
   "version": "0.0.1",
   "engines": {
     "vscode": "^1.96.0"
   },
+  "icon": "logo.png",
+  "screenshots": [
+        {
+            "path": "resources/ch1.png"
+        },
+        {
+            "path": "resources/main.png"
+        }
+    ],
   "activitybar": [
     {
       "id": "chatAI",
@@ -18,6 +28,9 @@
   ],
   "activationEvents": [],
   "main": "./out/extension.js",
+  "files": [
+    "resources/**/*"
+  ],
   "contributes": {
     "commands": [
       {

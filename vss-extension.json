@@ -1,0 +1,49 @@
+{
+    "manifestVersion": 1,
+    "id": "anypoint-monitor",
+    "version": "0.0.1",
+    "name": "Anypoint Monitor",
+    "publisher": "EdgarMoran",
+    "description": "Anypoint Monitor allow to retrieve data from the Platform.",
+    "targets": [
+        {
+            "id": "Microsoft.VisualStudio.Services.Integration"
+        }
+    ],    
+    "icons": {
+        "default": "src/resources/logo.png"
+    },
+    "categories": [
+        "Azure Repos"
+    ],
+    "tags": [
+        "working",
+        "people person",
+        "search"
+    ],
+    "screenshots": [
+        {
+            "path": "src/resources/ch1.png"
+        },
+        {
+            "path": "src/resources/main.png"
+        }
+    ],
+    "content": {
+        "details": {
+            "path": "README.md"
+        }
+    },
+    "links": {
+        "getstarted": {
+            "uri": "https://yucelmoran.dev/anypoint-monitor/gettingStarted"
+        },
+        "support": {
+            "uri": "https://yucelmoran.dev/anypoint-monitor/support"
+        }
+    },
+    "branding": {
+        "color": "rgb(34, 34, 34)",
+        "theme": "dark"
+    }
+}
