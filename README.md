@@ -1,7 +1,5 @@
 # anypoint-monitor README
 
-This is the README for your extension "anypoint-monitor". After writing up a brief description, we recommend including the following sections.
-
 ## Features
 
 Allow to show Anypoint Platform information and add some features in one single page.
