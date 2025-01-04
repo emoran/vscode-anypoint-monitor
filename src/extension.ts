@@ -217,9 +217,7 @@ export async function getUserInfo(context: vscode.ExtensionContext) {
 
 
 	  panel.webview.html = getUserInfoWebviewContent(data,panel.webview,context.extensionUri);
-	
-  
-	  vscode.window.showInformationMessage(`API response: ${JSON.stringify(data)}`);
+		//vscode.window.showInformationMessage(`API response: ${JSON.stringify(data)}`);
   
 	} catch (error: any) {
 	  // 4. If we got a 401, try to refresh
@@ -260,7 +258,7 @@ export async function getUserInfo(context: vscode.ExtensionContext) {
 			vscode.ViewColumn.One,
 			{ enableScripts: true }
 		  );
-		  panel.webview.html = getUserInfoWebviewContent(data);
+		  panel.webview.html =getUserInfoWebviewContent(data,panel.webview,context.extensionUri);
   
 		  vscode.window.showInformationMessage(`API response (after refresh): ${JSON.stringify(data)}`);
 		} catch (retryError: any) {
@@ -350,7 +348,7 @@ export async function getEnvironments(context: vscode.ExtensionContext) {
 			  vscode.ViewColumn.One,
 			  { enableScripts: true }
 			);
-			panel.webview.html = getUserInfoWebviewContent(data);
+			vscode.window.showInformationMessage('environment saved');
 	
 			vscode.window.showInformationMessage(`API response (after refresh): ${JSON.stringify(data)}`);
 		  } catch (retryError: any) {
@@ -547,7 +545,11 @@ export async function getCH1Applications(context: vscode.ExtensionContext,enviro
 				} catch (retryError: any) {
 				vscode.window.showErrorMessage(`API request failed after refresh: ${retryError.message}`);
 				}
-			} else {
+			}
+			else if (error.response?.status === 403) { 
+				vscode.window.showErrorMessage(`Error calling API: ${error.message}`+ ' Check CloudHub 1.0 Entitlement / Permissions');
+			}
+			else {
 				// Another error (not 401) - handle as needed
 				vscode.window.showErrorMessage(`Error calling API: ${error.message}`);
 			}
