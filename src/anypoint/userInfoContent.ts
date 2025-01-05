@@ -3,7 +3,8 @@ import * as vscode from 'vscode';
 /**
  * Example: getUserInfoWebviewContent
  * @param userObject The user JSON object
- * @param extensionUri The Uri of your VSCode extension (needed to load local resources)
+ * @param webview The VS Code Webview to render into
+ * @param extensionUri The Uri of your VSCode extension (for loading local resources)
  */
 export function getUserInfoWebviewContent(
   userObject: any,
@@ -15,7 +16,7 @@ export function getUserInfoWebviewContent(
   const org = user.organization || {};
 
   // Basic user info
-  const fullName = `${user.firstName ?? ''} ${user.lastName ?? ''}`;
+  const fullName = `${user.firstName ?? ''} ${user.lastName ?? ''}`.trim();
   const email = user.email ?? 'N/A';
   const phone = user.phoneNumber ?? 'N/A';
   const username = user.username ?? 'N/A';
@@ -27,7 +28,7 @@ export function getUserInfoWebviewContent(
   const orgDomain = org.domain ?? 'N/A';
 
   // Subscription info
-  const subscriptionCategory = org.subscription?.category ?? 'N/A';
+  const subscriptionCategory = org.subscription?.category ?? 'N/A'; // Not displayed, but available
   const subscriptionType = org.subscription?.type ?? 'N/A';
   const subscriptionExpiration = org.subscription?.expiration ?? 'N/A';
 
@@ -38,270 +39,270 @@ export function getUserInfoWebviewContent(
   const logoPath = vscode.Uri.joinPath(extensionUri, 'logo.png');
   const logoSrc = webview.asWebviewUri(logoPath);
 
+  const ldsPath = vscode.Uri.joinPath(extensionUri,'salesforce-lightning-design-system.min.css');
+  const ldsSrc = webview.asWebviewUri(ldsPath);
+
   return /* html */ `
   <!DOCTYPE html>
   <html lang="en">
-  <head>
-    <meta charset="UTF-8" />
-    <title>Landing Page</title>
-    <style>
-      * {
-        margin: 0;
-        padding: 0;
-        box-sizing: border-box;
-      }
-      body {
-        font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto,
-          Helvetica, Arial, sans-serif, "Apple Color Emoji", "Segoe UI Emoji";
-        background-color: #ffffff;
-        color: #333;
-      }
+    <head>
+      <meta charset="UTF-8" />
+      <title>Anypoint Monitor Extension</title>
+      <link rel="stylesheet" href="${ldsSrc}" />
+      <style>
+        /****************************************************************
+         * Base / Global Styles
+         ****************************************************************/
+        body {
+          margin: 0;
+          padding: 0;
+          font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto,
+            Helvetica, Arial, sans-serif, "Apple Color Emoji", "Segoe UI Emoji";
+          color: #212529;
+          background-color: #ffffff;
+        }
 
-      /* Navigation Bar */
-      .navbar {
-        display: flex;
-        align-items: center;
-        justify-content: space-between;
-        padding: 1rem 2rem;
-        background-color: #1c164e; /* Dark purple/blue */
-      }
-      .navbar .nav-logo {
-        display: flex;
-        align-items: center;
-        gap: 0.5rem;
-      }
-      .navbar .nav-logo img {
-        height: 32px; /* Adjust as needed */
-        width: auto;
-      }
-      .navbar .nav-logo span {
-        font-size: 1.25rem;
-        font-weight: bold;
-        color: #fff;
-      }
-      .navbar .nav-menu {
-        display: flex;
-        gap: 2rem;
-        list-style: none;
-      }
-      .navbar .nav-menu li {
-        color: #fff;
-        cursor: pointer;
-        font-weight: 500;
-      }
-      .navbar .nav-menu li:hover {
-        text-decoration: underline;
-      }
-      .navbar .nav-toggle {
-        color: #fff;
-        cursor: pointer;
-        font-size: 1.2rem;
-      }
+        /****************************************************************
+         * NAVBAR
+         ****************************************************************/
+        .navbar {
+          display: flex;
+          align-items: center;
+          justify-content: space-between;
+          background-color: #1e1a41;
+          padding: 0.75rem 1rem;
+        }
+        .navbar-left {
+          display: flex;
+          align-items: center;
+          gap: 1rem;
+        }
+        .navbar-left img {
+          height: 32px;
+          width: auto;
+        }
+        .navbar-left h1 {
+          color: #ffffff;
+          font-size: 1.25rem;
+          margin: 0;
+        }
+        .navbar-right {
+          display: flex;
+          gap: 1.5rem;
+        }
+        .navbar-right a {
+          color: #ffffff;
+          text-decoration: none;
+          font-weight: 500;
+          font-size: 0.9rem;
+        }
+        .navbar-right a:hover {
+          text-decoration: underline;
+        }
 
-      /* Hero Section with wave/gradient background */
-      .hero {
-        position: relative;
-        width: 100%;
-        height: 360px; /* adjust as needed */
-        background: linear-gradient(180deg, #2a2086 0%, #3f37a6 50%, #4d47bd 100%);
-        overflow: hidden;
-      }
-      /* Simulated wave shapes (multiple layering) */
-      .hero::before,
-      .hero::after {
-        content: "";
-        position: absolute;
-        width: 150%;
-        height: 100%;
-        top: 0;
-        left: -25%;
-        background: radial-gradient(circle at 50% 50%, rgba(255,255,255,0.2) 20%, transparent 40%);
-        opacity: 0.4;
-        animation: wave-animation 8s ease-in-out infinite alternate;
-      }
-      .hero::after {
-        animation-delay: -4s;
-      }
-      @keyframes wave-animation {
-        0% { transform: translateY(0%) }
-        100% { transform: translateY(20%) }
-      }
+        /****************************************************************
+         * HERO SECTION
+         ****************************************************************/
+        .hero {
+          background: linear-gradient(90deg, #262158 0%, #463f96 50%, #5d54b5 100%);
+          color: #ffffff;
+          padding: 2rem 1rem;
+          display: flex;
+          justify-content: space-between;
+          align-items: center;
+        }
+        .hero-text {
+          max-width: 60%;
+        }
+        .hero-text h2 {
+          font-size: 2rem;
+          margin-bottom: 0.5rem;
+        }
+        .hero-text p {
+          margin-bottom: 0;
+          font-size: 1rem;
+          line-height: 1.4;
+        }
 
-      .hero-content {
-        position: absolute;
-        top: 50%;
-        right: 10%;
-        transform: translateY(-50%);
-        color: #fff;
-        max-width: 400px;
-      }
-      .hero-content h1 {
-        font-size: 2rem;
-        margin-bottom: 1rem;
-      }
-      .hero-content p {
-        line-height: 1.5;
-        margin-bottom: 1.5rem;
-      }
-      .hero-buttons {
-        display: flex;
-        gap: 1rem;
-      }
-      .hero-buttons button {
-        padding: 0.75rem 1.25rem;
-        border: none;
-        cursor: pointer;
-        font-weight: 600;
-        border-radius: 4px;
-      }
-      .btn-primary {
-        background: linear-gradient(45deg, #546af5, #7a5ef9);
-        color: #fff;
-      }
-      .btn-outline {
-        background: transparent;
-        color: #fff;
-        border: 2px solid #fff;
-      }
-      .btn-primary:hover {
-        opacity: 0.9;
-      }
-      .btn-outline:hover {
-        background: rgba(255, 255, 255, 0.1);
-      }
+        /****************************************************************
+         * MAIN CONTAINER
+         ****************************************************************/
+        .container {
+          max-width: 1100px;
+          margin: 0 auto;
+          padding: 1rem;
+          background-color: #ffffff;
+        }
 
-      /* Main content area */
-      .content-container {
-        max-width: 1200px;
-        margin: 2rem auto;
-        padding: 0 2rem;
-      }
-      .section-title {
-        margin-bottom: 1rem;
-        font-size: 1.5rem;
-        border-bottom: 2px solid #ddd;
-        padding-bottom: 0.5rem;
-      }
-      .info-panel {
-        background-color: #f9f9f9;
-        padding: 1rem;
-        border: 1px solid #ddd;
-        border-radius: 4px;
-        margin-bottom: 2rem;
-      }
-      .info-table {
-        width: 100%;
-        border-collapse: collapse;
-      }
-      .info-table th,
-      .info-table td {
-        text-align: left;
-        padding: 8px;
-        border-bottom: 1px solid #ddd;
-      }
+        /****************************************************************
+         * SECTION TITLES
+         ****************************************************************/
+        .section-title {
+          font-size: 1.25rem;
+          margin: 1rem 0 0.75rem 0;
+        }
 
-      .toggle-button {
-        margin: 0.5rem 0;
-        padding: 0.5rem 0.75rem;
-        background-color: #1c164e;
-        color: #fff;
-        border: none;
-        border-radius: 4px;
-        cursor: pointer;
-      }
-      .toggle-button:hover {
-        opacity: 0.9;
-      }
+        /****************************************************************
+         * TABLES
+         ****************************************************************/
+        .table-container {
+          width: 100%;
+          overflow-x: auto;
+          margin-bottom: 1.5rem;
+        }
+        .app-table {
+          border-collapse: collapse;
+          background-color: #fff;
+          box-shadow: 0 0 5px rgba(0,0,0,0.15);
+          width: auto;
+        }
+        .app-table th,
+        .app-table td {
+          padding: 8px;
+          border-bottom: 1px solid #e2e2e2;
+          text-align: left;
+          vertical-align: top;
+          white-space: nowrap;
+          font-size: 0.81rem;
+        }
+        .app-table th {
+          background-color: #f4f4f4;
+          font-weight: 600;
+        }
+        .app-table tr:hover {
+          background-color: #f9f9f9;
+        }
 
-      .additional-section {
-        background: #fff;
-        border: 1px solid #ddd;
-        padding: 1rem;
-        border-radius: 4px;
-        margin-top: 1rem;
-      }
-      pre {
-        background: #eee;
-        padding: 1rem;
-        overflow: auto;
-        margin: 0;
-      }
-    </style>
-  </head>
-  <body>
-    <!-- Navigation Bar -->
-    <nav class="navbar">
-      <div class="nav-logo">
-        <!-- Show your local logo -->
-        <img src="${logoSrc}" alt="Anypoint Monitor" />
-        <span>Anypoint Monitor Extension</span>
+        /****************************************************************
+         * PANELS / BOXES
+         ****************************************************************/
+        .panel {
+          background-color: #f9f9f9;
+          box-shadow: 0 0 5px rgba(0,0,0,0.05);
+          margin-bottom: 1.5rem;
+          border-radius: 4px;
+          padding: 1rem;
+        }
 
+        /****************************************************************
+         * BUTTONS
+         ****************************************************************/
+        .button {
+          padding: 10px 16px;
+          font-size: 14px;
+          color: #ffffff;
+          background-color: #5b44c0;
+          border: none;
+          border-radius: 4px;
+          cursor: pointer;
+          text-decoration: none;
+        }
+        .button:hover {
+          background-color: #49359a;
+        }
+
+        /****************************************************************
+         * ADDITIONAL / ENTITLEMENTS SECTION
+         ****************************************************************/
+        .additional-section {
+          background: #fff;
+          border: 1px solid #ddd;
+          padding: 1rem;
+          border-radius: 4px;
+          margin-top: 0.5rem;
+        }
+        pre {
+          background: #eee;
+          padding: 0.75rem;
+          overflow: auto;
+          margin: 0;
+          font-size: 0.75rem;
+        }
+      </style>
+    </head>
+    <body>
+      <!-- NAVBAR -->
+      <nav class="navbar">
+        <div class="navbar-left">
+          <img src="${logoSrc}" alt="Anypoint Monitor Logo" />
+          <h1>Anypoint Monitor Extension</h1>
+        </div>
+        <div class="navbar-right">
+          <a href="https://marketplace.visualstudio.com/items?itemName=EdgarMoran.anypoint-monitor" target="_blank">
+            About
+          </a>
+          <a href="https://www.buymeacoffee.com/yucelmoran" target="_blank">
+            Buy Me a Coffee
+          </a>
+        </div>
+      </nav>
+
+      <!-- HERO -->
+      <section class="hero">
+        <div class="hero-text">
+          <h2>Welcome, ${fullName}!</h2>
+          <p>This extension allows you to interact with multiple APIs on the Platform.</p>
+        </div>
+      </section>
+
+      <!-- MAIN CONTAINER -->
+      <div class="container">
+
+        <!-- USER DETAILS -->
+        <h3 class="section-title">User Details</h3>
+        <div class="panel">
+          <div class="table-container">
+            <table class="slds-table slds-table_cell-buffer slds-table_header-hidden slds-table_bordered">
+              <tbody>
+                <tr><th>Full Name</th><td>${fullName}</td></tr>
+                <tr><th>Email</th><td>${email}</td></tr>
+                <tr><th>Phone</th><td>${phone}</td></tr>
+                <tr><th>Username</th><td>${username}</td></tr>
+                <tr><th>Created At</th><td>${user.createdAt ?? ''}</td></tr>
+                <tr><th>Last Login</th><td>${user.lastLogin ?? ''}</td></tr>
+                <tr><th>Enabled</th><td>${user.enabled ?? ''}</td></tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+        <!-- ORGANIZATION DETAILS -->
+        <h3 class="section-title">Organization Details</h3>
+        <div class="panel">
+          <div class="table-container">
+            <table class="slds-table slds-table_cell-buffer slds-table_header-hidden slds-table_bordered">
+              <tbody>
+                <tr><th>Organization Name</th><td>${orgName}</td></tr>
+                <tr><th>Organization ID</th><td>${orgId}</td></tr>
+                <tr><th>Domain</th><td>${orgDomain}</td></tr>
+                <tr><th>Org Type</th><td>${orgType}</td></tr>
+                <tr><th>Subscription Type</th><td>${subscriptionType}</td></tr>
+                <tr><th>Subscription Expiration</th><td>${subscriptionExpiration}</td></tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+        <!-- ENTITLEMENTS -->
+        <h3 class="section-title">Additional Organization Entitlements</h3>
+        <button id="toggleButton" class="button">Hide/Show Entitlements</button>
+        <div id="entitlementsSection" class="additional-section">
+          <pre>${additionalInfo}</pre>
+        </div>
       </div>
-      <ul class="nav-menu">
-        <li><a href="https://marketplace.visualstudio.com/items?itemName=EdgarMoran.anypoint-monitor">About the Extension</li>
-        <li><a href="https://www.buymeacoffee.com/yucelmoran" >Buy Me a Coffee</a></li>
-      </ul>
-    </nav>
 
-    <!-- Hero Section -->
-    <section class="hero">
-      <div class="hero-content">
-        <h1>Welcome, ${fullName}!</h1>
-        <p>The extension allows to interact with multiple API's from the Platform.
-        </p>
-      </div>
-    </section>
+      <!-- Toggle Script -->
+      <script>
+        const toggleButton = document.getElementById('toggleButton');
+        const entitlementsSection = document.getElementById('entitlementsSection');
+        let isVisible = true;
 
-    <!-- Main Content -->
-    <div class="content-container">
-      <!-- User Details Panel -->
-      <h2 class="section-title">User Details</h2>
-      <div class="info-panel">
-        <table class="info-table">
-          <tr><th>Full Name</th><td>${fullName}</td></tr>
-          <tr><th>Email</th><td>${email}</td></tr>
-          <tr><th>Phone</th><td>${phone}</td></tr>
-          <tr><th>Username</th><td>${username}</td></tr>
-          <tr><th>Created At</th><td>${user.createdAt ?? ''}</td></tr>
-          <tr><th>Last Login</th><td>${user.lastLogin ?? ''}</td></tr>
-          <tr><th>Enabled</th><td>${user.enabled ?? ''}</td></tr>
-        </table>
-      </div>
-
-      <!-- Organization Details Panel -->
-      <h2 class="section-title">Organization Details</h2>
-      <div class="info-panel">
-        <table class="info-table">
-          <tr><th>Organization Name</th><td>${orgName}</td></tr>
-          <tr><th>Organization ID</th><td>${orgId}</td></tr>
-          <tr><th>Domain</th><td>${orgDomain}</td></tr>
-          <tr><th>Org Type</th><td>${orgType}</td></tr>
-          <tr><th>Subscription Type</th><td>${subscriptionType}</td></tr>
-          <tr><th>Subscription Expiration</th><td>${subscriptionExpiration}</td></tr>
-        </table>
-      </div>
-
-      <!-- Additional Data (Example: Entitlements) -->
-      <h2 class="section-title">Additional Organization Entitlements</h2>
-      <!-- Toggle button -->
-      <button id="toggleButton" class="toggle-button">Hide/Show Entitlements</button>
-      <div id="entitlementsSection" class="additional-section">
-        <pre>${additionalInfo}</pre>
-      </div>
-    </div>
-
-    <!-- Inline script for toggle behavior -->
-    <script>
-      const toggleButton = document.getElementById('toggleButton');
-      const entitlementsSection = document.getElementById('entitlementsSection');
-      let isVisible = true;
-
-      toggleButton.addEventListener('click', () => {
-        isVisible = !isVisible;
-        entitlementsSection.style.display = isVisible ? 'block' : 'none';
-      });
-    </script>
-  </body>
+        toggleButton.addEventListener('click', () => {
+          isVisible = !isVisible;
+          entitlementsSection.style.display = isVisible ? 'block' : 'none';
+        });
+      </script>
+    </body>
   </html>
-`;
+  `;
 }

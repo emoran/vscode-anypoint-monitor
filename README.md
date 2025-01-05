@@ -7,6 +7,7 @@ Allow to show Anypoint Platform information and add some features in one single 
 - Show UserInformation (Logged User)
 - Get CloudHub 1.0 applications
 - Get CloudHub 2.0 applications
+- Get Organization Details and usage
 
 > Note: Some of the features might not be availble due entitlement or permissions
 
@@ -18,13 +19,16 @@ An Anypoint Platform user Login.
 
 ## Release Notes
 
-### 1.0.0
+### 0.0.4
 
 Initial release of commands:
 
-- Show UserInformation
-- Get CloudHub 1.0 applications
-- Get CloudHub 2.0 applications
+- AM: My Information
+- AM: Organization Details
+- AM: Login into Anypoint Platform
+- AM: Show Cloudhub 2.0 Applications
+- AM: Show Cloudhub 1.0 Applications
+- AM: Logout
 
 ---
 

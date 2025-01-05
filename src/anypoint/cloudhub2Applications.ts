@@ -265,18 +265,10 @@ function getApplicationsHtml(
           </div>
         </nav>
 
-        <!-- Hero -->
-        <section class="hero">
-          <div class="hero-text">
-            <h2>CloudHub Applications</h2>
-            <p>Below is a list of your Mule applications deployed to CloudHub 2.0</p>
-          </div>
-        </section>
-
         <!-- Main container -->
         <div class="container">
           <div class="title-bar">
-            <h3>All JSON Attributes</h3>
+            <h4>CloudHub 2.0 Applications</h4>
             <button id="downloadCsv" class="button">Download as CSV</button>
           </div>
 

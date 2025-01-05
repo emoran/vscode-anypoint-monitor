@@ -1,21 +1,21 @@
 {
   "name": "anypoint-monitor",
   "displayName": "anypoint-monitor",
-  "description": "Allows to monitor anypoint platform",
+  "description": "The extension allows to retrieve information from Anypoint Platform, Organization info and aditionaldata from the available API's in one single place",
   "publisher": "EdgarMoran",
-  "version": "0.0.2",
+  "version": "0.0.4",
   "engines": {
     "vscode": "^1.96.0"
   },
   "icon": "logo.png",
   "screenshots": [
-        {
-            "path": "resources/ch1.png"
-        },
-        {
-            "path": "resources/main.png"
-        }
-    ],
+    {
+      "path": "resources/ch1.png"
+    },
+    {
+      "path": "resources/main.png"
+    }
+  ],
   "activitybar": [
     {
       "id": "chatAI",
@@ -35,7 +35,11 @@
     "commands": [
       {
         "command": "anypoint-monitor.userInfo",
-        "title": "AM: My User Info"
+        "title": "AM: My Information"
+      },
+       {
+        "command": "anypoint-monitor.organizationInfo",
+        "title": "AM: Organization Details"
       },
       {
         "command": "anypoint-monitor.login",

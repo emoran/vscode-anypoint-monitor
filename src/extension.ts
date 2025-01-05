@@ -7,6 +7,7 @@ import * as path from 'path';
 import { showApplicationsWebview } from './anypoint/cloudhub2Applications';
 import { showApplicationsWebview1 } from './anypoint/cloudhub1Applications';
 import { getUserInfoWebviewContent } from './anypoint/userInfoContent'; 
+import {getOrgInfoWebviewContent} from './anypoint/organizationInfo';
 
 
 // Replace these with your actual MuleSoft OAuth client details
@@ -50,6 +51,15 @@ export function activate(context: vscode.ExtensionContext) {
 	const userInfo = vscode.commands.registerCommand('anypoint-monitor.userInfo', async () => {
 		try {
 			await getUserInfo(context);
+		} 
+		catch (error: any) {
+			vscode.window.showErrorMessage(`Error: ${error.message || error}`);
+		}
+	});
+
+	const organizationInformation = vscode.commands.registerCommand('anypoint-monitor.organizationInfo', async () => {
+		try {
+			await getOrganizationInfo(context);
 		} 
 		catch (error: any) {
 			vscode.window.showErrorMessage(`Error: ${error.message || error}`);
@@ -218,6 +228,94 @@ export async function getUserInfo(context: vscode.ExtensionContext) {
 
 	  panel.webview.html = getUserInfoWebviewContent(data,panel.webview,context.extensionUri);
 		//vscode.window.showInformationMessage(`API response: ${JSON.stringify(data)}`);
+  
+	} catch (error: any) {
+	  // 4. If we got a 401, try to refresh
+	  if (error.response?.status === 401) {
+		vscode.window.showInformationMessage('Access token expired. Attempting to refresh...');
+  
+		const didRefresh = await refreshAccessToken(context);
+		if (!didRefresh) {
+		  vscode.window.showErrorMessage('Unable to refresh token. Please log in again.');
+		  return;
+		}
+  
+		// 5. Token refreshed, retrieve the new access token and retry
+		accessToken = await context.secrets.get('anypoint.accessToken');
+		if (!accessToken) {
+		  vscode.window.showErrorMessage('No new access token found after refresh. Please log in again.');
+		  return;
+		}
+  
+		// Retry the request
+		try {
+		  const retryResponse = await axios.get(apiUrl, {
+			headers: {
+			  Authorization: `Bearer ${accessToken}`
+			}
+		  });
+  
+		  if (retryResponse.status !== 200) {
+			throw new Error(`Retry API request failed with status ${retryResponse.status}`);
+		  }
+  
+		  const data = retryResponse.data;
+  
+		  // Display or log data
+		  const panel = vscode.window.createWebviewPanel(
+			'userInfoWebview',
+			'User Information',
+			vscode.ViewColumn.One,
+			{ enableScripts: true }
+		  );
+		  panel.webview.html =getUserInfoWebviewContent(data,panel.webview,context.extensionUri);
+  
+		  vscode.window.showInformationMessage(`API response (after refresh): ${JSON.stringify(data)}`);
+		} catch (retryError: any) {
+		  vscode.window.showErrorMessage(`API request failed after refresh: ${retryError.message}`);
+		}
+	  } else {
+		// Another error (not 401) - handle as needed
+		vscode.window.showErrorMessage(`Error calling API: ${error.message}`);
+	  }
+	}
+}
+
+export async function getOrganizationInfo(context: vscode.ExtensionContext) {
+	// Retrieve the stored access token
+	let accessToken = await context.secrets.get('anypoint.accessToken');
+	if (!accessToken) {
+	  throw new Error('No access token found. Please log in first.');
+	}
+  
+	// Our MuleSoft endpoint
+	const apiUrl = 'https://anypoint.mulesoft.com/cloudhub/api/organization';
+  
+	try {
+	  // 1. Attempt the initial API call
+	  const response = 	await axios.get(apiUrl, {
+		headers: {
+		  Authorization: `Bearer ${accessToken}`
+		}
+	  });
+  
+	  // 2. Check for non-200
+	  if (response.status !== 200) {
+		throw new Error(`API request failed with status ${response.status}`);
+	  }
+  
+	  // 3. If we got here, the call succeeded!
+	  const data = response.data;
+  
+	  // Create a webview to display user info
+	  const panel = vscode.window.createWebviewPanel(
+		'orgInfoWebview',
+		'Organization Details',
+		vscode.ViewColumn.One,
+		{ enableScripts: true }
+	  );
+
+	  panel.webview.html = getOrgInfoWebviewContent(data,panel.webview,context.extensionUri);
   
 	} catch (error: any) {
 	  // 4. If we got a 401, try to refresh
@@ -514,7 +612,7 @@ export async function getCH1Applications(context: vscode.ExtensionContext,enviro
 				// 5. Token refreshed, retrieve the new access token and retry
 				accessToken = await context.secrets.get('anypoint.accessToken');
 				if (!accessToken) {
-				vscode.window.showErrorMessage('No new access token found after refresh. Please log in again.');
+					vscode.window.showErrorMessage('No new access token found after refresh. Please log in again.');
 				return;
 				}
 		
@@ -532,14 +630,8 @@ export async function getCH1Applications(context: vscode.ExtensionContext,enviro
 		
 				const data = retryResponse.data;
 		
-				// Display or log data
-				const panel = vscode.window.createWebviewPanel(
-					'userInfoWebview',
-					'User Information',
-					vscode.ViewColumn.One,
-					{ enableScripts: true }
-				);
-				panel.webview.html = getUserInfoWebviewContent(data,panel.webview,context.extensionUri);
+				// Show them in a webview
+				showApplicationsWebview1(context, data);
 		
 				vscode.window.showInformationMessage(`API response (after refresh): ${JSON.stringify(data)}`);
 				} catch (retryError: any) {
