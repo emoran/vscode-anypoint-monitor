@@ -337,26 +337,27 @@ export async function getOrganizationInfo(context: vscode.ExtensionContext) {
   
 		// Retry the request
 		try {
-		  const retryResponse = await axios.get(apiUrl, {
-			headers: {
-			  Authorization: `Bearer ${accessToken}`
+			const retryResponse = await axios.get(apiUrl, {
+				headers: {
+				Authorization: `Bearer ${accessToken}`
+				}
+			});
+  
+			if (retryResponse.status !== 200) {
+				throw new Error(`Retry API request failed with status ${retryResponse.status}`);
 			}
-		  });
   
-		  if (retryResponse.status !== 200) {
-			throw new Error(`Retry API request failed with status ${retryResponse.status}`);
-		  }
-  
-		  const data = retryResponse.data;
-  
-		  // Display or log data
-		  const panel = vscode.window.createWebviewPanel(
-			'userInfoWebview',
-			'User Information',
-			vscode.ViewColumn.One,
-			{ enableScripts: true }
-		  );
-		  panel.webview.html =getUserInfoWebviewContent(data,panel.webview,context.extensionUri);
+		  	const data = retryResponse.data;
+	
+			// Create a webview to display user info
+			const panel = vscode.window.createWebviewPanel(
+				'orgInfoWebview',
+				'Organization Details',
+				vscode.ViewColumn.One,
+				{ enableScripts: true }
+			);
+	
+			panel.webview.html = getOrgInfoWebviewContent(data,panel.webview,context.extensionUri);
   
 		  vscode.window.showInformationMessage(`API response (after refresh): ${JSON.stringify(data)}`);
 		} catch (retryError: any) {
@@ -536,16 +537,9 @@ export async function getCH2Applications(context: vscode.ExtensionContext,enviro
 		
 				const data = retryResponse.data;
 		
-				// Display or log data
-				const panel = vscode.window.createWebviewPanel(
-					'userInfoWebview',
-					'User Information',
-					vscode.ViewColumn.One,
-					{ enableScripts: true }
-				);
-				panel.webview.html = getUserInfoWebviewContent(data,panel.webview,context.extensionUri);
-		
-				vscode.window.showInformationMessage(`API response (after refresh): ${JSON.stringify(data)}`);
+				// Show them in a webview
+				showApplicationsWebview(context, data);
+
 				} catch (retryError: any) {
 				vscode.window.showErrorMessage(`API request failed after refresh: ${retryError.message}`);
 				}
