@@ -37,6 +37,10 @@
         "command": "anypoint-monitor.userInfo",
         "title": "AM: My Information"
       },
+      {
+        "command": "anypoint-monitor.applicationDetails",
+        "title": "AM: Application Details"
+      },
        {
         "command": "anypoint-monitor.organizationInfo",
         "title": "AM: Organization Details"

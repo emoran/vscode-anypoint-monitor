@@ -8,6 +8,7 @@ import { showApplicationsWebview } from './anypoint/cloudhub2Applications';
 import { showApplicationsWebview1 } from './anypoint/cloudhub1Applications';
 import { getUserInfoWebviewContent } from './anypoint/userInfoContent'; 
 import {getOrgInfoWebviewContent} from './anypoint/organizationInfo';
+import {showDashboardWebview} from './anypoint/ApplicationDetails';
 
 
 // Replace these with your actual MuleSoft OAuth client details
@@ -66,6 +67,60 @@ export function activate(context: vscode.ExtensionContext) {
 		}
 	});
 
+	const applicationDetails = vscode.commands.registerCommand('anypoint-monitor.applicationDetails', async () => {
+		try {
+		  // Retrieve stored environments from secure storage
+		  const storedEnvironments = await context.secrets.get('anypoint.environments');
+		  if (!storedEnvironments) {
+			vscode.window.showErrorMessage('No environment information found. Please log in first.');
+			return;
+		  }
+	  
+		  // Parse the stored environments JSON
+		  const environments = JSON.parse(storedEnvironments) as {
+			data: { id: string; name: string }[];
+			total: number;
+		  };
+	  
+		  if (!environments.data || environments.data.length === 0) {
+			vscode.window.showErrorMessage('No environments available.');
+			return;
+		  }
+	  
+		  // Extract environment names and map to IDs
+		  const environmentOptions = environments.data.map(env => ({
+			label: env.name,
+			id: env.id,
+		  }));
+	  
+		  // Prompt the user to select an environment
+		  const selectedEnvironment = await vscode.window.showQuickPick(
+			environmentOptions.map(option => option.label),
+			{
+			  placeHolder: 'Select an environment',
+			}
+		  );
+	  
+		  if (!selectedEnvironment) {
+			vscode.window.showInformationMessage('No environment selected.');
+			return;
+		  }
+	  
+		  // Find the corresponding environment ID
+		  const selectedEnvironmentId = environmentOptions.find(option => option.label === selectedEnvironment)?.id;
+		  if (!selectedEnvironmentId) {
+			vscode.window.showErrorMessage('Failed to find the selected environment ID.');
+			return;
+		  }
+	  
+		  await retrieveApplications(context, selectedEnvironmentId);
+		 
+	  
+		} catch (error: any) {
+		  vscode.window.showErrorMessage(`Error: ${error.message || error}`);
+		}
+	  });
+	  
 	const getCH1Apps = vscode.commands.registerCommand('anypoint-monitor.cloudhub1Apps', async () => {
 		// Retrieve stored environments from secure storage
 		const storedEnvironments = await context.secrets.get('anypoint.environments');
@@ -166,9 +221,6 @@ export function activate(context: vscode.ExtensionContext) {
 			}
 
 			await getCH2Applications(context,selectedEnvironmentId);
-
-
-			//vscode.window.showInformationMessage(selectedEnvironmentId);
 		}
 		catch (error: any) {
         	vscode.window.showErrorMessage(`Error: ${error.message}`);
@@ -182,8 +234,215 @@ export function activate(context: vscode.ExtensionContext) {
 	context.subscriptions.push(loginCommand); 
 	context.subscriptions.push(loginCommand);
 	context.subscriptions.push(getCH1Apps);
+	context.subscriptions.push(organizationInformation);
+	context.subscriptions.push(applicationDetails);
 }
 
+export async function retrieveApplications(context: vscode.ExtensionContext, selectedEnvironmentId: string) {
+	let accessToken = await context.secrets.get('anypoint.accessToken');
+	const userInfoStr = await context.secrets.get('anypoint.userInfo');
+	
+	if (!accessToken || !userInfoStr) {
+	  vscode.window.showErrorMessage('No access token or user info found. Please log in first.');
+	  return;
+	}
+  
+	const userInfoData = JSON.parse(userInfoStr);
+	const organizationID = userInfoData.organization.id;
+  
+	// =====================
+	// 1) Fetch Applications
+	// =====================
+	const appsUrl = 'https://anypoint.mulesoft.com/cloudhub/api/applications';
+	let appsList: any[] = [];
+	try {
+	  const response = await axios.get(appsUrl, {
+		headers: {
+		  Authorization: `Bearer ${accessToken}`,
+		  'X-ANYPNT-ENV-ID': selectedEnvironmentId,
+		  'X-ANYPNT-ORG-ID': organizationID,
+		},
+	  });
+	  if (response.status !== 200) {
+		throw new Error(`Applications request failed with status ${response.status}`);
+	  }
+	  appsList = response.data;
+	} catch (error: any) {
+	  // Check if it's a 401
+	  if (error.response?.status === 401) {
+		vscode.window.showInformationMessage('Access token expired. Attempting to refresh...');
+  
+		const didRefresh = await refreshAccessToken(context);
+		if (!didRefresh) {
+		  vscode.window.showErrorMessage('Unable to refresh token. Please log in again.');
+		  return;
+		}
+		// Retrieve the new token from secrets
+		accessToken = await context.secrets.get('anypoint.accessToken');
+		if (!accessToken) {
+		  vscode.window.showErrorMessage('No access token found after refresh. Please log in again.');
+		  return;
+		}
+  
+		// Retry the request once
+		try {
+		  const retryResp = await axios.get(appsUrl, {
+			headers: {
+			  Authorization: `Bearer ${accessToken}`,
+			  'X-ANYPNT-ENV-ID': selectedEnvironmentId,
+			  'X-ANYPNT-ORG-ID': organizationID,
+			},
+		  });
+		  if (retryResp.status !== 200) {
+			throw new Error(`Applications request failed (retry) with status ${retryResp.status}`);
+		  }
+		  appsList = retryResp.data;
+		} catch (retryErr: any) {
+		  vscode.window.showErrorMessage(`Retry after refresh failed: ${retryErr.message}`);
+		  return;
+		}
+	  } else {
+		vscode.window.showErrorMessage(`Error fetching environment apps: ${error.message}`);
+		return;
+	  }
+	}
+  
+	if (!Array.isArray(appsList) || appsList.length === 0) {
+	  vscode.window.showErrorMessage('No applications found in this environment.');
+	  return;
+	}
+  
+	// Prompt user to select an application
+	const applicationOptions = appsList.map(app => ({
+	  label: app.domain || app.name || 'Unknown',
+	  domain: app.domain,
+	}));
+  
+	const selectedAppLabel = await vscode.window.showQuickPick(
+	  applicationOptions.map(opt => opt.label),
+	  {
+		placeHolder: 'Select an application',
+	  }
+	);
+  
+	if (!selectedAppLabel) {
+	  vscode.window.showInformationMessage('No application selected.');
+	  return;
+	}
+  
+	const selectedAppDomain = applicationOptions.find(opt => opt.label === selectedAppLabel)?.domain;
+	if (!selectedAppDomain) {
+	  vscode.window.showErrorMessage('Failed to find the selected application domain.');
+	  return;
+	}
+  
+	// =======================
+	// 2) Fetch Single App Data
+	// =======================
+	const appDetailsUrl = `https://anypoint.mulesoft.com/cloudhub/api/applications/${selectedAppDomain}`;
+	let singleAppData: any;
+	try {
+	  const detailsResp = await axios.get(appDetailsUrl, {
+		headers: {
+		  Authorization: `Bearer ${accessToken}`,
+		  'X-ANYPNT-ENV-ID': selectedEnvironmentId,
+		  'X-ANYPNT-ORG-ID': organizationID,
+		},
+	  });
+	  if (detailsResp.status !== 200) {
+		throw new Error(`Application details request failed with status ${detailsResp.status}`);
+	  }
+	  singleAppData = detailsResp.data;
+	} catch (error: any) {
+	  // Same 401 pattern if you like
+	  vscode.window.showErrorMessage(`Error fetching application details: ${error.message}`);
+	  return;
+	}
+  
+	// =======================
+	// 3) Fetch Schedules, etc.
+	// =======================
+	// Repeat the same pattern if you want each call to attempt refresh on 401
+  
+	const schedulesURL = `https://anypoint.mulesoft.com/cloudhub/api/applications/${selectedAppDomain}/schedules`;
+	let schedules: any = null;
+	try {
+	  const detailsResponse = await axios.get(schedulesURL, {
+		headers: {
+		  Authorization: `Bearer ${accessToken}`,
+		  'X-ANYPNT-ENV-ID': selectedEnvironmentId,
+		  'X-ANYPNT-ORG-ID': organizationID,
+		},
+	  });
+	  if (detailsResponse.status !== 200) {
+		throw new Error(`Application details request failed with status ${detailsResponse.status}`);
+	  }
+	  schedules = detailsResponse.data;
+	} catch (error: any) {
+	  vscode.window.showErrorMessage(`Error fetching application schedule details: ${error.message}`);
+	  return;
+	}
+  
+	// ... do the same for deployments, logs, etc. if needed ...
+
+	  
+	const deploymentsURL =`https://anypoint.mulesoft.com/cloudhub/api/v2/applications/${selectedAppDomain}/deployments?orderByDate=DESC`;
+	let deploymentId: any = null;
+	let instanceId: any = null;
+	try {
+	  const detailsResponseDeployments = await axios.get(deploymentsURL, {
+		headers: {
+		  Authorization: `Bearer ${accessToken}`,
+		  'X-ANYPNT-ENV-ID': selectedEnvironmentId,
+		  'X-ANYPNT-ORG-ID': organizationID,
+		},
+	  });
+	  if (detailsResponseDeployments.status !== 200) {
+		throw new Error(`Application details request failed with status ${detailsResponseDeployments.status}`);
+	  }
+	  deploymentId = detailsResponseDeployments.data.data[0].deploymentId;
+	  instanceId = detailsResponseDeployments.data.data[0].instances[0].instanceId;
+
+	} catch (error: any) {
+	  vscode.window.showErrorMessage(`Error fetching application schedule details: ${error.message}`);
+	  return;
+	}
+
+	const logsURL =`https://anypoint.mulesoft.com/cloudhub/api/v2/applications/${selectedAppDomain}/deployments/${deploymentId}/logs?limit=100`;
+	let logs: any = null;
+	try {
+	  const detailsResponseLogs = await axios.get(logsURL, {
+		headers: {
+		  Authorization: `Bearer ${accessToken}`,
+		  'X-ANYPNT-ENV-ID': selectedEnvironmentId,
+		  'X-ANYPNT-ORG-ID': organizationID,
+		},
+	  });
+	  if (detailsResponseLogs.status !== 200) {
+		throw new Error(`Application details request failed with status ${detailsResponseLogs.status}`);
+	  }
+	  logs = detailsResponseLogs.data;
+	  
+	} catch (error: any) {
+	  vscode.window.showErrorMessage(`Error fetching application schedule details: ${error.message}`);
+	  return;
+	}
+
+
+  
+	// =====================
+	// Build & Show Webview
+	// =====================
+	const dashboardData = {
+	  application: singleAppData,
+	  schedulers: schedules,
+	  alerts: [],
+	  analytics: [],
+	  logs: logs,
+	};
+  
+	showDashboardWebview(context, dashboardData);
+  }
 /**
  * getUserInfo get the user information from the Anypoint platform.
  * @param context 
@@ -851,6 +1110,7 @@ async function refreshAccessToken(context: vscode.ExtensionContext): Promise<boo
 	  return false;
 	}
 }
+
 
 // This method is called when your extension is deactivated
 export function deactivate() {}
