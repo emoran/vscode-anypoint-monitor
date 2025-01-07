@@ -8,6 +8,7 @@ Allow to show Anypoint Platform information and add some features in one single 
 - Get CloudHub 1.0 applications
 - Get CloudHub 2.0 applications
 - Get Organization Details and usage
+- Application Details (One page to show all details of the app CH1 only for now)
 
 > Note: Some of the features might not be availble due entitlement or permissions
 
@@ -28,6 +29,7 @@ Initial release of commands:
 - AM: Login into Anypoint Platform
 - AM: Show Cloudhub 2.0 Applications
 - AM: Show Cloudhub 1.0 Applications
+- AM: Application Details
 - AM: Logout
 
 ---
