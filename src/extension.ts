@@ -10,8 +10,7 @@ import { getUserInfoWebviewContent } from './anypoint/userInfoContent';
 import {getOrgInfoWebviewContent} from './anypoint/organizationInfo';
 import {showDashboardWebview} from './anypoint/ApplicationDetails';
 
-
-// Replace these with your actual MuleSoft OAuth client details
+//These are hardcoded in porpose until find a feature to store them in a secure way
 const CLIENT_ID = '05ce4abd0fc047b4bcd512f15b3445c9';
 const CLIENT_SECRET = 'b5d7dBEe693c4C3fa50C183A3f6570D2';
 
@@ -253,7 +252,7 @@ export async function retrieveApplications(context: vscode.ExtensionContext, sel
 	// =====================
 	// 1) Fetch Applications
 	// =====================
-	const appsUrl = 'https://anypoint.mulesoft.com/cloudhub/api/applications';
+	const appsUrl = BASE_URL+ '/cloudhub/api/applications';
 	let appsList: any[] = [];
 	try {
 	  const response = await axios.get(appsUrl, {
@@ -339,7 +338,7 @@ export async function retrieveApplications(context: vscode.ExtensionContext, sel
 	// =======================
 	// 2) Fetch Single App Data
 	// =======================
-	const appDetailsUrl = `https://anypoint.mulesoft.com/cloudhub/api/applications/${selectedAppDomain}`;
+	const appDetailsUrl = BASE_URL+`/cloudhub/api/applications/${selectedAppDomain}`;
 	let singleAppData: any;
 	try {
 	  const detailsResp = await axios.get(appDetailsUrl, {
@@ -364,7 +363,7 @@ export async function retrieveApplications(context: vscode.ExtensionContext, sel
 	// =======================
 	// Repeat the same pattern if you want each call to attempt refresh on 401
   
-	const schedulesURL = `https://anypoint.mulesoft.com/cloudhub/api/applications/${selectedAppDomain}/schedules`;
+	const schedulesURL = BASE_URL+`/cloudhub/api/applications/${selectedAppDomain}/schedules`;
 	let schedules: any = null;
 	try {
 	  const detailsResponse = await axios.get(schedulesURL, {
@@ -386,7 +385,7 @@ export async function retrieveApplications(context: vscode.ExtensionContext, sel
 	// ... do the same for deployments, logs, etc. if needed ...
 
 	  
-	const deploymentsURL =`https://anypoint.mulesoft.com/cloudhub/api/v2/applications/${selectedAppDomain}/deployments?orderByDate=DESC`;
+	const deploymentsURL = BASE_URL+`/cloudhub/api/v2/applications/${selectedAppDomain}/deployments?orderByDate=DESC`;
 	let deploymentId: any = null;
 	let instanceId: any = null;
 	try {
@@ -408,7 +407,7 @@ export async function retrieveApplications(context: vscode.ExtensionContext, sel
 	  return;
 	}
 
-	const logsURL =`https://anypoint.mulesoft.com/cloudhub/api/v2/applications/${selectedAppDomain}/deployments/${deploymentId}/logs?limit=100`;
+	const logsURL= BASE_URL+ `/cloudhub/api/v2/applications/${selectedAppDomain}/deployments/${deploymentId}/logs?limit=100`;
 	let logs: any = null;
 	try {
 	  const detailsResponseLogs = await axios.get(logsURL, {
@@ -456,7 +455,7 @@ export async function getUserInfo(context: vscode.ExtensionContext) {
 	}
   
 	// Our MuleSoft endpoint
-	const apiUrl = 'https://anypoint.mulesoft.com/accounts/api/me';
+	const apiUrl = BASE_URL+'/accounts/api/me';
   
 	try {
 	  // 1. Attempt the initial API call
@@ -548,7 +547,7 @@ export async function getOrganizationInfo(context: vscode.ExtensionContext) {
 	}
   
 	// Our MuleSoft endpoint
-	const apiUrl = 'https://anypoint.mulesoft.com/cloudhub/api/organization';
+	const apiUrl = BASE_URL+'/cloudhub/api/organization';
   
 	try {
 	  // 1. Attempt the initial API call
@@ -644,7 +643,7 @@ export async function getEnvironments(context: vscode.ExtensionContext) {
 		}
 	
 	  // Our MuleSoft endpoint
-	  const apiUrl = 'https://anypoint.mulesoft.com/accounts/api/organizations/'+organizationID+''+'/environments';
+	  const apiUrl = BASE_URL+'/accounts/api/organizations/'+organizationID+''+'/environments';
 	
 	  try {
 		// 1. Attempt the initial API call
@@ -741,7 +740,7 @@ export async function getCH2Applications(context: vscode.ExtensionContext,enviro
 		}
 
 		// Our MuleSoft endpoint
-		const apiUrl = 'https://anypoint.mulesoft.com/amc/application-manager/api/v2/organizations/'+organizationID+'/environments/'+environmentId+'/deployments';
+		const apiUrl = BASE_URL+'/amc/application-manager/api/v2/organizations/'+organizationID+'/environments/'+environmentId+'/deployments';
 
 
 		try {
@@ -826,7 +825,7 @@ export async function getCH1Applications(context: vscode.ExtensionContext,enviro
 		}
 
 		// Our MuleSoft endpoint
-		const apiUrl = 'https://anypoint.mulesoft.com/cloudhub/api/applications';
+		const apiUrl = BASE_URL+'/cloudhub/api/applications';
 
 
 		try {

@@ -2,9 +2,8 @@ import * as vscode from 'vscode';
 import * as fs from 'fs';
 
 /**
- * Creates a webview panel and displays a table of applications.
- * @param context The extension context (used to create WebviewPanel, etc.)
- * @param data The data returned by your API call (response JSON).
+ * Creates a webview panel and displays a table of applications,
+ * styled similarly to your "tech" design, with DataTables for filtering/pagination.
  */
 export function showApplicationsWebview(context: vscode.ExtensionContext, data: any) {
   // 1. Extract items from data
@@ -57,13 +56,10 @@ function flattenObject(obj: any, parentKey = '', res: any = {}): any {
 
 /**
  * Renders a cell value given the key + original value.
- * - Skips entire "id" column.
- * - If key ends with "Date", treat the numeric value as a timestamp in ms and format as YYYY-MM-DD.
- * - If key is "application.status", show a green or red icon depending on RUNNING vs STOPPED.
  */
 function renderCell(key: string, value: any): string {
   if (key === 'id') {
-    return ''; // We'll filter out the 'id' column altogether, but this is just a safeguard
+    return ''; // We'll exclude the 'id' column entirely
   }
 
   // Format date fields (ends with "Date")
@@ -84,13 +80,12 @@ function renderCell(key: string, value: any): string {
     }
   }
 
-  // Otherwise, just show the value
   return value ?? '';
 }
 
 /**
  * Generates HTML for the webview with a dynamic table that
- * shows all JSON attributes (flattened).
+ * shows all JSON attributes (flattened), plus DataTables for pagination/filtering.
  */
 function getApplicationsHtml(
   apps: any[],
@@ -109,32 +104,45 @@ function getApplicationsHtml(
   let allKeysArray = Array.from(allKeys).filter((k) => k !== 'id');
   allKeysArray.sort();
 
-  // 3. (Optional) Logo path
+  // 3. Construct URIs for your assets (e.g. logo)
   const logoPath = vscode.Uri.joinPath(extensionUri, 'logo.png');
   const logoSrc = webview.asWebviewUri(logoPath);
 
-  // 4. Build the HTML
+  // 4. Because we want DataTables, include jQuery & DataTables scripts
+  //    using their public CDNs, plus the DataTables CSS
+  const jqueryJs = 'https://code.jquery.com/jquery-3.6.0.min.js';
+  const dataTableJs = 'https://cdn.datatables.net/1.13.4/js/jquery.dataTables.min.js';
+  const dataTableCss = 'https://cdn.datatables.net/1.13.4/css/jquery.dataTables.min.css';
+
   return /* html */ `
     <!DOCTYPE html>
     <html lang="en">
       <head>
         <meta charset="UTF-8" />
         <title>CloudHub 2.0 Applications</title>
+        <!-- OPTIONAL: modern Google Font -->
+        <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;600&display=swap" />
+
+        <!-- DataTables CSS -->
+        <link rel="stylesheet" href="${dataTableCss}" />
+
         <style>
+          /* GLOBAL RESET & FONT */
           body {
             margin: 0;
             padding: 0;
-            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto,
-              Helvetica, Arial, sans-serif, "Apple Color Emoji", "Segoe UI Emoji";
+            font-family: 'Inter', -apple-system, BlinkMacSystemFont, "Segoe UI",
+              Roboto, Helvetica, Arial, sans-serif, "Apple Color Emoji", "Segoe UI Emoji";
             color: #212529;
             background-color: #ffffff;
           }
-          /* Navbar */
+
+          /* NAVBAR */
           .navbar {
             display: flex;
             align-items: center;
             justify-content: space-between;
-            background-color: #1e1a41;
+            background-color: #1f2b3c; /* Blue-gray tone */
             padding: 0.75rem 1rem;
           }
           .navbar-left {
@@ -165,9 +173,9 @@ function getApplicationsHtml(
             text-decoration: underline;
           }
 
-          /* Hero section */
+          /* HERO SECTION */
           .hero {
-            background: linear-gradient(90deg, #262158 0%, #463f96 50%, #5d54b5 100%);
+            background: linear-gradient(90deg, #2c3e50 0%, #4a5965 50%, #67737b 100%);
             color: #ffffff;
             padding: 2rem 1rem;
             display: flex;
@@ -187,77 +195,75 @@ function getApplicationsHtml(
             line-height: 1.4;
           }
 
-          /* Container */
+          /* MAIN CONTAINER: ~80% width, centered */
           .container {
-            max-width: 1100px;
-            margin: 0 auto;
-            padding: 1rem;
+            width: 80%;
+            margin: 1rem auto;
             background-color: #ffffff;
           }
 
-          /* Title & button */
+          /* TITLE & BUTTON */
           .title-bar {
             display: flex;
             align-items: center;
             justify-content: space-between;
             margin: 1rem 0;
           }
-          .title-bar h3 {
+          .title-bar h4 {
             font-size: 1.25rem;
             margin: 0;
           }
           .button {
-            padding: 10px 16px;
-            font-size: 14px;
+            padding: 8px 14px;
+            font-size: 0.85rem;
             color: #ffffff;
-            background-color: #5b44c0;
+            background-color: #52667a;
             border: none;
             border-radius: 4px;
             cursor: pointer;
             text-decoration: none;
+            font-weight: 600;
           }
           .button:hover {
-            background-color: #49359a;
+            background-color: #435362;
           }
 
-          /* Scrollable table container */
+          /* TABLE CONTAINER (SCROLLABLE) */
           .table-container {
             width: 100%;
             overflow-x: auto;
             margin-bottom: 2rem;
           }
-          /* Table */
-          .app-table {
+
+          /* TABLE STYLES with DataTables */
+          table.dataTable { /* add .dataTable for styling from the included CSS */
             border-collapse: collapse;
             background-color: #fff;
-            box-shadow: 0 0 5px rgba(0,0,0,0.15);
-            width: auto;
+            box-shadow: 0 0 5px rgba(0,0,0,0.1);
+            width: 100%; /* Let it stretch full width */
           }
-          .app-table th,
-          .app-table td {
-            padding: 8px; /* reduce padding so content is more compact */
-            border-bottom: 1px solid #e2e2e2;
-            text-align: left;
-            vertical-align: top;
+          table.dataTable thead th,
+          table.dataTable tbody td {
+            font-size: 0.8rem; /* smaller font */
+            padding: 6px 8px;  /* tighter cell padding */
             white-space: nowrap;
-            /* MAKE FONT SMALLER */
-            font-size: 0.81rem; 
           }
-          .app-table th {
-            background-color: #f4f4f4;
-            font-weight: 600;
+          /* Subtle row striping & hover highlight can be handled by DataTables,
+             but we can also keep our own if we prefer. */
+          table.dataTable tbody tr:nth-child(even) {
+            background-color: #fafbfc;
           }
-          .app-table tr:hover {
-            background-color: #f9f9f9;
+          table.dataTable tbody tr:hover {
+            background-color: #f1f3f5;
           }
         </style>
       </head>
       <body>
-        <!-- Navbar -->
+        <!-- NAVBAR -->
         <nav class="navbar">
           <div class="navbar-left">
             <img src="${logoSrc}" />
-            <h1 class="extension-name">Anypoint Monitor Extension</h1>
+            <h1>Anypoint Monitor Extension</h1>
           </div>
           <div class="navbar-right">
             <a href="https://marketplace.visualstudio.com/items?itemName=EdgarMoran.anypoint-monitor">About</a>
@@ -265,16 +271,18 @@ function getApplicationsHtml(
           </div>
         </nav>
 
-        <!-- Main container -->
+        <!-- MAIN CONTENT -->
         <div class="container">
+          <!-- Title & Button -->
           <div class="title-bar">
             <h4>CloudHub 2.0 Applications</h4>
             <button id="downloadCsv" class="button">Download as CSV</button>
           </div>
 
-          <!-- Scrollable container for table -->
+          <!-- Scrollable Table Container -->
           <div class="table-container">
-            <table class="app-table">
+            <!-- IMPORTANT: id="appTable" and class="display" for DataTables -->
+            <table id="appTable" class="display">
               <thead>
                 <tr>
                   ${allKeysArray.map((key) => `<th>${key}</th>`).join('')}
@@ -283,7 +291,6 @@ function getApplicationsHtml(
               <tbody>
                 ${flattenedApps
                   .map((flatApp) => {
-                    // Build each row by iterating columns in sorted order
                     const rowCells = allKeysArray.map((key) => {
                       const originalValue = flatApp[key];
                       return `<td>${renderCell(key, originalValue)}</td>`;
@@ -296,10 +303,26 @@ function getApplicationsHtml(
           </div>
         </div>
 
+        <!-- jQuery and DataTables scripts -->
+        <script src="${jqueryJs}"></script>
+        <script src="${dataTableJs}"></script>
+
         <script>
           const vscode = acquireVsCodeApi();
+
+          // CSV download handler
           document.getElementById('downloadCsv').addEventListener('click', () => {
             vscode.postMessage({ command: 'downloadCsv' });
+          });
+
+          // Initialize DataTables
+          $(document).ready(function () {
+            $('#appTable').DataTable({
+              pageLength: 10,      // Show 10 rows per page by default
+              responsive: true,    // Make table responsive (requires extra plugin)
+              autoWidth: false,    // Don't force DataTables to auto-calculate column widths
+              // You can add more DataTables config here if desired
+            });
           });
         </script>
       </body>
@@ -311,7 +334,7 @@ function getApplicationsHtml(
  * Generates CSV content (skips "id" column, formats date columns, etc.).
  */
 function generateCsvContent(apps: any[]): string {
-  // Flatten each app to get all keys
+  // Flatten each app to gather all keys
   const allKeys = new Set<string>();
   const flattenedApps = apps.map((app) => {
     const flat = flattenObject(app);
@@ -319,7 +342,7 @@ function generateCsvContent(apps: any[]): string {
     return flat;
   });
 
-  // Remove "id" from columns & sort
+  // Remove "id", sort keys
   let allKeysArray = Array.from(allKeys).filter((k) => k !== 'id');
   allKeysArray.sort();
 
@@ -332,7 +355,7 @@ function generateCsvContent(apps: any[]): string {
       .map((key) => {
         let val = flatApp[key] !== undefined ? flatApp[key] : '';
 
-        // If it's a date field (ends with "Date"), format as yyyy-mm-dd
+        // Date fields
         if (key.match(/Date$/i)) {
           const ms = parseInt(val, 10);
           if (!isNaN(ms)) {
@@ -341,7 +364,7 @@ function generateCsvContent(apps: any[]): string {
           }
         }
 
-        // If it's application.status, replace with 🟢 or 🔴
+        // Status icons
         if (key === 'application.status') {
           if (val === 'RUNNING') {
             val = '🟢 RUNNING';
@@ -350,9 +373,9 @@ function generateCsvContent(apps: any[]): string {
           }
         }
 
-        // CSV-escape (wrap in quotes, double internal quotes)
-        const safe = String(val).replace(/"/g, '""');
-        return `"${safe}"`;
+        // CSV-escape (surround with quotes, double any internal quotes)
+        const safeVal = String(val).replace(/"/g, '""');
+        return `"${safeVal}"`;
       })
       .join(',');
   });

@@ -3,7 +3,7 @@
   "displayName": "anypoint-monitor",
   "description": "The extension allows to retrieve information from Anypoint Platform, Organization info and aditionaldata from the available API's in one single place",
   "publisher": "EdgarMoran",
-  "version": "0.0.5",
+  "version": "0.0.6",
   "engines": {
     "vscode": "^1.96.0"
   },

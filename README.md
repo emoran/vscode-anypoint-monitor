@@ -20,7 +20,7 @@ An Anypoint Platform user Login.
 
 ## Release Notes
 
-### 0.0.4
+### 0.0.6
 
 Initial release of commands:
 

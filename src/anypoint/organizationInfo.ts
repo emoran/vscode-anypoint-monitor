@@ -19,7 +19,7 @@ export function getOrgInfoWebviewContent(
   // Global Deployment info
   const globalDeployment = orgObject.globalDeployment ?? {};
   const defaultRegion = globalDeployment.defaultRegion ?? 'N/A';
-  
+
   // Additional boolean flags
   const downloadAppsEnabled = orgObject.downloadApplicationsEnabled ?? false;
   const persistentQueuesEncryptionEnabled = orgObject.persistentQueuesEncryptionEnabled ?? false;
@@ -68,17 +68,14 @@ export function getOrgInfoWebviewContent(
     <meta charset="UTF-8" />
     <title>Organization Info</title>
     <style>
-      * {
-        margin: 0;
-        padding: 0;
-        box-sizing: border-box;
-      }
-      body {
-        font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto,
-          Helvetica, Arial, sans-serif, "Apple Color Emoji", "Segoe UI Emoji";
-        background-color: #ffffff;
-        color: #333;
-      }
+    body {
+          margin: 0;
+          padding: 0;
+          font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto,
+            Helvetica, Arial, sans-serif, "Apple Color Emoji", "Segoe UI Emoji";
+          color: #212529;
+          background-color: #ffffff;
+        }
 
       /* Navigation Bar (Top Header) */
       .navbar {
@@ -86,7 +83,9 @@ export function getOrgInfoWebviewContent(
         align-items: center;
         justify-content: space-between;
         padding: 1rem 2rem;
-        background-color: #1c164e; /* Dark purple/blue */
+        background-color: #1f2b3c;
+        width: 100%; /* Ensure full width */
+        box-sizing: border-box; /* Ensure padding doesn't shrink the width */
       }
       .navbar .nav-logo {
         display: flex;
@@ -121,8 +120,10 @@ export function getOrgInfoWebviewContent(
       .hero {
         position: relative;
         width: 100%;
-        height: 360px; /* adjust as needed */
-        background: linear-gradient(180deg, #2a2086 0%, #3f37a6 50%, #4d47bd 100%);
+        /* Reduced height from 360px to 120px */
+        height: 120px;
+        /* Changed the gradient to a blue-gray scheme */
+        background: linear-gradient(180deg, #2c3e50 0%, #4a5965 50%, #67737b 100%);
         overflow: hidden;
       }
       /* Simulated wave shapes (multiple layering) */
@@ -152,19 +153,19 @@ export function getOrgInfoWebviewContent(
         right: 10%;
         transform: translateY(-50%);
         color: #fff;
-        max-width: 400px;
       }
       .hero-content h1 {
-        font-size: 2rem;
-        margin-bottom: 1rem;
+        font-size: 1.5rem; /* slightly smaller to fit the reduced height */
+        margin-bottom: 0.5rem;
       }
       .hero-content p {
-        line-height: 1.5;
+        line-height: 1.3;
+        font-size: 0.95rem;
       }
 
       /* Main content area */
       .content-container {
-        max-width: 1200px;
+       
         margin: 2rem auto;
         padding: 0 2rem;
       }
@@ -219,9 +220,10 @@ export function getOrgInfoWebviewContent(
         height: 8px;
         margin-top: 8px;
       }
+      /* Changed the progress bar color to a blue-gray tone */
       .progress-bar {
         height: 8px;
-        background-color: #3f37a6;
+        background-color: #52667a;
       }
     </style>
   </head>
@@ -239,7 +241,12 @@ export function getOrgInfoWebviewContent(
     </nav>
 
     <!-- Hero Section -->
-  
+    <div class="hero">
+      <div class="hero-content">
+        <h1>Your Organization Details</h1>
+        <p>View real-time usage metrics and manage resources all in one place.</p>
+      </div>
+    </div>
 
     <!-- Main Content -->
     <div class="content-container">

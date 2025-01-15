@@ -3,10 +3,8 @@ import * as fs from 'fs';
 
 /**
  * Creates a webview panel and displays a detailed table of applications
- * with a single CSV download option, matching the style from your screenshot.
- *
- * @param context The extension context (used to create WebviewPanel, etc.)
- * @param data The data returned by your API call (JSON array of application records).
+ * with a single CSV download option, with container at ~80% width
+ * and a smaller table font.
  */
 export function showApplicationsWebview1(context: vscode.ExtensionContext, data: any[]) {
   // Ensure the data is an array
@@ -20,22 +18,21 @@ export function showApplicationsWebview1(context: vscode.ExtensionContext, data:
     { enableScripts: true }
   );
 
-  // Build the HTML with the application data
+  // Build the HTML
   panel.webview.html = getApplicationsHtml(appsArray, panel.webview, context.extensionUri);
 
-  // Handle messages from the webview
+  // Listen for messages (for CSV download)
   panel.webview.onDidReceiveMessage(async (message) => {
     if (message.command === 'downloadAllCsv') {
       const csvContent = generateAllApplicationsCsv(appsArray);
 
-      // Prompt the user for a save location
+      // Prompt for save location
       const uri = await vscode.window.showSaveDialog({
         filters: { 'CSV Files': ['csv'] },
         saveLabel: 'Save Applications as CSV',
       });
 
       if (uri) {
-        // Save the file to the chosen location
         fs.writeFileSync(uri.fsPath, csvContent, 'utf-8');
         vscode.window.showInformationMessage(`CSV file saved to ${uri.fsPath}`);
       }
@@ -43,32 +40,41 @@ export function showApplicationsWebview1(context: vscode.ExtensionContext, data:
   });
 }
 
-function getApplicationsHtml(apps: any[],  webview: vscode.Webview,
-  extensionUri: vscode.Uri): string {
-      // Construct the webview-safe URI for logo
-      const logoPath = vscode.Uri.joinPath(extensionUri, 'logo.png');
-      const logoSrc = webview.asWebviewUri(logoPath);
+function getApplicationsHtml(
+  apps: any[],
+  webview: vscode.Webview,
+  extensionUri: vscode.Uri
+): string {
+  // URIs for resources
+  const logoPath = vscode.Uri.joinPath(extensionUri, 'logo.png');
+  const logoSrc = webview.asWebviewUri(logoPath);
+  const ldsPath = vscode.Uri.joinPath(extensionUri, 'salesforce-lightning-design-system.min.css');
+  const ldsSrc = webview.asWebviewUri(ldsPath);
 
-      const ldsPath = vscode.Uri.joinPath(extensionUri,'salesforce-lightning-design-system.min.css');
-      const ldsSrc = webview.asWebviewUri(ldsPath);
+  const dataTableJs = 'https://cdn.datatables.net/1.13.4/js/jquery.dataTables.min.js';
+  const jqueryJs = 'https://code.jquery.com/jquery-3.6.0.min.js';
+  const dataTableCss = 'https://cdn.datatables.net/1.13.4/css/jquery.dataTables.min.css';
 
-      const dataTableJs = "https://cdn.datatables.net/1.13.4/js/jquery.dataTables.min.js";
-      const jqueryJs = "https://code.jquery.com/jquery-3.6.0.min.js";
-      const dataTableCss = "https://cdn.datatables.net/1.13.4/css/jquery.dataTables.min.css";
+  const googleFontLink = 'https://fonts.googleapis.com/css2?family=Inter:wght@300;400;600;700&display=swap';
+
   return /* html */ `
     <!DOCTYPE html>
     <html lang="en">
       <head>
         <meta charset="UTF-8" />
         <title>CloudHub Applications</title>
+        <!-- DataTables + Lightning Design System + Google Font -->
         <link rel="stylesheet" href="${dataTableCss}" />
         <link rel="stylesheet" href="${ldsSrc}" />
+        <link rel="stylesheet" href="${googleFontLink}" />
         <style>
+          /* Use a modern font (Inter in this example) */
           body {
             margin: 0;
             padding: 0;
-            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto,
-              Helvetica, Arial, sans-serif, "Apple Color Emoji", "Segoe UI Emoji";
+            font-family: 'Inter', -apple-system, BlinkMacSystemFont,
+              "Segoe UI", Roboto, Helvetica, Arial, sans-serif,
+              "Apple Color Emoji", "Segoe UI Emoji";
             color: #212529;
             background-color: #ffffff;
           }
@@ -78,7 +84,7 @@ function getApplicationsHtml(apps: any[],  webview: vscode.Webview,
             display: flex;
             align-items: center;
             justify-content: space-between;
-            background-color: #1e1a41; /* Dark purple/blue */
+            background-color: #1f2b3c;
             padding: 0.75rem 1rem;
           }
           .navbar-left {
@@ -109,100 +115,78 @@ function getApplicationsHtml(apps: any[],  webview: vscode.Webview,
             text-decoration: underline;
           }
 
-          /* Hero / Gradient Section */
-          .hero {
-            position: relative;
-            background: linear-gradient(90deg, #262158 0%, #463f96 50%, #5d54b5 100%);
-            color: #ffffff;
-            padding: 2rem 1rem;
-            display: flex;
-            flex-direction: row;
-            justify-content: space-between;
-            align-items: center;
-          }
-          .hero-text {
-            max-width: 60%;
-          }
-          .hero-text h2 {
-            font-size: 2rem;
-            margin-bottom: 0.5rem;
-          }
-          .hero-text p {
-            margin-bottom: 0;
-            font-size: 1rem;
-            line-height: 1.4;
-          }
-
-          /* Main Container */
+          /* Main Container: ~80% of viewport width, centered */
           .container {
-            max-width: 1100px;
-            margin: 0 auto;
-            padding: 1rem;
+            width: 80%;
+            margin: 1rem auto; /* 1rem top/bottom margin */
             background-color: #ffffff;
           }
 
-          /* Page Title (above the table) */
-          .title-bar {
-            display: flex;
-            align-items: center;
-            justify-content: space-between;
-            margin: 1rem 0;
+          /* Card styling */
+          .slds-card {
+            border: 1px solid #e4e4e4;
+            border-radius: 6px;
+            padding: 1rem;
+            background-color: #ffffff;
+            box-shadow: 0 2px 4px rgba(0, 0, 0, 0.05);
           }
-          .title-bar h3 {
-            font-size: 1.25rem;
-            margin: 0;
+          .slds-card__header {
+            margin-bottom: 1rem;
+          }
+          .slds-icon_container {
+            background-color: #52667a;
+            border-radius: 50%;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            width: 40px;
+            height: 40px;
+          }
+          .slds-icon_container svg {
+            fill: #fff;
           }
 
+          /* Button smaller */
           .button {
-            padding: 10px 16px;
-            font-size: 14px;
+            padding: 6px 12px;
+            font-size: 0.85rem;
             color: #ffffff;
-            background-color: #5b44c0;
+            background-color: #52667a;
             border: none;
             border-radius: 4px;
             cursor: pointer;
             text-decoration: none;
-          }
-          .button:hover {
-            background-color: #49359a;
-          }
-
-          /* Table styling */
-          .app-table {
-            width: 100%;
-            border-collapse: collapse;
-            background-color: #fff;
-            box-shadow: 0 0 5px rgba(0,0,0,0.15);
-          }
-          .app-table th,
-          .app-table td {
-            padding: 12px;
-            border-bottom: 1px solid #e2e2e2;
-            text-align: left;
-          }
-          .app-table th {
-            background-color: #f4f4f4;
             font-weight: 600;
           }
-          .app-table tr:hover {
-            background-color: #f9f9f9;
-          }
-          .link {
-            color: #007bff;
-            text-decoration: none;
-          }
-          .link:hover {
-            text-decoration: underline;
+          .button:hover {
+            background-color: #435362;
           }
 
-          /* Ensure the table fits perfectly inside the card */
-          .slds-card__body {
-            overflow-x: auto; /* Allow horizontal scrolling if content overflows */
+          /* DataTable custom styling */
+          #appTable_wrapper .dataTables_length,
+          #appTable_wrapper .dataTables_filter,
+          #appTable_wrapper .dataTables_info,
+          #appTable_wrapper .dataTables_paginate {
+            margin: 0.5rem 0;
+            font-size: 0.8rem;
           }
 
-          .slds-table {
-            width: 100%; /* Force the table to stay within the card */
-            table-layout: auto; /* Allow columns to resize dynamically */
+          /* Make the table font smaller & narrower columns */
+          table.dataTable thead th,
+          table.dataTable tbody td {
+            font-size: 0.8rem; /* Make table text smaller */
+            white-space: nowrap; /* Keep cells from wrapping (narrow columns) */
+          }
+          table.dataTable tbody td {
+            padding: 0.5rem 0.5rem;
+          }
+
+          /* Subtle row striping, highlight on hover */
+          table.dataTable tbody tr:nth-child(even) {
+            background-color: #fafbfc;
+          }
+          table.dataTable tbody tr:hover {
+            background-color: #f1f3f5;
           }
         </style>
       </head>
@@ -210,7 +194,6 @@ function getApplicationsHtml(apps: any[],  webview: vscode.Webview,
         <!-- Top Navbar -->
         <nav class="navbar">
           <div class="navbar-left">
-            <!-- If you have a logo, place it here -->
             <img src="${logoSrc}" />
             <h1>Anypoint Monitor Extension</h1>
           </div>
@@ -220,9 +203,8 @@ function getApplicationsHtml(apps: any[],  webview: vscode.Webview,
           </div>
         </nav>
 
-        <!-- Main Content Container -->
+        <!-- Main Content (80% width container) -->
         <div class="container">
-
           <article class="slds-card">
             <div class="slds-card__header slds-grid">
               <header class="slds-media slds-media_center slds-has-flexi-truncate">
@@ -230,7 +212,11 @@ function getApplicationsHtml(apps: any[],  webview: vscode.Webview,
                   <span class="slds-icon_container slds-icon-standard-account" title="account">
                     <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="white" width="24px" height="24px">
                       <rect width="100%" height="100%" fill="transparent" />
-                      <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm0 18c-4.41 0-8-3.59-8-8s3.59-8 8-8 8 3.59 8 8-3.59 8-8 8z"/>
+                      <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 
+                          10-4.48 10-10S17.52 2 12 2zm0 18
+                          c-4.41 0-8-3.59-8-8s3.59-8
+                          8-8 8 3.59 8 8-3.59 8-8
+                          8z"/>
                       <path d="M11 14h2v2h-2zm0-8h2v6h-2z"/>
                     </svg>
                     <span class="slds-assistive-text">account</span>
@@ -244,58 +230,60 @@ function getApplicationsHtml(apps: any[],  webview: vscode.Webview,
                   </h2>
                 </div>
                 <div class="slds-no-flex">
-                  <button id="downloadAllCsv" class="slds-button slds-button_neutral">Download as CSV</button>
+                  <button id="downloadAllCsv" class="button">Download as CSV</button>
                 </div>
               </header>
             </div>
             <div class="slds-card__body slds-card__body_inner">
               <!-- Table -->
               <div class="slds-scrollable slds-m-around_medium">
-              <table id="appTable" class="slds-table slds-table_cell-buffer slds-table_striped slds-max-medium-table_stacked-horizontal">
-                <thead>
-                  <tr>
-                    <th>Domain</th>
-                    <th>Full Domain</th>
-                    <th>Status</th>
-                    <th>Workers</th>
-                    <th>Worker Type</th>
-                    <th>Region</th>
-                    <th>Last Update</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  ${
-                    apps
-                      .map(
-                        (app) => `
-                          <tr>
-                            <td>${app.domain ?? 'N/A'}</td>
-                            <td>${app.fullDomain ?? 'N/A'}</td>
-                            <td>${app.status ?? 'N/A'}</td>
-                            <td>${app.workers ?? 'N/A'}</td>
-                            <td>${app.workerType ?? 'N/A'}</td>
-                            <td>${app.region ?? 'N/A'}</td>
-                            <td>${app.lastUpdateTime ? new Date(app.lastUpdateTime).toLocaleString() : 'N/A'}</td>
-                          </tr>
-                        `
-                      )
-                      .join('')
-                  }
-                </tbody>
-              </table>
+                <table
+                  id="appTable"
+                  class="slds-table slds-table_cell-buffer slds-table_striped
+                         slds-max-medium-table_stacked-horizontal display"
+                >
+                  <thead>
+                    <tr>
+                      <th>Domain</th>
+                      <th>Full Domain</th>
+                      <th>Status</th>
+                      <th>Workers</th>
+                      <th>Worker Type</th>
+                      <th>Region</th>
+                      <th>Last Update</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    ${
+                      apps
+                        .map(
+                          (app) => `
+                            <tr>
+                              <td>${app.domain ?? 'N/A'}</td>
+                              <td>${app.fullDomain ?? 'N/A'}</td>
+                              <td>${app.status ?? 'N/A'}</td>
+                              <td>${app.workers ?? 'N/A'}</td>
+                              <td>${app.workerType ?? 'N/A'}</td>
+                              <td>${app.region ?? 'N/A'}</td>
+                              <td>${
+                                app.lastUpdateTime
+                                  ? new Date(app.lastUpdateTime).toLocaleString()
+                                  : 'N/A'
+                              }</td>
+                            </tr>
+                          `
+                        )
+                        .join('')
+                    }
+                  </tbody>
+                </table>
               </div>
             </div>
-      
           </article>
-
-            
-
-       
         </div>
-        
+
         <script src="${jqueryJs}"></script>
         <script src="${dataTableJs}"></script>
-
         <script>
           const vscode = acquireVsCodeApi();
 

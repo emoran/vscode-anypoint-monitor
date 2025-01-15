@@ -69,7 +69,7 @@ export function getUserInfoWebviewContent(
           display: flex;
           align-items: center;
           justify-content: space-between;
-          background-color: #1e1a41;
+          background-color: #1f2b3c; /* Changed from purple to a blue-gray tone */
           padding: 0.75rem 1rem;
         }
         .navbar-left {
@@ -104,7 +104,8 @@ export function getUserInfoWebviewContent(
          * HERO SECTION
          ****************************************************************/
         .hero {
-          background: linear-gradient(90deg, #262158 0%, #463f96 50%, #5d54b5 100%);
+          /* Changed purple gradient to a grayish blue gradient */
+          background: linear-gradient(90deg, #2c3e50 0%, #4a5965 50%, #67737b 100%);
           color: #ffffff;
           padding: 2rem 1rem;
           display: flex;
@@ -150,26 +151,24 @@ export function getUserInfoWebviewContent(
           overflow-x: auto;
           margin-bottom: 1.5rem;
         }
-        .app-table {
+        .slds-table {
           border-collapse: collapse;
           background-color: #fff;
           box-shadow: 0 0 5px rgba(0,0,0,0.15);
-          width: auto;
         }
-        .app-table th,
-        .app-table td {
+        .slds-table th,
+        .slds-table td {
           padding: 8px;
           border-bottom: 1px solid #e2e2e2;
           text-align: left;
           vertical-align: top;
-          white-space: nowrap;
           font-size: 0.81rem;
         }
-        .app-table th {
+        .slds-table th {
           background-color: #f4f4f4;
           font-weight: 600;
         }
-        .app-table tr:hover {
+        .slds-table tr:hover {
           background-color: #f9f9f9;
         }
 
@@ -191,14 +190,15 @@ export function getUserInfoWebviewContent(
           padding: 10px 16px;
           font-size: 14px;
           color: #ffffff;
-          background-color: #5b44c0;
+          /* Changed from purple to a muted blue-gray tone */
+          background-color: #52667a;
           border: none;
           border-radius: 4px;
           cursor: pointer;
           text-decoration: none;
         }
         .button:hover {
-          background-color: #49359a;
+          background-color: #435362; /* Darken on hover */
         }
 
         /****************************************************************

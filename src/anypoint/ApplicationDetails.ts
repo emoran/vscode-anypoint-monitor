@@ -55,15 +55,17 @@ function buildSingleApplicationTable(app: any): string {
   const allKeys = Object.keys(flattened).sort();
 
   // Generate <tr><td>Attribute</td><td>Value</td></tr> rows
-  const rowsHtml = allKeys.map((key) => {
-    const val = flattened[key];
-    return `
+  const rowsHtml = allKeys
+    .map((key) => {
+      const val = flattened[key];
+      return `
       <tr>
         <td><strong>${key}</strong></td>
         <td>${renderCell(key, val)}</td>
       </tr>
     `;
-  }).join('');
+    })
+    .join('');
 
   return `
     <div class="box">
@@ -104,27 +106,29 @@ function buildSchedulersTable(schedulers: any[]): string {
     { key: 'status', label: 'Status' },
   ];
 
-  const rowsHtml = schedulers.map((sched) => {
-    // Check schedule for cron or period/timeUnit
-    let scheduleDisplay = '';
-    if (sched.schedule) {
-      if (sched.schedule.cronExpression) {
-        scheduleDisplay = `Cron: ${sched.schedule.cronExpression}`;
-      } else if (sched.schedule.period !== undefined && sched.schedule.timeUnit) {
-        scheduleDisplay = `Every ${sched.schedule.period} ${sched.schedule.timeUnit}`;
+  const rowsHtml = schedulers
+    .map((sched) => {
+      // Check schedule for cron or period/timeUnit
+      let scheduleDisplay = '';
+      if (sched.schedule) {
+        if (sched.schedule.cronExpression) {
+          scheduleDisplay = `Cron: ${sched.schedule.cronExpression}`;
+        } else if (sched.schedule.period !== undefined && sched.schedule.timeUnit) {
+          scheduleDisplay = `Every ${sched.schedule.period} ${sched.schedule.timeUnit}`;
+        }
       }
-    }
 
-    // Build columns
-    const cells = columns.map((col) => {
-      const val = sched[col.key];
-      return `<td>${renderCell(col.key, val)}</td>`;
-    });
-    // Add the custom schedule column
-    cells.push(`<td>${scheduleDisplay}</td>`);
+      // Build columns
+      const cells = columns.map((col) => {
+        const val = sched[col.key];
+        return `<td>${renderCell(col.key, val)}</td>`;
+      });
+      // Add the custom schedule column
+      cells.push(`<td>${scheduleDisplay}</td>`);
 
-    return `<tr>${cells.join('')}</tr>`;
-  }).join('');
+      return `<tr>${cells.join('')}</tr>`;
+    })
+    .join('');
 
   return `
     <div class="box">
@@ -133,7 +137,7 @@ function buildSchedulersTable(schedulers: any[]): string {
         <table class="app-table">
           <thead>
             <tr>
-              ${columns.map(c => `<th>${c.label}</th>`).join('')}
+              ${columns.map((c) => `<th>${c.label}</th>`).join('')}
               <th>Schedule</th>
             </tr>
           </thead>
@@ -153,8 +157,8 @@ function buildLogsSection(logData: any): string {
   const logsArray = Array.isArray(logData)
     ? logData
     : Array.isArray(logData?.data)
-      ? logData.data
-      : [];
+    ? logData.data
+    : [];
 
   if (logsArray.length === 0) {
     return `
@@ -215,20 +219,22 @@ function generateCsvContent(data: any): string {
   const flattenedApp = flattenObject(app);
   const allKeys = Object.keys(flattenedApp).sort();
   const header = allKeys.join(',');
-  const row = allKeys.map((k) => {
-    let val = flattenedApp[k] ?? '';
-    if (k.match(/date$/i)) {
-      const ms = parseInt(val, 10);
-      if (!isNaN(ms)) {
-        val = new Date(ms).toISOString().split('T')[0];
+  const row = allKeys
+    .map((k) => {
+      let val = flattenedApp[k] ?? '';
+      if (k.match(/date$/i)) {
+        const ms = parseInt(val, 10);
+        if (!isNaN(ms)) {
+          val = new Date(ms).toISOString().split('T')[0];
+        }
       }
-    }
-    if (k === 'status' && val === 'RUNNING') val = '🟢 RUNNING';
-    if (k === 'status' && ['STOPPED','UNDEPLOYED','STARTED'].includes(val)) {
-      val = '🔴 ' + val;
-    }
-    return `"${String(val).replace(/"/g, '""')}"`;
-  }).join(',');
+      if (k === 'status' && val === 'RUNNING') val = '🟢 RUNNING';
+      if (k === 'status' && ['STOPPED', 'UNDEPLOYED', 'STARTED'].includes(val)) {
+        val = '🔴 ' + val;
+      }
+      return `"${String(val).replace(/"/g, '""')}"`;
+    })
+    .join(',');
   return [header, row].join('\n');
 }
 
@@ -282,7 +288,7 @@ function getDashboardHtml(
   // Build the sections
   const applicationHtml = buildSingleApplicationTable(data.application);
 
-  // Add a custom class around the Schedulers box so we can style it
+  // We reuse buildSchedulersTable or inline version. Shown here is inline for demonstration.
   const schedulersHtml = `
     <div class="box scheduler-box">
       <h2>Schedulers</h2>
@@ -299,26 +305,29 @@ function getDashboardHtml(
             </tr>
           </thead>
           <tbody>
-            <!-- We will dynamically fill in the Schedulers rows here in a moment -->
             ${
               data.schedulers?.length
-              ? data.schedulers.map((sched: any) => {
-                  const flow = renderCell('flow', sched.flow);
-                  const name = renderCell('name', sched.name);
-                  const lastRun = renderCell('lastRun', sched.lastRun);
-                  const enabled = renderCell('enabled', sched.enabled);
-                  const status = renderCell('status', sched.status);
+                ? data.schedulers
+                    .map((sched: any) => {
+                      const flow = renderCell('flow', sched.flow);
+                      const name = renderCell('name', sched.name);
+                      const lastRun = renderCell('lastRun', sched.lastRun);
+                      const enabled = renderCell('enabled', sched.enabled);
+                      const status = renderCell('status', sched.status);
 
-                  let scheduleDisplay = '';
-                  if (sched.schedule) {
-                    if (sched.schedule.cronExpression) {
-                      scheduleDisplay = `Cron: ${sched.schedule.cronExpression}`;
-                    } else if (sched.schedule.period !== undefined && sched.schedule.timeUnit) {
-                      scheduleDisplay = `Every ${sched.schedule.period} ${sched.schedule.timeUnit}`;
-                    }
-                  }
+                      let scheduleDisplay = '';
+                      if (sched.schedule) {
+                        if (sched.schedule.cronExpression) {
+                          scheduleDisplay = `Cron: ${sched.schedule.cronExpression}`;
+                        } else if (
+                          sched.schedule.period !== undefined &&
+                          sched.schedule.timeUnit
+                        ) {
+                          scheduleDisplay = `Every ${sched.schedule.period} ${sched.schedule.timeUnit}`;
+                        }
+                      }
 
-                  return `
+                      return `
                     <tr>
                       <td>${flow}</td>
                       <td>${name}</td>
@@ -328,8 +337,9 @@ function getDashboardHtml(
                       <td>${scheduleDisplay}</td>
                     </tr>
                   `;
-                }).join('')
-              : '<tr><td colspan="6">No schedulers available.</td></tr>'
+                    })
+                    .join('')
+                : '<tr><td colspan="6">No schedulers available.</td></tr>'
             }
           </tbody>
         </table>
@@ -337,7 +347,6 @@ function getDashboardHtml(
     </div>
   `;
 
-  // Add a custom class around the Logs box so we can style it
   const logsHtml = `
     <div class="box logs-box">
       <h2>Logs</h2>
@@ -387,12 +396,12 @@ function getDashboardHtml(
     <div class="box">
       <h2>Analytics</h2>
       <div class="analytics-icons">
-        <h3>Comming Soon.</h3>
+        <h3>Coming Soon.</h3>
       </div>
     </div>
   `;
 
-  // Build the final HTML using a 2-column grid.
+  // Final HTML with a hero section (optional) + blue-gray “tech” style
   return /* html */ `
     <!DOCTYPE html>
     <html lang="en">
@@ -400,143 +409,193 @@ function getDashboardHtml(
         <meta charset="UTF-8" />
         <title>Anypoint Monitor Dashboard</title>
         <style>
+          /* Global resets, blue-gray tech style */
           body {
-            margin: 0; padding: 0;
-            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif,
-              "Apple Color Emoji", "Segoe UI Emoji";
-            color: #212529; background-color: #ffffff;
+            margin: 0;
+            padding: 0;
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto,
+              Helvetica, Arial, sans-serif, "Apple Color Emoji", "Segoe UI Emoji";
+            color: #212529;
+            background-color: #ffffff;
           }
+
+          /* NAVBAR - changed from #1e1a41 to #1f2b3c */
           .navbar {
-            display: flex; align-items: center; justify-content: space-between;
-            background-color: #1e1a41; padding: 0.75rem 1rem;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            background-color: #1f2b3c;
+            padding: 0.75rem 1rem;
           }
           .navbar-left {
-            display: flex; align-items: center; gap: 1rem;
+            display: flex;
+            align-items: center;
+            gap: 1rem;
           }
           .navbar-left img {
-            height: 32px; width: auto;
+            height: 32px;
+            width: auto;
           }
           .navbar-left h1 {
-            color: #fff; font-size: 1.25rem; margin: 0;
+            color: #fff;
+            font-size: 1.25rem;
+            margin: 0;
           }
           .navbar-right {
-            display: flex; gap: 1.5rem;
+            display: flex;
+            gap: 1.5rem;
           }
           .navbar-right a {
-            color: #fff; text-decoration: none; font-weight: 500; font-size: 0.9rem;
+            color: #fff;
+            text-decoration: none;
+            font-weight: 500;
+            font-size: 0.9rem;
           }
-          .navbar-right a:hover { text-decoration: underline; }
+          .navbar-right a:hover {
+            text-decoration: underline;
+          }
 
-          .container { max-width: 1400px; margin: 0 auto; padding: 1rem; }
+          /* Optional Hero Section with a blue-gray gradient (like previous examples) */
+          .hero {
+            background: linear-gradient(90deg, #2c3e50 0%, #4a5965 50%, #67737b 100%);
+            color: #ffffff;
+            padding: 2rem 1rem;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+          }
+          .hero-text {
+            max-width: 60%;
+          }
+          .hero-text h2 {
+            font-size: 2rem;
+            margin-bottom: 0.5rem;
+          }
+          .hero-text p {
+            margin-bottom: 0;
+            font-size: 1rem;
+            line-height: 1.4;
+          }
 
+          /* Container */
+          .container {
+            max-width: 1400px;
+            margin: 0 auto;
+            padding: 1rem;
+          }
+
+          /* Button style: from purple to a subtle blue-gray */
           .button {
-            padding: 10px 16px; font-size: 14px; color: #fff; background-color: #5b44c0;
-            border: none; border-radius: 4px; cursor: pointer; text-decoration: none;
+            padding: 10px 16px;
+            font-size: 14px;
+            color: #fff;
+            background-color: #52667a; /* muted blue-gray */
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            text-decoration: none;
           }
-          .button:hover { background-color: #49359a; }
+          .button:hover {
+            background-color: #435362;
+          }
 
           /* 2-column layout */
           .dashboard-grid {
             display: grid;
-            grid-template-columns: 750px 1.5fr; 
+            grid-template-columns: 750px 1.5fr;
             gap: 1rem;
           }
-          .left-column, .right-column {
+          .left-column,
+          .right-column {
             display: flex;
             flex-direction: column;
             gap: 1rem;
           }
 
+          /* Boxes */
           .box {
             background-color: #fafafa;
             border: 1px solid #e2e2e2;
-            border-radius: 4px; 
+            border-radius: 4px;
             padding: 1rem;
           }
           .box h2 {
-            margin-top: 0; 
-            font-size: 1.1rem; 
+            margin-top: 0;
+            font-size: 1.1rem;
             margin-bottom: 0.75rem;
           }
           .table-container {
             width: 100%;
-            overflow-x: auto; 
+            overflow-x: auto;
           }
+
           .app-table {
-            border-collapse: collapse; 
-            width: 100%; 
+            border-collapse: collapse;
+            width: 100%;
             background-color: #fff;
-            box-shadow: 0 0 5px rgba(0,0,0,0.15); 
+            box-shadow: 0 0 5px rgba(0, 0, 0, 0.15);
             font-size: 0.75rem;
           }
-          .app-table th, .app-table td {
-            padding: 6px; 
-            border-bottom: 1px solid #e2e2e2; 
-            text-align: left; 
+          .app-table th,
+          .app-table td {
+            padding: 6px;
+            border-bottom: 1px solid #e2e2e2;
+            text-align: left;
             vertical-align: top;
             font-size: 0.71rem;
           }
           .app-table th {
-            background-color: #f4f4f4; 
-            font-weight: 600; 
+            background-color: #f4f4f4;
+            font-weight: 600;
             white-space: nowrap;
           }
-          .app-table tr:hover { background-color: #f9f9f9; }
-
-          /* Make schedulers box smaller and scrollable */
-          .scheduler-box .table-container {
-            max-height: none; /* Adjust as needed */
-            overflow-y: visible;
+          .app-table tr:hover {
+            background-color: #f9f9f9;
           }
 
-          /* Make logs box smaller and scrollable */
-          .logs-box .table-container {
-            max-height: 300px; /* Adjust as needed */
-            overflow-y: auto;
-          }
-
-          /* Analytics icons */
-          .analytics-icons { 
-            display: flex; 
-            gap: 1rem; 
-          }
-          .icon-placeholder {
-            font-size: 2rem; 
-            background-color: #fff; 
-            border: 1px solid #ccc; 
-            border-radius: 4px;
-            width: 60px; 
-            height: 60px; 
-            display: flex; 
-            align-items: center; 
-            justify-content: center;
-          }
-
-          /* Logs table styling */
+          /* Make logs table smaller and scrollable */
           .logs-table {
-            border-collapse: collapse; 
-            width: 100%; 
+            border-collapse: collapse;
+            width: 100%;
             background-color: #fff;
-            box-shadow: 0 0 5px rgba(0,0,0,0.15);
-            font-size: 0.75rem; 
-            font-family: "Courier New", Courier, monospace; 
+            box-shadow: 0 0 5px rgba(0, 0, 0, 0.15);
+            font-size: 0.75rem;
+            font-family: "Courier New", Courier, monospace;
           }
-          .logs-table th, .logs-table td {
-            padding: 6px; 
-            border-bottom: 1px solid #e2e2e2; 
-            text-align: left; 
+          .logs-table th,
+          .logs-table td {
+            padding: 6px;
+            border-bottom: 1px solid #e2e2e2;
+            text-align: left;
             vertical-align: top;
           }
           .logs-table th {
-            background-color: #f4f4f4; 
-            font-weight: 600; 
+            background-color: #f4f4f4;
+            font-weight: 600;
             white-space: nowrap;
           }
-          .logs-table tr:hover { background-color: #f9f9f9; }
+          .logs-table tr:hover {
+            background-color: #f9f9f9;
+          }
+
+          /* Adjust boxes if you want scroll limits */
+          .scheduler-box .table-container {
+            max-height: none;
+            overflow-y: visible;
+          }
+          .logs-box .table-container {
+            max-height: 300px;
+            overflow-y: auto;
+          }
+
+          .analytics-icons {
+            display: flex;
+            gap: 1rem;
+          }
         </style>
       </head>
       <body>
-        <!-- Top Navbar -->
+        <!-- NAVBAR -->
         <nav class="navbar">
           <div class="navbar-left">
             <img src="${logoSrc}" />
@@ -548,10 +607,8 @@ function getDashboardHtml(
           </div>
         </nav>
 
+        <!-- MAIN CONTENT -->
         <div class="container">
-          <!-- (Optional) CSV Download Button -->
-         
-
           <!-- 2-column grid layout -->
           <div class="dashboard-grid">
             <!-- Left Column: Application Info & Analytics -->
@@ -564,6 +621,10 @@ function getDashboardHtml(
             <div class="right-column">
               ${schedulersHtml}
               ${logsHtml}
+              <div class="box">
+                <h2>Alerts</h2>
+                <p>${JSON.stringify(data.alerts)}</p>
+              </div>
             </div>
           </div>
         </div>
@@ -571,7 +632,7 @@ function getDashboardHtml(
         <script>
           const vscode = acquireVsCodeApi();
 
-          // CSV Button
+          // CSV Button (if you add one in your HTML, e.g. <button id="downloadCsv" class="button">Download CSV</button>)
           const csvBtn = document.getElementById('downloadCsv');
           if (csvBtn) {
             csvBtn.addEventListener('click', () => {
@@ -606,17 +667,19 @@ function getDashboardHtml(
             const pageLogs = filteredLogs.slice(startIndex, endIndex);
 
             // Build rows
-            const rowsHtml = pageLogs.map(log => {
-              const dateStr = new Date(log.timestamp).toISOString();
-              const msg = (log.message || '').replace(/\\n/g, '<br/>');
-              return \`
-                <tr>
-                  <td>\${dateStr}</td>
-                  <td>\${log.priority || ''}</td>
-                  <td>\${msg}</td>
-                </tr>
-              \`;
-            }).join('');
+            const rowsHtml = pageLogs
+              .map((log) => {
+                const dateStr = new Date(log.timestamp).toISOString();
+                const msg = (log.message || '').replace(/\\n/g, '<br/>');
+                return \`
+                  <tr>
+                    <td>\${dateStr}</td>
+                    <td>\${log.priority || ''}</td>
+                    <td>\${msg}</td>
+                  </tr>
+                \`;
+              })
+              .join('');
 
             logsTbody.innerHTML = rowsHtml;
 
@@ -627,19 +690,17 @@ function getDashboardHtml(
             }
 
             // Enable/disable Prev/Next
-            if (logsPrev) logsPrev.disabled = (currentPage <= 1);
-            if (logsNext) logsNext.disabled = (currentPage >= totalPages);
+            if (logsPrev) logsPrev.disabled = currentPage <= 1;
+            if (logsNext) logsNext.disabled = currentPage >= totalPages;
           }
 
           // Filter logs by text
           function applyLogFilter() {
             const term = logFilter?.value?.toLowerCase() || '';
-            filteredLogs = logsData.filter(log => {
-              const combined = [
-                log.threadName,
-                log.priority,
-                log.message
-              ].join(' ').toLowerCase();
+            filteredLogs = logsData.filter((log) => {
+              const combined = [log.threadName, log.priority, log.message]
+                .join(' ')
+                .toLowerCase();
               return combined.includes(term);
             });
             currentPage = 1; // reset to first page
