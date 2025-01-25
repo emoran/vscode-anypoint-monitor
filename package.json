@@ -58,6 +58,10 @@
         "title": "AM: Show Cloudhub 1.0 Applications"
       },
       {
+        "command": "anypoint-monitor.developerInfo",
+        "title": "AM: Developer INFO"
+      },
+      {
         "command": "anypoint-monitor.logout",
         "title": "AM: Logout"
       }
@@ -69,7 +73,8 @@
     "watch": "tsc -watch -p ./",
     "pretest": "npm run compile && npm run lint",
     "lint": "eslint src",
-    "test": "vscode-test"
+    "test": "vscode-test",
+    "deploy": "vsce publish --yarn"
   },
   "devDependencies": {
     "@types/mocha": "^10.0.10",

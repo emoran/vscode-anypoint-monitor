@@ -9,6 +9,7 @@ import { showApplicationsWebview1 } from './anypoint/cloudhub1Applications';
 import { getUserInfoWebviewContent } from './anypoint/userInfoContent'; 
 import {getOrgInfoWebviewContent} from './anypoint/organizationInfo';
 import {showDashboardWebview} from './anypoint/ApplicationDetails';
+import {showEnvironmentAndOrgPanel} from './anypoint/developerInfo';
 
 //These are hardcoded in porpose until find a feature to store them in a secure way
 const CLIENT_ID = '05ce4abd0fc047b4bcd512f15b3445c9';
@@ -60,6 +61,15 @@ export function activate(context: vscode.ExtensionContext) {
 	const organizationInformation = vscode.commands.registerCommand('anypoint-monitor.organizationInfo', async () => {
 		try {
 			await getOrganizationInfo(context);
+		} 
+		catch (error: any) {
+			vscode.window.showErrorMessage(`Error: ${error.message || error}`);
+		}
+	});
+
+	const devInfo = vscode.commands.registerCommand('anypoint-monitor.developerInfo', async () => {
+		try {
+			await developerInfo(context);
 		} 
 		catch (error: any) {
 			vscode.window.showErrorMessage(`Error: ${error.message || error}`);
@@ -235,6 +245,7 @@ export function activate(context: vscode.ExtensionContext) {
 	context.subscriptions.push(getCH1Apps);
 	context.subscriptions.push(organizationInformation);
 	context.subscriptions.push(applicationDetails);
+	context.subscriptions.push(devInfo);
 }
 
 export async function retrieveApplications(context: vscode.ExtensionContext, selectedEnvironmentId: string) {
@@ -626,6 +637,11 @@ export async function getOrganizationInfo(context: vscode.ExtensionContext) {
 		vscode.window.showErrorMessage(`Error calling API: ${error.message}`);
 	  }
 	}
+}
+
+export async function developerInfo(context: vscode.ExtensionContext) {
+	
+	showEnvironmentAndOrgPanel(context, { orgName: 'My Org', orgId: '12345' });
 }
 
 
