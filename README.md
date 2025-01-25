@@ -1,4 +1,7 @@
 # anypoint-monitor README
+![logo](https://github.com/user-attachments/assets/4b8116e5-ed51-4802-ad83-b1e55fbd02a3)
+
+
 
 ## Features
 
