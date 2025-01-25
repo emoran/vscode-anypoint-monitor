@@ -290,7 +290,7 @@ export function activate(context: vscode.ExtensionContext) {
 	context.subscriptions.push(getCH1Apps);
 	context.subscriptions.push(organizationInformation);
 	context.subscriptions.push(applicationDetails);
-	context.subscriptions.push(devInfo);
+	//context.subscriptions.push(devInfo);
 	context.subscriptions.push(subcriptionExpiration);
 }
 
