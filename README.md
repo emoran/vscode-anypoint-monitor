@@ -1,7 +1,6 @@
 # anypoint-monitor README
+
 ![logo](https://github.com/user-attachments/assets/4b8116e5-ed51-4802-ad83-b1e55fbd02a3)
-
-
 
 ## Features
 
@@ -12,6 +11,7 @@ Allow to show Anypoint Platform information and add some features in one single 
 - Get CloudHub 2.0 applications
 - Get Organization Details and usage
 - Application Details (One page to show all details of the app CH1 only for now)
+- Subscription Expiration
 
 > Note: Some of the features might not be availble due entitlement or permissions
 
@@ -23,7 +23,7 @@ An Anypoint Platform user Login.
 
 ## Release Notes
 
-### 0.0.6
+### 0.0.7
 
 Initial release of commands:
 
@@ -33,6 +33,7 @@ Initial release of commands:
 - AM: Show Cloudhub 2.0 Applications
 - AM: Show Cloudhub 1.0 Applications
 - AM: Application Details
+- AM: Subscription Expiration
 - AM: Logout
 
 ---
