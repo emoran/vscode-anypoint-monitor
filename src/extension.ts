@@ -9,7 +9,7 @@ import { showApplicationsWebview1 } from './anypoint/cloudhub1Applications';
 import { getUserInfoWebviewContent } from './anypoint/userInfoContent'; 
 import {getOrgInfoWebviewContent} from './anypoint/organizationInfo';
 import {showDashboardWebview} from './anypoint/ApplicationDetails';
-import {showEnvironmentAndOrgPanel} from './anypoint/developerInfo';
+// import {showEnvironmentAndOrgPanel} from './anypoint/developerInfo';
 
 //These are hardcoded in porpose until find a feature to store them in a secure way
 const CLIENT_ID = '05ce4abd0fc047b4bcd512f15b3445c9';
@@ -685,10 +685,10 @@ export async function getOrganizationInfo(context: vscode.ExtensionContext) {
 	}
 }
 
-export async function developerInfo(context: vscode.ExtensionContext) {
+// export async function developerInfo(context: vscode.ExtensionContext) {
 	
-	showEnvironmentAndOrgPanel(context, { orgName: 'My Org', orgId: '12345' });
-}
+// 	showEnvironmentAndOrgPanel(context, { orgName: 'My Org', orgId: '12345' });
+// }
 
 
 export async function getEnvironments(context: vscode.ExtensionContext) {
