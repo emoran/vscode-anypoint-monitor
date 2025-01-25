@@ -58,8 +58,8 @@
         "title": "AM: Show Cloudhub 1.0 Applications"
       },
       {
-        "command": "anypoint-monitor.developerInfo",
-        "title": "AM: Developer INFO"
+        "command": "anypoint-monitor.subscriptionExpiration",
+        "title": "AM: Subscription Expiration"
       },
       {
         "command": "anypoint-monitor.logout",
