@@ -67,14 +67,14 @@ export function activate(context: vscode.ExtensionContext) {
 		}
 	});
 
-	const devInfo = vscode.commands.registerCommand('anypoint-monitor.developerInfo', async () => {
-		try {
-			await developerInfo(context);
-		} 
-		catch (error: any) {
-			vscode.window.showErrorMessage(`Error: ${error.message || error}`);
-		}
-	});
+	// const devInfo = vscode.commands.registerCommand('anypoint-monitor.developerInfo', async () => {
+	// 	try {
+	// 		await developerInfo(context);
+	// 	} 
+	// 	catch (error: any) {
+	// 		vscode.window.showErrorMessage(`Error: ${error.message || error}`);
+	// 	}
+	// });
 
 	const applicationDetails = vscode.commands.registerCommand('anypoint-monitor.applicationDetails', async () => {
 		try {
