@@ -50,3 +50,6 @@ Ensure that you've read through the extensions guidelines and follow the best pr
 - [Markdown Syntax Reference](https://help.github.com/articles/markdown-basics/)
 
 **Enjoy!**
+
+[![VS Marketplace Version](https://img.shields.io/visual-studio-marketplace/v/emoran.anypoint-monitor)](https://marketplace.visualstudio.com/items?itemName=emoran.anypoint-monitor)
+[![License](https://img.shields.io/github/license/emoran/vscode-anypoint-monitor)](LICENSE)
