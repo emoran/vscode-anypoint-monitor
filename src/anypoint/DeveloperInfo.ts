@@ -6,8 +6,6 @@ interface IEnvironment {
   name: string;
 }
 
-const ORG_ID = '7b04233c-7d81-4ccb-90fe-4d6f39927b10';
-
 export async function showEnvironmentAndOrgPanel(
   context: vscode.ExtensionContext,
   userInfo: { orgName: string; orgId: string },
@@ -22,7 +20,7 @@ export async function showEnvironmentAndOrgPanel(
     }
 
     // 2) Make the API call to fetch clients
-    const url = `https://anypoint.mulesoft.com/accounts/api/organizations/${ORG_ID}/clients`;
+    const url = `https://anypoint.mulesoft.com/accounts/api/organizations/${userInfo.orgId}/clients`;
     const response = await axios.get(url, {
       headers: { Authorization: `Bearer ${accessToken}` },
     });

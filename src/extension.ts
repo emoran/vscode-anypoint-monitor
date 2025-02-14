@@ -699,9 +699,11 @@ export async function developerInfo(context: vscode.ExtensionContext) {
 	const userInfo = JSON.parse(storedUserInfo);
 	const environments = JSON.parse(storedEnvironments);
 	const parsedEnvironments = JSON.parse(storedEnvironments); // e.g. { data: [ ... ], total: 2 }
+	//let organizationID = JSON.parse(userInfo).organization.id;
+	
 	showEnvironmentAndOrgPanel(
 	  context,
-	  { orgName: '...', orgId: '...' },
+	  { orgName:"-", orgId: userInfo.organization.id },
 	  parsedEnvironments.data // or whatever contains your environment objects
 	);
 }
