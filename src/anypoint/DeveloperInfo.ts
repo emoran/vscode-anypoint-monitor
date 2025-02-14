@@ -1,53 +1,130 @@
 import * as vscode from 'vscode';
+import axios from 'axios';
 
-/**
- * Example command (or function) that shows a WebView with:
- * - A Nav Bar
- * - An environment info card
- * - An organization info card
- */
+interface IEnvironment {
+  id: string;
+  name: string;
+}
+
+const ORG_ID = '7b04233c-7d81-4ccb-90fe-4d6f39927b10';
+
 export async function showEnvironmentAndOrgPanel(
   context: vscode.ExtensionContext,
-  userInfo: { orgName: string; orgId: string }
+  userInfo: { orgName: string; orgId: string },
+  environments: IEnvironment[]
 ) {
-  // 1) Retrieve environment info from the secure store
-  //    (Here, we assume you stored them as 'ENV_NAME' and 'ENV_ID'.)
-  const environmentName = (await context.secrets.get('ENV_NAME')) ?? 'Unknown Env';
-  const environmentId = (await context.secrets.get('ENV_ID')) ?? 'Unknown ID';
+  try {
+    // 1) Retrieve stored access token
+    const accessToken = await context.secrets.get('anypoint.accessToken');
+    if (!accessToken) {
+      vscode.window.showErrorMessage('No access token found. Please log in first.');
+      return;
+    }
 
-  // 2) Create a Webview Panel
-  const panel = vscode.window.createWebviewPanel(
-    'environmentOrgView',
-    'Environment & Organization Info',
-    vscode.ViewColumn.One,
-    { enableScripts: true } // if you need scripts
-  );
+    // 2) Make the API call to fetch clients
+    const url = `https://anypoint.mulesoft.com/accounts/api/organizations/${ORG_ID}/clients`;
+    const response = await axios.get(url, {
+      headers: { Authorization: `Bearer ${accessToken}` },
+    });
 
-  // 3) Set the HTML content of that panel
-  panel.webview.html = getEnvironmentOrgHtml(
-    panel.webview,
-    context.extensionUri,
-    { environmentName, environmentId },
-    userInfo
-  );
+    const allClients = response.data;
+    // Filter for records where name contains "Org: Cisco Meraki - Env:"
+    const merakiClients: Array<{
+      client_id: string;
+      client_secret: string;
+      name: string;
+    }> = [];
+
+    for (const key of Object.keys(allClients)) {
+      const c = allClients[key];
+      if (c.name && c.name.includes('Org: Cisco Meraki - Env:')) {
+        merakiClients.push({
+          client_id: c.client_id,
+          client_secret: c.client_secret,
+          name: c.name
+        });
+      }
+    }
+
+    // 3) Create Webview Panel
+    const panel = vscode.window.createWebviewPanel(
+      'environmentOrgView',
+      'Environment & Organization Info',
+      vscode.ViewColumn.One,
+      { enableScripts: true }
+    );
+
+    // 4) Set HTML content
+    panel.webview.html = getEnvironmentOrgHtml(panel.webview, context.extensionUri, userInfo, environments, merakiClients);
+  } catch (err: any) {
+    vscode.window.showErrorMessage(`Error fetching clients: ${err.message}`);
+  }
 }
 
 /**
- * Returns the HTML string for the environment & organization layout.
+ * Generates HTML showing:
+ *  - A table of Environments
+ *  - A table of Meraki Clients (Name, Client ID, Client Secret)
+ *  - Client secret is hidden by default (*****). The user can Show/Hide it
+ *  - Both client_id and client_secret are clickable to copy their values
  */
 function getEnvironmentOrgHtml(
   webview: vscode.Webview,
   extensionUri: vscode.Uri,
-  envData: { environmentName: string; environmentId: string },
-  userInfo: { orgName: string; orgId: string }
+  userInfo: { orgName: string; orgId: string },
+  environments: IEnvironment[],
+  merakiClients: Array<{
+    client_id: string;
+    client_secret: string;
+    name: string;
+  }>
 ): string {
-  // If you have a logo.png in your extension,
-  // convert it to a webview URI so you can reference it in <img src=...>
-  const logoPath = vscode.Uri.joinPath(extensionUri, 'logo.png');
-  const logoSrc = webview.asWebviewUri(logoPath);
 
-  // Basic CSS for layout & styling
-  // (You can adapt the styling to match your extension’s theme.)
+  // Environment table
+  const environmentRows = environments.map(env => {
+    return /* html */ `
+      <tr>
+        <td>${env.name || '(No Name)'}</td>
+        <td>${env.id || '(No ID)'}</td>
+      </tr>
+    `;
+  }).join('');
+
+  // Clients table
+  // We remove the "Key" column. Make "Client Name" first. Then "Client ID". Then "Client Secret."
+  const merakiClientRows = merakiClients.map(client => {
+    // By default, secret is hidden with asterisks
+    const secretAsterisks = '*****';
+
+    return /* html */ `
+      <tr>
+        <!-- Client Name first column -->
+        <td>${client.name}</td>
+
+        <!-- Client ID with click-to-copy -->
+        <td>
+          <span class="copyable" data-copy="${client.client_id}" title="Click to copy">
+            ${client.client_id}
+          </span>
+        </td>
+
+        <!-- Client Secret with show/hide toggle and click-to-copy -->
+        <td>
+          <!-- Real secret is stored in data-secret; the displayed text is ***** initially -->
+          <span
+            class="client-secret copyable"
+            data-secret="${client.client_secret}"
+            title="Click to copy secret"
+          >
+            ${secretAsterisks}
+          </span>
+          &nbsp;
+          <button class="toggle-secret">Show</button>
+        </td>
+      </tr>
+    `;
+  }).join('');
+
   return /* html */ `
     <!DOCTYPE html>
     <html lang="en">
@@ -55,140 +132,153 @@ function getEnvironmentOrgHtml(
       <meta charset="UTF-8" />
       <title>Environment & Org Info</title>
       <style>
-        /* Reset / Base */
         body {
-          margin: 0;
-          padding: 0;
+          margin: 0; padding: 0;
           font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto,
             Helvetica, Arial, sans-serif, "Apple Color Emoji", "Segoe UI Emoji";
-          background-color: #f7f7f7;
-          color: #333;
+          background-color: #f7f7f7; color: #333;
         }
 
-        /* Nav Bar */
-        .navbar {
-          display: flex;
-          align-items: center;
-          justify-content: space-between;
-          background-color: #1f2b3c;
-          padding: 1rem;
-        }
-        .navbar-left,
-        .navbar-right {
-          display: flex;
-          align-items: center;
-          gap: 1rem;
-        }
-        .navbar-left img {
-          height: 32px;
-          width: auto;
-        }
-        .navbar-left h1 {
-          color: #ffffff;
-          font-size: 1.25rem;
-          margin: 0;
-        }
-        .navbar-right a {
-          color: #ffffff;
-          text-decoration: none;
-          font-size: 0.9rem;
-        }
-
-        /* Main container */
         .container {
-          max-width: 1200px;
-          margin: 1rem auto;
-          padding: 1rem;
-          background-color: #ffffff;
-          box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+          max-width: 1200px; margin: 1rem auto; padding: 1rem;
+          background-color: #fff; box-shadow: 0 1px 3px rgba(0,0,0,0.1);
         }
+        h2, h3 { margin-top: 0; }
 
-        /* Card / Box styling */
-        .card {
-          background-color: #fff;
-          border: 1px solid #ddd;
-          border-radius: 4px;
-          padding: 1rem;
+        table {
+          width: 100%;
+          border-collapse: collapse;
           margin-bottom: 1.5rem;
         }
-        .card h2 {
-          margin: 0 0 0.75rem 0;
-          font-size: 1.15rem;
+        th, td {
+          border: 1px solid #ddd;
+          padding: 8px 12px;
+          text-align: left;
         }
-        .card .info-row {
-          display: flex;
-          gap: 1rem;
-          margin-top: 0.5rem;
-        }
-        .card .info-item {
+        th {
           background-color: #f4f4f4;
-          border-radius: 4px;
-          padding: 0.5rem 0.75rem;
-          flex: 0 0 auto;
-        }
-        .card .info-label {
-          font-weight: 600;
-          margin-bottom: 0.25rem;
-          display: block;
         }
 
-        /* Additional placeholders for text lines (like in your mockup) */
-        .placeholder-line {
-          height: 0.75rem;
-          background-color: #eee;
-          margin: 0.25rem 0;
-          border-radius: 2px;
+        /* Feedback message for copy */
+        .copy-feedback {
+          color: green; font-size: 0.8rem; margin-left: 0.5rem;
+          display: none;
+        }
+        .copyable {
+          cursor: pointer;
+          text-decoration: underline;
+        }
+        .toggle-secret {
+          margin-left: 0.5rem;
+          cursor: pointer;
         }
       </style>
     </head>
     <body>
-      <!-- NAV BAR -->
-      <nav class="navbar">
-        <div class="navbar-left">
-          <img src="${logoSrc}" alt="Extension Logo" />
-          <h1>Anypoint Monitor Extension</h1>
-        </div>
-        <div class="navbar-right">
-          <a href="#">Menu Link</a>
-          <a href="#">Another Link</a>
-        </div>
-      </nav>
-
-      <!-- MAIN CONTAINER -->
       <div class="container">
-        <!-- ENVIRONMENT INFO CARD -->
-        <div class="card">
-          <h2>Environment</h2>
-          <div class="info-row">
-            <div class="info-item">
-              <span class="info-label">Environment Name</span>
-              <span>${envData.environmentName}</span>
-            </div>
-            <div class="info-item">
-              <span class="info-label">Environment ID</span>
-              <span>${envData.environmentId}</span>
-            </div>
-          </div>
-          <!-- Placeholder lines for extra environment details -->
-          <div class="placeholder-line" style="width: 80%;"></div>
-          <div class="placeholder-line" style="width: 60%;"></div>
-        </div>
+        <h2>Organization: ${userInfo.orgName} (ID: ${userInfo.orgId})</h2>
 
-        <!-- ORGANIZATION INFO CARD -->
-        <div class="card">
-          <h2>Organization</h2>
-          <div class="info-row">
-            <div class="info-item">
-              <span class="info-label">Organization Name</span>
-              <span>${userInfo.orgName}</span>
-            </div>
-            <div class="info-item">
-              <span class="info-label">Organization ID</span>
-              <span>${userInfo.orgId}</span>
-            </div>
-          </div>
-        </div>
+        <!-- ENVIRONMENT TABLE -->
+        <h3>All Environments</h3>
+        <table>
+          <thead>
+            <tr>
+              <th>Environment Name</th>
+              <th>Environment ID</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${environmentRows}
+          </tbody>
+        </table>
+
+        <!-- MERAKI CLIENTS TABLE -->
+        <h3>Meraki Clients (Name contains "Org: Cisco Meraki - Env:")</h3>
+        <table>
+          <thead>
+            <tr>
+              <th>Client Name</th>
+              <th>Client ID</th>
+              <th>Client Secret</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${merakiClientRows}
+          </tbody>
+        </table>
       </div>
+
+      <script>
+        // For showing "copied" feedback briefly
+        function showCopiedFeedback(element) {
+          const feedbackSpan = document.createElement('span');
+          feedbackSpan.className = 'copy-feedback';
+          feedbackSpan.textContent = 'Copied!';
+          element.insertAdjacentElement('afterend', feedbackSpan);
+          feedbackSpan.style.display = 'inline';
+
+          setTimeout(() => {
+            feedbackSpan.remove();
+          }, 1200);
+        }
+
+        document.addEventListener('click', (e) => {
+          const target = e.target;
+
+          // 1) Toggle-secret button
+          if (target.classList.contains('toggle-secret')) {
+            const secretCell = target.parentElement;
+            if (!secretCell) return;
+
+            const secretSpan = secretCell.querySelector('.client-secret');
+            if (!secretSpan) return;
+
+            const currentText = secretSpan.textContent || '';
+            const realSecret = secretSpan.getAttribute('data-secret') || '';
+            if (currentText === '*****') {
+              // Show it
+              secretSpan.textContent = realSecret;
+              target.textContent = 'Hide';
+            } else {
+              // Hide it
+              secretSpan.textContent = '*****';
+              target.textContent = 'Show';
+            }
+          }
+
+          // 2) Click-to-copy for client_id or client_secret
+          if (target.classList.contains('copyable')) {
+            // If it's the secret, we might have to see if it's hidden or not
+            // But easiest approach: always copy from the data-secret or data-copy
+            // if it exists, else copy the displayed text
+            const dataCopy = target.getAttribute('data-copy'); 
+            const dataSecret = target.getAttribute('data-secret');
+            let textToCopy = '';
+
+            // If there's a "data-copy" attribute, use that (for client_id).
+            if (dataCopy) {
+              textToCopy = dataCopy;
+            }
+            // If there's a "data-secret" attribute, use what's currently displayed
+            // or just use data-secret directly if you prefer copying the real secret even if hidden
+            else if (dataSecret) {
+              // if user hasn't pressed "Show" yet, the displayed text is "*****"
+              // so let's always copy the real secret (the user presumably intended to copy the secret).
+              textToCopy = dataSecret;
+            } else {
+              // fallback: copy whatever is in the text
+              textToCopy = target.textContent || '';
+            }
+
+            // Perform the copy
+            navigator.clipboard.writeText(textToCopy).then(() => {
+              showCopiedFeedback(target);
+            }).catch(err => {
+              console.error('Failed to copy:', err);
+            });
+          }
+        });
+      </script>
     </body>
     </html>
   `;

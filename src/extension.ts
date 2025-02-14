@@ -9,7 +9,7 @@ import { showApplicationsWebview1 } from './anypoint/cloudhub1Applications';
 import { getUserInfoWebviewContent } from './anypoint/userInfoContent'; 
 import {getOrgInfoWebviewContent} from './anypoint/organizationInfo';
 import {showDashboardWebview} from './anypoint/ApplicationDetails';
-// import {showEnvironmentAndOrgPanel} from './anypoint/developerInfo';
+ import {showEnvironmentAndOrgPanel} from './anypoint/DeveloperInfo';
 
 //These are hardcoded in porpose until find a feature to store them in a secure way
 const CLIENT_ID = '05ce4abd0fc047b4bcd512f15b3445c9';
@@ -67,14 +67,14 @@ export function activate(context: vscode.ExtensionContext) {
 		}
 	});
 
-	// const devInfo = vscode.commands.registerCommand('anypoint-monitor.developerInfo', async () => {
-	// 	try {
-	// 		await developerInfo(context);
-	// 	} 
-	// 	catch (error: any) {
-	// 		vscode.window.showErrorMessage(`Error: ${error.message || error}`);
-	// 	}
-	// });
+	const devInfo = vscode.commands.registerCommand('anypoint-monitor.developerUtilities', async () => {
+		try {
+			await developerInfo(context);
+		} 
+		catch (error: any) {
+			vscode.window.showErrorMessage(`Error: ${error.message || error}`);
+		}
+	});
 
 	const applicationDetails = vscode.commands.registerCommand('anypoint-monitor.applicationDetails', async () => {
 		try {
@@ -685,10 +685,26 @@ export async function getOrganizationInfo(context: vscode.ExtensionContext) {
 	}
 }
 
-// export async function developerInfo(context: vscode.ExtensionContext) {
-	
-// 	showEnvironmentAndOrgPanel(context, { orgName: 'My Org', orgId: '12345' });
-// }
+export async function developerInfo(context: vscode.ExtensionContext) {
+	// Retrieve from secret storage
+	const storedUserInfo = await context.secrets.get('anypoint.userInfo');
+	const storedEnvironments = await context.secrets.get('anypoint.environments');
+
+	if (!storedUserInfo || !storedEnvironments) {
+		vscode.window.showErrorMessage('User info or environment info not found. Please log in first.');
+		return;
+	}
+
+	// Parse them
+	const userInfo = JSON.parse(storedUserInfo);
+	const environments = JSON.parse(storedEnvironments);
+	const parsedEnvironments = JSON.parse(storedEnvironments); // e.g. { data: [ ... ], total: 2 }
+	showEnvironmentAndOrgPanel(
+	  context,
+	  { orgName: '...', orgId: '...' },
+	  parsedEnvironments.data // or whatever contains your environment objects
+	);
+}
 
 
 export async function getEnvironments(context: vscode.ExtensionContext) {
