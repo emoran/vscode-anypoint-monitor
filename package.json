@@ -62,6 +62,10 @@
         "title": "AM: Subscription Expiration"
       },
       {
+        "command": "anypoint-monitor.developerUtilities",
+        "title": "AM: Developer Utilities"
+      },
+      {
         "command": "anypoint-monitor.logout",
         "title": "AM: Logout"
       }
