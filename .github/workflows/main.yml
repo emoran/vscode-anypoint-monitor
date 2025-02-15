@@ -1,31 +1,36 @@
+name: 'Publish Extension'
+
 on:
-  push:
-    branches:
-      - main
-  release:
-    types:
-    - created
+  workflow_dispatch:
+    inputs:
+      semver:
+        description: 'Semantic Version'
+        required: true
+        default: 'patch'
+        type: choice
+        options:
+          - patch
+          - minor
+          - major
 
 jobs:
   build:
-    strategy:
-      matrix:
-        os: [macos-latest, ubuntu-latest, windows-latest]
-    runs-on: ${{ matrix.os }}
+    runs-on: ubuntu-latest
     steps:
-    - name: Checkout
-      uses: actions/checkout@v4
-    - name: Install Node.js
-      uses: actions/setup-node@v4
-      with:
-        node-version: 18.x
-    - run: npm install
-    - run: xvfb-run -a npm test
-      if: runner.os == 'Linux'
-    - run: npm test
-      if: runner.os != 'Linux'
-    - name: Publish
-      if: success() && startsWith(github.ref, 'refs/tags/') && matrix.os == 'ubuntu-latest'
-      run: npm run deploy
-      env:
-        VSCE_PAT: ${{ secrets.VSCE_PAT }}
+      - uses: actions/checkout@v3
+      - uses: actions/setup-node@v3
+        with:
+          node-version: 18
+      - name: 'Install dependencies'
+        run: |
+          yarn global add @vscode/vsce
+          yarn install
+      - name: 'Authenticate'
+        run: |
+          git config --global user.email "${{ secrets.MY_GITHUB_EMAIL }}"
+          git config --global user.name "Benny Neugebauer"
+      - name: 'Publish VS Code extension'
+        env:
+          VSCE_PAT: ${{ secrets.VSCE_PAT }}
+        run: |
+          vsce publish ${{ github.event.inputs.semver }}
