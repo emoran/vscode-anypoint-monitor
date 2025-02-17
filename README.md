@@ -23,12 +23,13 @@ An Anypoint Platform user Login.
 
 ## Release Notes
 
-### 0.0.7
+### 0.0.9
 
 Initial release of commands:
 
 - AM: My Information
 - AM: Organization Details
+- AM: Developer Information
 - AM: Login into Anypoint Platform
 - AM: Show Cloudhub 2.0 Applications
 - AM: Show Cloudhub 1.0 Applications
