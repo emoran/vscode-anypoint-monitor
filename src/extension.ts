@@ -497,7 +497,7 @@ export async function retrieveApplications(context: vscode.ExtensionContext, sel
 	  logs: logs,
 	};
   
-	showDashboardWebview(context, dashboardData);
+	showDashboardWebview(context, singleAppData.domain ,dashboardData,selectedEnvironmentId);
   }
 /**
  * getUserInfo get the user information from the Anypoint platform.
