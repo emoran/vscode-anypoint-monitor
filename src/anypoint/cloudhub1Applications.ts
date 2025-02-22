@@ -3,8 +3,8 @@ import * as fs from 'fs';
 
 /**
  * Creates a webview panel and displays a detailed table of applications
- * with a single CSV download option, with container at ~80% width
- * and a smaller table font.
+ * with a single CSV download option. This version has a dark theme
+ * and a more “techy” vibe, plus styling for the DataTables length menu.
  */
 export function showApplicationsWebview1(context: vscode.ExtensionContext, data: any[]) {
   // Ensure the data is an array
@@ -48,14 +48,14 @@ function getApplicationsHtml(
   // URIs for resources
   const logoPath = vscode.Uri.joinPath(extensionUri, 'logo.png');
   const logoSrc = webview.asWebviewUri(logoPath);
-  const ldsPath = vscode.Uri.joinPath(extensionUri, 'salesforce-lightning-design-system.min.css');
-  const ldsSrc = webview.asWebviewUri(ldsPath);
 
+  // DataTables + jQuery
   const dataTableJs = 'https://cdn.datatables.net/1.13.4/js/jquery.dataTables.min.js';
   const jqueryJs = 'https://code.jquery.com/jquery-3.6.0.min.js';
   const dataTableCss = 'https://cdn.datatables.net/1.13.4/css/jquery.dataTables.min.css';
 
-  const googleFontLink = 'https://fonts.googleapis.com/css2?family=Inter:wght@300;400;600;700&display=swap';
+  // Google Fonts (Fira Code for a tech vibe)
+  const googleFontLink = 'https://fonts.googleapis.com/css2?family=Fira+Code:wght@400;600&display=swap';
 
   return /* html */ `
     <!DOCTYPE html>
@@ -63,28 +63,37 @@ function getApplicationsHtml(
       <head>
         <meta charset="UTF-8" />
         <title>CloudHub Applications</title>
-        <!-- DataTables + Lightning Design System + Google Font -->
+        <!-- DataTables + Google Font -->
         <link rel="stylesheet" href="${dataTableCss}" />
-        <link rel="stylesheet" href="${ldsSrc}" />
         <link rel="stylesheet" href="${googleFontLink}" />
         <style>
-          /* Use a modern font (Inter in this example) */
+          /* Dark Theme + Tech Vibe */
+          :root {
+            --background-color: #0D1117;
+            --card-color: #161B22;
+            --text-color: #C9D1D9;
+            --accent-color: #58A6FF;
+            --navbar-color: #141A22;
+            --navbar-text-color: #F0F6FC;
+            --button-hover-color: #3186D1;
+            --table-hover-color: #21262D;
+          }
+
           body {
             margin: 0;
             padding: 0;
-            font-family: 'Inter', -apple-system, BlinkMacSystemFont,
-              "Segoe UI", Roboto, Helvetica, Arial, sans-serif,
-              "Apple Color Emoji", "Segoe UI Emoji";
-            color: #212529;
-            background-color: #ffffff;
+            background-color: var(--background-color);
+            color: var(--text-color);
+            font-family: 'Fira Code', monospace, sans-serif;
+            font-size: 14px;
           }
 
-          /* Top Navbar */
+          /* Navbar */
           .navbar {
             display: flex;
             align-items: center;
             justify-content: space-between;
-            background-color: #1f2b3c;
+            background-color: var(--navbar-color);
             padding: 0.75rem 1rem;
           }
           .navbar-left {
@@ -97,7 +106,7 @@ function getApplicationsHtml(
             width: auto;
           }
           .navbar-left h1 {
-            color: #ffffff;
+            color: var(--navbar-text-color);
             font-size: 1.25rem;
             margin: 0;
           }
@@ -106,7 +115,7 @@ function getApplicationsHtml(
             gap: 1.5rem;
           }
           .navbar-right a {
-            color: #ffffff;
+            color: var(--navbar-text-color);
             text-decoration: none;
             font-weight: 500;
             font-size: 0.9rem;
@@ -115,78 +124,100 @@ function getApplicationsHtml(
             text-decoration: underline;
           }
 
-          /* Main Container: ~80% of viewport width, centered */
+          /* Main Container */
           .container {
-            width: 80%;
-            margin: 1rem auto; /* 1rem top/bottom margin */
-            background-color: #ffffff;
+            width: 90%;
+            max-width: 1200px;
+            margin: 1rem auto;
           }
 
-          /* Card styling */
-          .slds-card {
-            border: 1px solid #e4e4e4;
+          /* Card */
+          .card {
+            background-color: var(--card-color);
+            border: 1px solid #30363D;
             border-radius: 6px;
             padding: 1rem;
-            background-color: #ffffff;
-            box-shadow: 0 2px 4px rgba(0, 0, 0, 0.05);
           }
-          .slds-card__header {
+          .card-header {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
             margin-bottom: 1rem;
           }
-          .slds-icon_container {
-            background-color: #52667a;
-            border-radius: 50%;
-            display: inline-flex;
-            align-items: center;
-            justify-content: center;
-            width: 40px;
-            height: 40px;
-          }
-          .slds-icon_container svg {
-            fill: #fff;
+          .card-header h2 {
+            margin: 0;
+            font-size: 1.25rem;
+            color: var(--accent-color);
           }
 
-          /* Button smaller */
+          /* Button */
           .button {
             padding: 6px 12px;
             font-size: 0.85rem;
             color: #ffffff;
-            background-color: #52667a;
+            background-color: var(--accent-color);
             border: none;
             border-radius: 4px;
             cursor: pointer;
-            text-decoration: none;
             font-weight: 600;
           }
           .button:hover {
-            background-color: #435362;
+            background-color: var(--button-hover-color);
           }
 
-          /* DataTable custom styling */
+          /* DataTable Overwrites */
           #appTable_wrapper .dataTables_length,
           #appTable_wrapper .dataTables_filter,
           #appTable_wrapper .dataTables_info,
           #appTable_wrapper .dataTables_paginate {
             margin: 0.5rem 0;
-            font-size: 0.8rem;
+            font-size: 0.85rem;
+            color: var(--text-color);
           }
 
-          /* Make the table font smaller & narrower columns */
-          table.dataTable thead th,
-          table.dataTable tbody td {
-            font-size: 0.8rem; /* Make table text smaller */
-            white-space: nowrap; /* Keep cells from wrapping (narrow columns) */
+          /* Style the "Show X entries" label and dropdown */
+          #appTable_length label {
+            color: var(--text-color);
+            font-weight: normal;
           }
-          table.dataTable tbody td {
-            padding: 0.5rem 0.5rem;
+          #appTable_length select {
+            background-color: #121212;
+            color: var(--text-color);
+            border: 1px solid #30363D;
+            border-radius: 4px;
+            padding: 2px 8px;
+            outline: none;
           }
 
-          /* Subtle row striping, highlight on hover */
-          table.dataTable tbody tr:nth-child(even) {
-            background-color: #fafbfc;
+          #appTable_wrapper input[type="search"] {
+            background-color: #121212;
+            color: var(--text-color);
+            border: 1px solid #30363D;
           }
-          table.dataTable tbody tr:hover {
-            background-color: #f1f3f5;
+          #appTable thead {
+            background-color: #21262D;
+          }
+          #appTable thead th {
+            color: var(--accent-color);
+            border-bottom: 1px solid #30363D;
+          }
+          #appTable tbody tr {
+            background-color: var(--card-color);
+            border-bottom: 1px solid #30363D;
+          }
+          #appTable tbody tr:hover {
+            background-color: var(--table-hover-color);
+          }
+          #appTable tbody td {
+            color: var(--text-color);
+            white-space: nowrap;
+          }
+          .dataTables_paginate .paginate_button {
+            color: var(--accent-color) !important;
+          }
+          .dataTables_paginate .paginate_button.current {
+            background: var(--accent-color) !important;
+            color: #fff !important;
           }
         </style>
       </head>
@@ -203,85 +234,59 @@ function getApplicationsHtml(
           </div>
         </nav>
 
-        <!-- Main Content (80% width container) -->
+        <!-- Main Content -->
         <div class="container">
-          <article class="slds-card">
-            <div class="slds-card__header slds-grid">
-              <header class="slds-media slds-media_center slds-has-flexi-truncate">
-                <div class="slds-media__figure">
-                  <span class="slds-icon_container slds-icon-standard-account" title="account">
-                    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="white" width="24px" height="24px">
-                      <rect width="100%" height="100%" fill="transparent" />
-                      <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 
-                          10-4.48 10-10S17.52 2 12 2zm0 18
-                          c-4.41 0-8-3.59-8-8s3.59-8
-                          8-8 8 3.59 8 8-3.59 8-8
-                          8z"/>
-                      <path d="M11 14h2v2h-2zm0-8h2v6h-2z"/>
-                    </svg>
-                    <span class="slds-assistive-text">account</span>
-                  </span>
-                </div>
-                <div class="slds-media__body">
-                  <h2 class="slds-card__header-title">
-                    <a href="javascript:void(0);" class="slds-card__header-link slds-truncate" title="Accounts">
-                      <span>CloudHub 1.0</span>
-                    </a>
-                  </h2>
-                </div>
-                <div class="slds-no-flex">
-                  <button id="downloadAllCsv" class="button">Download as CSV</button>
-                </div>
-              </header>
+          <div class="card">
+            <div class="card-header">
+              <h2>CloudHub 1.0</h2>
+              <button id="downloadAllCsv" class="button">Download as CSV</button>
             </div>
-            <div class="slds-card__body slds-card__body_inner">
-              <!-- Table -->
-              <div class="slds-scrollable slds-m-around_medium">
-                <table
-                  id="appTable"
-                  class="slds-table slds-table_cell-buffer slds-table_striped
-                         slds-max-medium-table_stacked-horizontal display"
-                >
-                  <thead>
-                    <tr>
-                      <th>Domain</th>
-                      <th>Full Domain</th>
-                      <th>Status</th>
-                      <th>Workers</th>
-                      <th>Worker Type</th>
-                      <th>Region</th>
-                      <th>Last Update</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    ${
-                      apps
-                        .map(
-                          (app) => `
-                            <tr>
-                              <td>${app.domain ?? 'N/A'}</td>
-                              <td>${app.fullDomain ?? 'N/A'}</td>
-                              <td>${app.status ?? 'N/A'}</td>
-                              <td>${app.workers ?? 'N/A'}</td>
-                              <td>${app.workerType ?? 'N/A'}</td>
-                              <td>${app.region ?? 'N/A'}</td>
-                              <td>${
-                                app.lastUpdateTime
-                                  ? new Date(app.lastUpdateTime).toLocaleString()
-                                  : 'N/A'
-                              }</td>
-                            </tr>
-                          `
-                        )
-                        .join('')
-                    }
-                  </tbody>
-                </table>
-              </div>
+            <div style="overflow-x:auto;">
+              <table
+                id="appTable"
+                class="display"
+                style="width: 100%;"
+              >
+                <thead>
+                  <tr>
+                    <th>Domain</th>
+                    <th>Full Domain</th>
+                    <th>Status</th>
+                    <th>Workers</th>
+                    <th>Worker Type</th>
+                    <th>Region</th>
+                    <th>Last Update</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  ${
+                    apps
+                      .map(
+                        (app) => `
+                          <tr>
+                            <td>${app.domain ?? 'N/A'}</td>
+                            <td>${app.fullDomain ?? 'N/A'}</td>
+                            <td>${app.status ?? 'N/A'}</td>
+                            <td>${app.workers ?? 'N/A'}</td>
+                            <td>${app.workerType ?? 'N/A'}</td>
+                            <td>${app.region ?? 'N/A'}</td>
+                            <td>${
+                              app.lastUpdateTime
+                                ? new Date(app.lastUpdateTime).toLocaleString()
+                                : 'N/A'
+                            }</td>
+                          </tr>
+                        `
+                      )
+                      .join('')
+                  }
+                </tbody>
+              </table>
             </div>
-          </article>
+          </div>
         </div>
 
+        <!-- Scripts -->
         <script src="${jqueryJs}"></script>
         <script src="${dataTableJs}"></script>
         <script>
@@ -298,6 +303,10 @@ function getApplicationsHtml(
               pageLength: 10,
               responsive: true,
               autoWidth: false,
+              language: {
+                search: "Search:",
+                lengthMenu: "Show _MENU_ entries"
+              }
             });
           });
         </script>

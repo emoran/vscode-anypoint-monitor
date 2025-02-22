@@ -1,7 +1,6 @@
 import * as vscode from 'vscode';
 import * as fs from 'fs';
-// If you need fetch in Node, you might need node-fetch or axios. E.g.:
-// import fetch from 'node-fetch';
+// import fetch from 'node-fetch'; // Or use axios if needed
 
 /** Flatten objects into dot-notation */
 function flattenObject(obj: any, parentKey = '', res: any = {}): any {
@@ -29,7 +28,7 @@ function renderAppInfoCell(key: string, value: any): string {
     }
   }
   if (key === 'status') {
-    if (value === 'RUNNING' || value ==='STARTED') return '🟢 RUNNING';
+    if (value === 'RUNNING' || value === 'STARTED') return '🟢 RUNNING';
     if (['STOPPED', 'UNDEPLOYED', 'STARTED'].includes(value)) {
       return '🔴 ' + value;
     }
@@ -38,13 +37,13 @@ function renderAppInfoCell(key: string, value: any): string {
 }
 
 /**
- * Builds the Application Information table,
+ * Builds the Application Information card,
  * with Stop/Start/Restart buttons.
  */
 function buildSingleApplicationTable(app: any): string {
   if (!app || Object.keys(app).length === 0) {
     return `
-      <div class="box">
+      <div class="card">
         <h2>Application Information</h2>
         <p>No application data available.</p>
       </div>
@@ -108,16 +107,16 @@ function buildSingleApplicationTable(app: any): string {
     : '';
 
   return `
-    <div class="box">
-      <div style="display: flex; align-items: center; justify-content: space-between;">
-        <h2 style="margin: 0;">Application Information</h2>
-        <div style="display:flex; gap:0.5rem;">
+    <div class="card">
+      <div class="card-header">
+        <h2>Application Information</h2>
+        <div class="button-group">
           <button id="btnStopApp" class="button">Stop Application</button>
           <button id="btnStartApp" class="button">Start Application</button>
           <button id="btnRestartApp" class="button">Restart Application</button>
         </div>
       </div>
-      <div class="table-container" style="margin-top: 0.75rem;">
+      <div class="table-container">
         <table class="app-table">
           <thead>
             <tr><th>Attribute</th><th>Value</th></tr>
@@ -132,11 +131,11 @@ function buildSingleApplicationTable(app: any): string {
   `;
 }
 
-/** Build schedulers table (unchanged). */
+/** Build schedulers table (restyled). */
 function buildSchedulersTable(schedulers: any[]): string {
   if (!schedulers || schedulers.length === 0) {
     return `
-      <div class="box">
+      <div class="card">
         <h2>Schedulers</h2>
         <p>No schedulers available.</p>
       </div>
@@ -174,7 +173,7 @@ function buildSchedulersTable(schedulers: any[]): string {
     .join('');
 
   return `
-    <div class="box">
+    <div class="card">
       <h2>Schedulers</h2>
       <div class="table-container">
         <table class="app-table">
@@ -211,10 +210,7 @@ function generateCsvContent(data: any): string {
         }
       }
       if (k === 'status' && val === 'RUNNING') val = '🟢 RUNNING';
-      if (
-        k === 'status' &&
-        ['STOPPED', 'UNDEPLOYED', 'STARTED'].includes(val)
-      ) {
+      if (k === 'status' && ['STOPPED', 'UNDEPLOYED', 'STARTED'].includes(val)) {
         val = '🔴 ' + val;
       }
       return `"${String(val).replace(/"/g, '""')}"`;
@@ -230,22 +226,20 @@ function generateCsvContent(data: any): string {
 async function updateApplicationStatus(
   applicationName: string,
   status: 'stop' | 'start' | 'restart',
-  envId: string,       // e.g. environment ID
+  envId: string,
   authToken: string
 ): Promise<void> {
   const url = `https://anypoint.mulesoft.com/cloudhub/api/applications/${applicationName}/status`;
   const body = JSON.stringify({ status });
   
-  // If you don't have a global fetch, you might do `const fetch = require('node-fetch')` up top.
-  // Or use axios. Example with fetch:
   const resp = await fetch(url, {
     method: 'POST',
     headers: {
-      'authorization': `Bearer ${authToken}`,
+      authorization: `Bearer ${authToken}`,
       'content-type': 'application/json',
       'x-anypnt-env-id': envId
     },
-    body
+    body,
   });
   if (!resp.ok) {
     const txt = await resp.text();
@@ -254,8 +248,7 @@ async function updateApplicationStatus(
 }
 
 /**
- * Show the dashboard webview. The webview includes "Stop", "Start", and "Restart" buttons,
- * which call this endpoint with {status:"stop"|"start"|"restart"} in the body.
+ * Show the dashboard webview.
  */
 export async function showDashboardWebview(
   context: vscode.ExtensionContext,
@@ -263,9 +256,7 @@ export async function showDashboardWebview(
   data: any,
   environment: string
 ) {
-  // Suppose we store environment ID and token somewhere. 
-  // Example: context.secrets, or data.envId, data.token, etc.
-  const envId = environment;  // or retrieve from secrets
+  const envId = environment;
 
   data.application = data.application || {};
   data.schedulers = Array.isArray(data.schedulers) ? data.schedulers : [];
@@ -296,45 +287,28 @@ export async function showDashboardWebview(
         fs.writeFileSync(uri.fsPath, csvData, 'utf-8');
         vscode.window.showInformationMessage(`CSV file saved to ${uri.fsPath}`);
       }
-    }
-    else if (message.command === 'stopApp') {
-      // Call the status endpoint with {"status":"stop"}
+    } else if (message.command === 'stopApp') {
       try {
-
-        let accessToken = await context.secrets.get('anypoint.accessToken');
-        if (!accessToken) {
-          throw new Error('No access token found. Please log in first.');
-        }
+        const accessToken = await context.secrets.get('anypoint.accessToken');
+        if (!accessToken) throw new Error('No access token found. Please log in first.');
         await updateApplicationStatus(domain, 'stop', envId, accessToken);
         vscode.window.showInformationMessage(`Application ${domain} is being stopped...`);
       } catch (err: any) {
         vscode.window.showErrorMessage(`Failed to stop app: ${err.message}`);
       }
-    }
-    else if (message.command === 'startApp') {
-      // Call the status endpoint with {"status":"start"}
+    } else if (message.command === 'startApp') {
       try {
-
-        let accessToken = await context.secrets.get('anypoint.accessToken');
-        if (!accessToken) {
-          throw new Error('No access token found. Please log in first.');
-        }
-
+        const accessToken = await context.secrets.get('anypoint.accessToken');
+        if (!accessToken) throw new Error('No access token found. Please log in first.');
         await updateApplicationStatus(domain, 'start', envId, accessToken);
         vscode.window.showInformationMessage(`Application ${domain} is being started...`);
       } catch (err: any) {
         vscode.window.showErrorMessage(`Failed to start app: ${err.message}`);
       }
-    }
-    else if (message.command === 'restartApp') {
-      // Call the status endpoint with {"status":"restart"}
+    } else if (message.command === 'restartApp') {
       try {
-
-        let accessToken = await context.secrets.get('anypoint.accessToken');
-        if (!accessToken) {
-          throw new Error('No access token found. Please log in first.');
-        }
-
+        const accessToken = await context.secrets.get('anypoint.accessToken');
+        if (!accessToken) throw new Error('No access token found. Please log in first.');
         await updateApplicationStatus(domain, 'restart', envId, accessToken);
         vscode.window.showInformationMessage(`Application ${domain} is being restarted...`);
       } catch (err: any) {
@@ -344,7 +318,7 @@ export async function showDashboardWebview(
   });
 }
 
-/** Return the HTML for the webview */
+/** Return the HTML for the webview (dark theme, small font, with tabs). */
 function getDashboardHtml(
   data: any,
   webview: vscode.Webview,
@@ -353,18 +327,21 @@ function getDashboardHtml(
   const logoPath = vscode.Uri.joinPath(extensionUri, 'logo.png');
   const logoSrc = webview.asWebviewUri(logoPath);
 
-  // Build application, schedulers, alerts, logs
+  // Build each section
   const applicationHtml = buildSingleApplicationTable(data.application);
   const schedulersHtml = buildSchedulersTable(data.schedulers);
   const alertsHtml = `
-    <div class="box">
+    <div class="card">
       <h2>Alerts</h2>
       <p>${JSON.stringify(data.alerts)}</p>
     </div>
   `;
+  // NOTE: The logs area below now has a larger max-height (600px).
   const logsHtml = `
-    <div class="box logs-box">
-      <h2>Logs</h2>
+    <div class="card logs">
+      <div class="card-header">
+        <h2>Logs</h2>
+      </div>
       <div style="margin-bottom: 0.5rem;">
         <input 
           id="logFilter" 
@@ -373,7 +350,7 @@ function getDashboardHtml(
           style="width: 250px; padding: 4px;"
         />
       </div>
-      <div class="table-container" style="max-height: 300px; overflow-y:auto;">
+      <div class="table-container" style="max-height: 600px; overflow-y: auto;">
         <table class="logs-table">
           <thead>
             <tr>
@@ -393,84 +370,186 @@ function getDashboardHtml(
     </div>
   `;
 
+  // Build the tabbed layout (each tab is one section)
   return /* html */ `
     <!DOCTYPE html>
     <html lang="en">
       <head>
         <meta charset="UTF-8" />
         <title>Anypoint Monitor Dashboard</title>
+
+        <!-- Fira Code for tech vibe -->
+        <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Fira+Code:wght@400;600&display=swap" />
+
         <style>
+          /* Dark Theme Variables */
+          :root {
+            --background-color: #0D1117;
+            --card-color: #161B22;
+            --text-color: #C9D1D9;
+            --accent-color: #58A6FF;
+            --navbar-color: #141A22;
+            --navbar-text-color: #F0F6FC;
+            --button-hover-color: #3186D1;
+            --table-hover-color: #21262D;
+          }
+
+          /* Smaller base font size */
           body {
-            margin: 0; padding: 0;
-            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto,
-              Helvetica, Arial, sans-serif;
-            color: #212529; background-color: #ffffff;
+            margin: 0;
+            padding: 0;
+            background-color: var(--background-color);
+            color: var(--text-color);
+            font-family: 'Fira Code', monospace, sans-serif;
+            font-size: 12px;
           }
+
+          /* NAVBAR */
           .navbar {
-            display: flex; align-items: center; justify-content: space-between;
-            background-color: #1f2b3c; padding: 0.75rem 1rem;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            background-color: var(--navbar-color);
+            padding: 0.5rem 1rem;
           }
-          .navbar-left { display: flex; align-items: center; gap: 1rem; }
-          .navbar-left img { height: 32px; width: auto; }
-          .navbar-left h1 { color: #fff; font-size: 1.25rem; margin:0; }
-          .navbar-right { display: flex; gap:1.5rem; }
-          .navbar-right a { color: #fff; text-decoration:none; font-weight:500; font-size:0.9rem; }
-          .navbar-right a:hover { text-decoration:underline; }
-          .container { max-width:1400px; margin:0 auto; padding:1rem; }
+          .navbar-left {
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+          }
+          .navbar-left img {
+            height: 28px;
+            width: auto;
+          }
+          .navbar-left h1 {
+            color: var(--navbar-text-color);
+            font-size: 1rem;
+            margin: 0;
+          }
+          .navbar-right {
+            display: flex;
+            gap: 0.75rem;
+          }
+          .navbar-right a {
+            color: var(--navbar-text-color);
+            text-decoration: none;
+            font-weight: 500;
+            font-size: 0.75rem;
+          }
+          .navbar-right a:hover {
+            text-decoration: underline;
+          }
+
+          /* CONTAINER */
+          .container {
+            width: 90%;
+            max-width: 1400px;
+            margin: 0.5rem auto;
+          }
+
+          /* TABS */
+          .tabs {
+            margin-top: 1rem;
+          }
+          .tab-header {
+            display: flex;
+            gap: 0.5rem;
+            margin-bottom: 1rem;
+          }
+          .tab-btn {
+            background-color: var(--card-color);
+            color: var(--text-color);
+            border: 1px solid #30363D;
+            border-radius: 4px;
+            padding: 4px 8px;
+            cursor: pointer;
+            font-size: 0.75rem;
+          }
+          .tab-btn.active, .tab-btn:hover {
+            background-color: var(--button-hover-color);
+          }
+          .tab-content {
+            display: none;
+          }
+          .tab-content.active {
+            display: block;
+          }
+
+          /* CARD */
+          .card {
+            background-color: var(--card-color);
+            border: 1px solid #30363D;
+            border-radius: 6px;
+            padding: 0.5rem;
+            margin-bottom: 1rem;
+          }
+          .card-header {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            margin-bottom: 0.5rem;
+          }
+          .card-header h2 {
+            margin: 0;
+            font-size: 0.9rem;
+            color: var(--accent-color);
+          }
+
+          /* BUTTONS */
+          .button-group {
+            display: flex;
+            gap: 0.25rem;
+          }
           .button {
-            padding: 6px 10px; font-size: 0.8rem; color: #fff;
-            background-color: #52667a; border:none; border-radius:4px;
-            cursor:pointer; text-decoration:none;
+            padding: 4px 8px;
+            font-size: 0.75rem;
+            color: #fff;
+            background-color: var(--accent-color);
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            font-weight: 600;
           }
-          .button:hover { background-color:#435362; }
-          .dashboard-grid {
-            display:grid; grid-template-columns:1fr 1fr; gap:1rem;
+          .button:hover {
+            background-color: var(--button-hover-color);
           }
-          .box {
-            background-color:#fafafa; border:1px solid #e2e2e2;
-            border-radius:4px; padding:1rem;
-          }
-          .box h2 {
-            margin-top:0; font-size:1.1rem; margin-bottom:0.75rem;
-          }
+
+          /* TABLES */
           .table-container {
-            width:100%; overflow-x:auto;
+            width: 100%;
+            overflow-x: auto;
+          }
+          table {
+            border-collapse: collapse;
+            width: 100%;
+          }
+          th, td {
+            padding: 4px;
+            border-bottom: 1px solid #30363D;
+            text-align: left;
+            vertical-align: top;
+          }
+          th {
+            color: var(--accent-color);
+            white-space: nowrap;
+          }
+          tr:hover {
+            background-color: var(--table-hover-color);
           }
           .app-table {
-            border-collapse:collapse; width:100%; background-color:#fff;
-            box-shadow:0 0 5px rgba(0,0,0,0.15); font-size:0.75rem;
+            font-size: 0.75rem;
           }
-          .app-table th, .app-table td {
-            padding:6px; border-bottom:1px solid #e2e2e2;
-            text-align:left; vertical-align:top; font-size:0.71rem;
-          }
-          .app-table th {
-            background-color:#f4f4f4; font-weight:600; white-space:nowrap;
-          }
-          .app-table tr:hover { background-color:#f9f9f9; }
           .logs-table {
-            border-collapse:collapse; width:100%; background-color:#fff;
-            box-shadow:0 0 5px rgba(0,0,0,0.15); font-size:0.75rem;
-            font-family:"Courier New", Courier, monospace;
-          }
-          .logs-table th, .logs-table td {
-            padding:6px; border-bottom:1px solid #e2e2e2;
-            text-align:left; vertical-align:top;
-          }
-          .logs-table th {
-            background-color:#f4f4f4; font-weight:600; white-space:nowrap;
-          }
-          .logs-table tr:hover { background-color:#f9f9f9; }
-          .logs-box .table-container {
-            /* max-height:300px => set in inline style above. */
+            font-family: 'Fira Code', monospace;
+            font-size: 0.7rem;
           }
         </style>
       </head>
       <body>
-        <!-- Top Navbar -->
+        <!-- NAVBAR -->
         <nav class="navbar">
           <div class="navbar-left">
-            <img src="${logoSrc}" />
+            <img src="${logoSrc}" alt="Logo"/>
             <h1>Anypoint Monitor Extension</h1>
           </div>
           <div class="navbar-right">
@@ -479,32 +558,45 @@ function getDashboardHtml(
           </div>
         </nav>
 
+        <!-- MAIN CONTAINER -->
         <div class="container">
-          <!-- 2-col layout for Application & Schedulers/Alerts -->
-          <div class="dashboard-grid">
-            <div class="left-column">
+          <div class="tabs">
+            <nav class="tab-header">
+              <button data-tab="app-info" class="tab-btn active">Application Info</button>
+              <button data-tab="schedulers" class="tab-btn">Schedulers</button>
+              <button data-tab="alerts" class="tab-btn">Alerts</button>
+              <button data-tab="logs" class="tab-btn">Logs</button>
+            </nav>
+            <div class="tab-content active" id="tab-app-info">
               ${applicationHtml}
             </div>
-            <div class="right-column">
+            <div class="tab-content" id="tab-schedulers">
               ${schedulersHtml}
+            </div>
+            <div class="tab-content" id="tab-alerts">
               ${alertsHtml}
             </div>
+            <div class="tab-content" id="tab-logs">
+              ${logsHtml}
+            </div>
           </div>
-
-          <!-- Full width logs -->
-          ${logsHtml}
         </div>
 
         <script>
           const vscode = acquireVsCodeApi();
 
-          // CSV download
-          const csvBtn = document.getElementById('downloadCsv');
-          if (csvBtn) {
-            csvBtn.addEventListener('click', () => {
-              vscode.postMessage({ command: 'downloadCsv' });
+          // Tab switching logic
+          const tabBtns = document.querySelectorAll('.tab-btn');
+          const tabContents = document.querySelectorAll('.tab-content');
+          tabBtns.forEach((btn) => {
+            btn.addEventListener('click', () => {
+              tabBtns.forEach(b => b.classList.remove('active'));
+              tabContents.forEach(tc => tc.classList.remove('active'));
+              btn.classList.add('active');
+              const tabId = 'tab-' + btn.dataset.tab;
+              document.getElementById(tabId)?.classList.add('active');
             });
-          }
+          });
 
           // Logs filtering & paging
           const logsRaw = ${JSON.stringify(data.logs?.data ?? data.logs ?? [])};
@@ -523,7 +615,6 @@ function getDashboardHtml(
             const startIndex = (currentPage - 1) * pageSize;
             const endIndex = startIndex + pageSize;
             const pageLogs = filteredLogs.slice(startIndex, endIndex);
-
             const rowsHtml = pageLogs.map(log => {
               const dateStr = new Date(log.timestamp).toISOString();
               const msg = (log.message || '').replace(/\\n/g, '<br/>');
@@ -536,7 +627,6 @@ function getDashboardHtml(
               \`;
             }).join('');
             logsTbody.innerHTML = rowsHtml;
-
             const totalPages = Math.ceil(filteredLogs.length / pageSize);
             logsPageInfo.textContent = \`Page \${currentPage} of \${totalPages}\`;
             logsPrev.disabled = (currentPage <= 1);
@@ -570,16 +660,13 @@ function getDashboardHtml(
           renderLogsTable();
 
           // Stop / Start / Restart Buttons
-          const stopBtn = document.getElementById('btnStopApp');
-          stopBtn?.addEventListener('click', () => {
+          document.getElementById('btnStopApp')?.addEventListener('click', () => {
             vscode.postMessage({ command: 'stopApp' });
           });
-          const startBtn = document.getElementById('btnStartApp');
-          startBtn?.addEventListener('click', () => {
+          document.getElementById('btnStartApp')?.addEventListener('click', () => {
             vscode.postMessage({ command: 'startApp' });
           });
-          const restartBtn = document.getElementById('btnRestartApp');
-          restartBtn?.addEventListener('click', () => {
+          document.getElementById('btnRestartApp')?.addEventListener('click', () => {
             vscode.postMessage({ command: 'restartApp' });
           });
         </script>

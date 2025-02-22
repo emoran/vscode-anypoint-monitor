@@ -23,7 +23,7 @@ An Anypoint Platform user Login.
 
 ## Release Notes
 
-### 0.0.9
+### 0.0.10
 
 Initial release of commands:
 

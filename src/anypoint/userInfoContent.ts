@@ -2,33 +2,31 @@ import * as vscode from 'vscode';
 
 /**
  * Example: getUserInfoWebviewContent
- * @param userObject The user JSON object
- * @param webview The VS Code Webview to render into
- * @param extensionUri The Uri of your VSCode extension (for loading local resources)
+ * A dark-themed webview displaying user & org details, consistent with
+ * your other "I love it!" pages. 
  */
 export function getUserInfoWebviewContent(
   userObject: any,
   webview: vscode.Webview,
   extensionUri: vscode.Uri
 ): string {
-  // Destructure for easy usage
+  // Destructure user info
   const user = userObject.user || {};
   const org = user.organization || {};
 
-  // Basic user info
   const fullName = `${user.firstName ?? ''} ${user.lastName ?? ''}`.trim();
   const email = user.email ?? 'N/A';
   const phone = user.phoneNumber ?? 'N/A';
   const username = user.username ?? 'N/A';
+  const createdAt = user.createdAt ?? '';
+  const lastLogin = user.lastLogin ?? '';
+  const userEnabled = user.enabled ?? '';
 
   // Organization info
   const orgName = org.name ?? 'N/A';
   const orgType = org.orgType ?? 'N/A';
   const orgId = org.id ?? 'N/A';
   const orgDomain = org.domain ?? 'N/A';
-
-  // Subscription info
-  const subscriptionCategory = org.subscription?.category ?? 'N/A'; // Not displayed, but available
   const subscriptionType = org.subscription?.type ?? 'N/A';
   const subscriptionExpiration = org.subscription?.expiration ?? 'N/A';
 
@@ -39,184 +37,172 @@ export function getUserInfoWebviewContent(
   const logoPath = vscode.Uri.joinPath(extensionUri, 'logo.png');
   const logoSrc = webview.asWebviewUri(logoPath);
 
-  const ldsPath = vscode.Uri.joinPath(extensionUri,'salesforce-lightning-design-system.min.css');
-  const ldsSrc = webview.asWebviewUri(ldsPath);
-
   return /* html */ `
   <!DOCTYPE html>
   <html lang="en">
     <head>
       <meta charset="UTF-8" />
       <title>Anypoint Monitor Extension</title>
-      <link rel="stylesheet" href="${ldsSrc}" />
+
+      <!-- Fira Code for a tech vibe -->
+      <link
+        rel="stylesheet"
+        href="https://fonts.googleapis.com/css2?family=Fira+Code:wght@400;600&display=swap"
+      />
+
       <style>
-        /****************************************************************
-         * Base / Global Styles
-         ****************************************************************/
+        /* Dark Theme Variables (same as your other webviews) */
+        :root {
+          --background-color: #0D1117;
+          --card-color: #161B22;
+          --text-color: #C9D1D9;
+          --accent-color: #58A6FF;
+          --navbar-color: #141A22;
+          --navbar-text-color: #F0F6FC;
+          --button-hover-color: #3186D1;
+          --table-hover-color: #21262D;
+        }
+
         body {
           margin: 0;
           padding: 0;
-          font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto,
-            Helvetica, Arial, sans-serif, "Apple Color Emoji", "Segoe UI Emoji";
-          color: #212529;
-          background-color: #ffffff;
+          background-color: var(--background-color);
+          color: var(--text-color);
+          font-family: 'Fira Code', monospace, sans-serif;
+          font-size: 13px;
         }
 
-        /****************************************************************
-         * NAVBAR
-         ****************************************************************/
+        /* NAVBAR */
         .navbar {
           display: flex;
           align-items: center;
           justify-content: space-between;
-          background-color: #1f2b3c; /* Changed from purple to a blue-gray tone */
+          background-color: var(--navbar-color);
           padding: 0.75rem 1rem;
         }
         .navbar-left {
           display: flex;
           align-items: center;
-          gap: 1rem;
+          gap: 0.5rem;
         }
         .navbar-left img {
-          height: 32px;
+          height: 28px;
           width: auto;
         }
         .navbar-left h1 {
-          color: #ffffff;
-          font-size: 1.25rem;
+          color: var(--navbar-text-color);
+          font-size: 1rem;
           margin: 0;
         }
         .navbar-right {
           display: flex;
-          gap: 1.5rem;
+          gap: 1rem;
         }
         .navbar-right a {
-          color: #ffffff;
+          color: var(--navbar-text-color);
           text-decoration: none;
           font-weight: 500;
-          font-size: 0.9rem;
+          font-size: 0.85rem;
         }
         .navbar-right a:hover {
           text-decoration: underline;
         }
 
-        /****************************************************************
-         * HERO SECTION
-         ****************************************************************/
+        /* HERO SECTION */
         .hero {
-          /* Changed purple gradient to a grayish blue gradient */
-          background: linear-gradient(90deg, #2c3e50 0%, #4a5965 50%, #67737b 100%);
+          background: linear-gradient(180deg, #2c3e50 0%, #4a5965 50%, #67737b 100%);
+          padding: 1.5rem 2rem;
           color: #ffffff;
-          padding: 2rem 1rem;
-          display: flex;
-          justify-content: space-between;
-          align-items: center;
         }
-        .hero-text {
-          max-width: 60%;
+        .hero h2 {
+          font-size: 1.5rem;
+          margin: 0 0 0.5rem;
         }
-        .hero-text h2 {
-          font-size: 2rem;
-          margin-bottom: 0.5rem;
-        }
-        .hero-text p {
-          margin-bottom: 0;
-          font-size: 1rem;
-          line-height: 1.4;
+        .hero p {
+          margin: 0;
+          font-size: 0.9rem;
         }
 
-        /****************************************************************
-         * MAIN CONTAINER
-         ****************************************************************/
+        /* MAIN CONTAINER */
         .container {
-          max-width: 1100px;
-          margin: 0 auto;
-          padding: 1rem;
-          background-color: #ffffff;
+          width: 90%;
+          max-width: 1200px;
+          margin: 1rem auto;
         }
 
-        /****************************************************************
-         * SECTION TITLES
-         ****************************************************************/
+        /* SECTION TITLE */
         .section-title {
-          font-size: 1.25rem;
-          margin: 1rem 0 0.75rem 0;
+          margin-bottom: 0.75rem;
+          font-size: 1rem;
+          border-bottom: 1px solid #30363D;
+          padding-bottom: 0.5rem;
+          color: var(--accent-color);
         }
 
-        /****************************************************************
-         * TABLES
-         ****************************************************************/
+        /* PANEL (Card) */
+        .panel {
+          background-color: var(--card-color);
+          border: 1px solid #30363D;
+          border-radius: 6px;
+          padding: 1rem;
+          margin-bottom: 1.5rem;
+        }
+
+        /* TABLES */
         .table-container {
           width: 100%;
           overflow-x: auto;
-          margin-bottom: 1.5rem;
         }
-        .slds-table {
+        table {
+          width: 100%;
           border-collapse: collapse;
-          background-color: #fff;
-          box-shadow: 0 0 5px rgba(0,0,0,0.15);
+          font-size: 0.85rem;
         }
-        .slds-table th,
-        .slds-table td {
-          padding: 8px;
-          border-bottom: 1px solid #e2e2e2;
+        th, td {
+          padding: 0.5rem;
+          border-bottom: 1px solid #30363D;
           text-align: left;
           vertical-align: top;
-          font-size: 0.81rem;
         }
-        .slds-table th {
-          background-color: #f4f4f4;
-          font-weight: 600;
+        th {
+          color: var(--accent-color);
+          white-space: nowrap;
         }
-        .slds-table tr:hover {
-          background-color: #f9f9f9;
-        }
-
-        /****************************************************************
-         * PANELS / BOXES
-         ****************************************************************/
-        .panel {
-          background-color: #f9f9f9;
-          box-shadow: 0 0 5px rgba(0,0,0,0.05);
-          margin-bottom: 1.5rem;
-          border-radius: 4px;
-          padding: 1rem;
+        tr:hover {
+          background-color: var(--table-hover-color);
         }
 
-        /****************************************************************
-         * BUTTONS
-         ****************************************************************/
+        /* BUTTON */
         .button {
-          padding: 10px 16px;
-          font-size: 14px;
+          padding: 6px 12px;
+          font-size: 0.8rem;
           color: #ffffff;
-          /* Changed from purple to a muted blue-gray tone */
-          background-color: #52667a;
+          background-color: var(--accent-color);
           border: none;
           border-radius: 4px;
           cursor: pointer;
-          text-decoration: none;
+          font-weight: 600;
         }
         .button:hover {
-          background-color: #435362; /* Darken on hover */
+          background-color: var(--button-hover-color);
         }
 
-        /****************************************************************
-         * ADDITIONAL / ENTITLEMENTS SECTION
-         ****************************************************************/
+        /* ENTITLEMENTS */
         .additional-section {
-          background: #fff;
-          border: 1px solid #ddd;
-          padding: 1rem;
+          background-color: #121212;
+          border: 1px solid #30363D;
+          padding: 0.75rem;
           border-radius: 4px;
           margin-top: 0.5rem;
+          max-height: 300px;
+          overflow-y: auto;
         }
         pre {
-          background: #eee;
-          padding: 0.75rem;
-          overflow: auto;
           margin: 0;
           font-size: 0.75rem;
+          line-height: 1.3;
+          white-space: pre-wrap;
+          word-wrap: break-word;
         }
       </style>
     </head>
@@ -239,28 +225,25 @@ export function getUserInfoWebviewContent(
 
       <!-- HERO -->
       <section class="hero">
-        <div class="hero-text">
-          <h2>Welcome, ${fullName}!</h2>
-          <p>This extension allows you to interact with multiple APIs on the Platform.</p>
-        </div>
+        <h2>Welcome, ${fullName}!</h2>
+        <p>This extension allows you to interact with multiple APIs on the Platform.</p>
       </section>
 
       <!-- MAIN CONTAINER -->
       <div class="container">
-
         <!-- USER DETAILS -->
         <h3 class="section-title">User Details</h3>
         <div class="panel">
           <div class="table-container">
-            <table class="slds-table slds-table_cell-buffer slds-table_header-hidden slds-table_bordered">
+            <table>
               <tbody>
                 <tr><th>Full Name</th><td>${fullName}</td></tr>
                 <tr><th>Email</th><td>${email}</td></tr>
                 <tr><th>Phone</th><td>${phone}</td></tr>
                 <tr><th>Username</th><td>${username}</td></tr>
-                <tr><th>Created At</th><td>${user.createdAt ?? ''}</td></tr>
-                <tr><th>Last Login</th><td>${user.lastLogin ?? ''}</td></tr>
-                <tr><th>Enabled</th><td>${user.enabled ?? ''}</td></tr>
+                <tr><th>Created At</th><td>${createdAt}</td></tr>
+                <tr><th>Last Login</th><td>${lastLogin}</td></tr>
+                <tr><th>Enabled</th><td>${userEnabled}</td></tr>
               </tbody>
             </table>
           </div>
@@ -270,7 +253,7 @@ export function getUserInfoWebviewContent(
         <h3 class="section-title">Organization Details</h3>
         <div class="panel">
           <div class="table-container">
-            <table class="slds-table slds-table_cell-buffer slds-table_header-hidden slds-table_bordered">
+            <table>
               <tbody>
                 <tr><th>Organization Name</th><td>${orgName}</td></tr>
                 <tr><th>Organization ID</th><td>${orgId}</td></tr>
