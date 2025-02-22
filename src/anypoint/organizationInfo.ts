@@ -2,8 +2,8 @@ import * as vscode from 'vscode';
 
 /**
  * Example: getOrgInfoWebviewContent
- * @param orgObject The organization JSON object
- * @param extensionUri The Uri of your VSCode extension (needed to load local resources)
+ * Reverts "Usage vs Plan" to a progress bar style (Used vs Remaining),
+ * while keeping the dark theme + navbar layout.
  */
 export function getOrgInfoWebviewContent(
   orgObject: any,
@@ -32,33 +32,83 @@ export function getOrgInfoWebviewContent(
   const plan = orgObject.plan || {};
   const usage = orgObject.usage || {};
 
-  // Helper to render usage vs plan with a progress bar
-  const renderUsageCard = (usageVal: number, planVal: number): string => {
-    // If plan is 0 or undefined, show "N/A"
+  // Construct the webview-safe URI for logo
+  const logoPath = vscode.Uri.joinPath(extensionUri, 'logo.png');
+  const logoSrc = webview.asWebviewUri(logoPath);
+
+  /**
+   * Renders a progress bar showing used vs. remaining.
+   * - If planVal = 0 => Show "N/A"
+   * - Else => Show usageVal / planVal with a bar
+   */
+  function renderUsageBar(usageVal: number, planVal: number): string {
     if (!planVal || planVal === 0) {
-      return /* html */`
-        <p><strong>Usage:</strong> ${usageVal ?? 0} / <em>N/A</em></p>
-        <div class="progress-bar-container">
-          <div class="progress-bar" style="width: 0%"></div>
+      return /* html */ `
+        <p><strong>Usage:</strong> ${usageVal} / <em>N/A</em></p>
+        <div class="bar-container">
+          <div class="bar" style="width: 0%;"></div>
         </div>
       `;
     }
 
-    // Calculate usage percentage
-    const percentage = usageVal ? (usageVal / planVal) * 100 : 0;
-    const limitedPercentage = percentage > 100 ? 100 : percentage; // cap at 100%
+    const used = usageVal || 0;
+    const total = planVal;
+    const percent = Math.min((used / total) * 100, 100).toFixed(1);
 
-    return /* html */`
-      <p><strong>Usage:</strong> ${usageVal ?? 0} / ${planVal}</p>
-      <div class="progress-bar-container">
-        <div class="progress-bar" style="width: ${limitedPercentage}%;"></div>
+    return /* html */ `
+      <p><strong>Usage:</strong> ${used} / ${total}</p>
+      <div class="bar-container">
+        <div class="bar" style="width: ${percent}%"></div>
       </div>
     `;
-  };
+  }
 
-  // Construct the webview-safe URI for logo
-  const logoPath = vscode.Uri.joinPath(extensionUri, 'logo.png');
-  const logoSrc = webview.asWebviewUri(logoPath);
+  // We'll build an array of usage items so we can loop over them
+  // Each item: { label: string, usageVal: number, planVal: number }
+  const usageItems = [
+    {
+      label: 'Production Workers',
+      usageVal: usage.productionWorkers ?? 0,
+      planVal: plan.maxProductionWorkers ?? 0
+    },
+    {
+      label: 'Sandbox Workers',
+      usageVal: usage.sandboxWorkers ?? 0,
+      planVal: plan.maxSandboxWorkers ?? 0
+    },
+    {
+      label: 'Standard Connectors',
+      usageVal: usage.standardConnectors ?? 0,
+      planVal: plan.maxStandardConnectors ?? 0
+    },
+    {
+      label: 'Premium Connectors',
+      usageVal: usage.premiumConnectors ?? 0,
+      planVal: plan.maxPremiumConnectors ?? 0
+    },
+    {
+      label: 'Static IPs',
+      usageVal: usage.staticIps ?? 0,
+      planVal: plan.maxStaticIps ?? 0
+    },
+    {
+      label: 'Deployment Groups',
+      usageVal: usage.deploymentGroups ?? 0,
+      planVal: plan.maxDeploymentGroups ?? 0
+    }
+  ];
+
+  // Generate the usage cards with progress bars
+  const usageCardsHtml = usageItems
+    .map((item) => {
+      return /* html */ `
+        <div class="usage-card">
+          <h3>${item.label}</h3>
+          ${renderUsageBar(item.usageVal, item.planVal)}
+        </div>
+      `;
+    })
+    .join('');
 
   // Build the entire HTML for the webview
   return /* html */ `
@@ -67,119 +117,108 @@ export function getOrgInfoWebviewContent(
   <head>
     <meta charset="UTF-8" />
     <title>Organization Info</title>
-    <style>
-    body {
-          margin: 0;
-          padding: 0;
-          font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto,
-            Helvetica, Arial, sans-serif, "Apple Color Emoji", "Segoe UI Emoji";
-          color: #212529;
-          background-color: #ffffff;
-        }
 
-      /* Navigation Bar (Top Header) */
+    <!-- Fira Code for tech vibe -->
+    <link
+      rel="stylesheet"
+      href="https://fonts.googleapis.com/css2?family=Fira+Code:wght@400;600&display=swap"
+    />
+
+    <style>
+      /* Dark Theme Variables (same as your other webviews) */
+      :root {
+        --background-color: #0D1117;
+        --card-color: #161B22;
+        --text-color: #C9D1D9;
+        --accent-color: #58A6FF;
+        --navbar-color: #141A22;
+        --navbar-text-color: #F0F6FC;
+        --button-hover-color: #3186D1;
+        --table-hover-color: #21262D;
+      }
+
+      body {
+        margin: 0;
+        padding: 0;
+        background-color: var(--background-color);
+        color: var(--text-color);
+        font-family: 'Fira Code', monospace, sans-serif;
+        font-size: 13px;
+      }
+
+      /* NAVBAR */
       .navbar {
         display: flex;
         align-items: center;
         justify-content: space-between;
-        padding: 1rem 2rem;
-        background-color: #1f2b3c;
-        width: 100%; /* Ensure full width */
-        box-sizing: border-box; /* Ensure padding doesn't shrink the width */
+        background-color: var(--navbar-color);
+        padding: 0.75rem 1rem;
       }
-      .navbar .nav-logo {
+      .navbar-left {
         display: flex;
         align-items: center;
         gap: 0.5rem;
       }
-      .navbar .nav-logo img {
-        height: 32px; /* Adjust as needed */
+      .navbar-left img {
+        height: 28px;
         width: auto;
       }
-      .navbar .nav-logo span {
-        font-size: 1.25rem;
-        font-weight: bold;
-        color: #fff;
+      .navbar-left h1 {
+        color: var(--navbar-text-color);
+        font-size: 1rem;
+        margin: 0;
       }
-      .navbar .nav-menu {
+      .navbar-right {
         display: flex;
-        gap: 2rem;
-        list-style: none;
+        gap: 1rem;
       }
-      .navbar .nav-menu li a {
-        color: #fff;
-        cursor: pointer;
-        font-weight: 500;
+      .navbar-right a {
+        color: var(--navbar-text-color);
         text-decoration: none;
+        font-weight: 500;
+        font-size: 0.85rem;
       }
-      .navbar .nav-menu li a:hover {
+      .navbar-right a:hover {
         text-decoration: underline;
       }
 
-      /* Hero Section with wave/gradient background */
+      /* HERO SECTION */
       .hero {
-        position: relative;
-        width: 100%;
-        /* Reduced height from 360px to 120px */
-        height: 120px;
-        /* Changed the gradient to a blue-gray scheme */
         background: linear-gradient(180deg, #2c3e50 0%, #4a5965 50%, #67737b 100%);
-        overflow: hidden;
+        padding: 1rem 2rem;
+        color: #ffffff;
       }
-      /* Simulated wave shapes (multiple layering) */
-      .hero::before,
-      .hero::after {
-        content: "";
-        position: absolute;
-        width: 150%;
-        height: 100%;
-        top: 0;
-        left: -25%;
-        background: radial-gradient(circle at 50% 50%, rgba(255,255,255,0.2) 20%, transparent 40%);
-        opacity: 0.4;
-        animation: wave-animation 8s ease-in-out infinite alternate;
+      .hero h2 {
+        font-size: 1.25rem;
+        margin: 0 0 0.5rem;
       }
-      .hero::after {
-        animation-delay: -4s;
-      }
-      @keyframes wave-animation {
-        0% { transform: translateY(0%) }
-        100% { transform: translateY(20%) }
+      .hero p {
+        margin: 0;
+        font-size: 0.9rem;
       }
 
-      .hero-content {
-        position: absolute;
-        top: 50%;
-        right: 10%;
-        transform: translateY(-50%);
-        color: #fff;
-      }
-      .hero-content h1 {
-        font-size: 1.5rem; /* slightly smaller to fit the reduced height */
-        margin-bottom: 0.5rem;
-      }
-      .hero-content p {
-        line-height: 1.3;
-        font-size: 0.95rem;
+      /* CONTAINER */
+      .container {
+        width: 90%;
+        max-width: 1200px;
+        margin: 1rem auto;
       }
 
-      /* Main content area */
-      .content-container {
-       
-        margin: 2rem auto;
-        padding: 0 2rem;
-      }
+      /* SECTION TITLE */
       .section-title {
         margin-bottom: 1rem;
-        font-size: 1.5rem;
-        border-bottom: 2px solid #ddd;
+        font-size: 1rem;
+        border-bottom: 1px solid #30363D;
         padding-bottom: 0.5rem;
+        color: var(--accent-color);
       }
+
+      /* INFO PANEL (Org details) */
       .info-panel {
-        background-color: #f9f9f9;
+        background-color: var(--card-color);
+        border: 1px solid #30363D;
+        border-radius: 6px;
         padding: 1rem;
-        border: 1px solid #ddd;
-        border-radius: 4px;
         margin-bottom: 2rem;
       }
       .info-table {
@@ -189,69 +228,78 @@ export function getOrgInfoWebviewContent(
       .info-table th,
       .info-table td {
         text-align: left;
-        padding: 8px;
-        border-bottom: 1px solid #ddd;
+        padding: 0.5rem;
+        border-bottom: 1px solid #30363D;
+      }
+      .info-table tr:hover {
+        background-color: var(--table-hover-color);
+      }
+      .info-table th {
+        color: var(--accent-color);
+        white-space: nowrap;
       }
 
-      /* Usage Cards Section */
+      /* USAGE SECTION */
       .usage-container {
         display: flex;
         flex-wrap: wrap;
         gap: 1rem;
-        margin-bottom: 2rem;
       }
       .usage-card {
+        background-color: var(--card-color);
+        border: 1px solid #30363D;
+        border-radius: 6px;
+        padding: 0.75rem;
         flex: 1;
-        min-width: 250px;
-        background-color: #f9f9f9;
-        padding: 1rem;
-        border: 1px solid #ddd;
-        border-radius: 4px;
+        min-width: 220px;
       }
       .usage-card h3 {
-        font-size: 1.15rem;
-        margin-bottom: 0.5rem;
+        margin: 0 0 0.5rem;
+        font-size: 0.95rem;
+        color: var(--accent-color);
       }
-      .progress-bar-container {
+      .usage-card p {
+        font-size: 0.85rem;
+      }
+
+      /* PROGRESS BAR */
+      .bar-container {
         width: 100%;
-        background-color: #ddd;
-        border-radius: 8px;
+        background-color: #30363D;
+        border-radius: 4px;
         overflow: hidden;
         height: 8px;
         margin-top: 8px;
       }
-      /* Changed the progress bar color to a blue-gray tone */
-      .progress-bar {
+      .bar {
         height: 8px;
-        background-color: #52667a;
+        background-color: var(--accent-color);
       }
     </style>
   </head>
   <body>
-    <!-- Top Header -->
+    <!-- NAVBAR -->
     <nav class="navbar">
-      <div class="nav-logo">
+      <div class="navbar-left">
         <img src="${logoSrc}" alt="Anypoint Monitor" />
-        <span>Anypoint Monitor Extension</span>
+        <h1>Anypoint Monitor Extension</h1>
       </div>
-      <ul class="nav-menu">
-        <li><a href="https://marketplace.visualstudio.com/items?itemName=EdgarMoran.anypoint-monitor" target="_blank">About the Extension</a></li>
-        <li><a href="https://www.buymeacoffee.com/yucelmoran" target="_blank">Buy Me a Coffee</a></li>
-      </ul>
+      <div class="navbar-right">
+        <a href="https://marketplace.visualstudio.com/items?itemName=EdgarMoran.anypoint-monitor" target="_blank">About the Extension</a>
+        <a href="https://www.buymeacoffee.com/yucelmoran" target="_blank">Buy Me a Coffee</a>
+      </div>
     </nav>
 
-    <!-- Hero Section -->
+    <!-- HERO SECTION -->
     <div class="hero">
-      <div class="hero-content">
-        <h1>Your Organization Details</h1>
-        <p>View real-time usage metrics and manage resources all in one place.</p>
-      </div>
+      <h2>${orgName} Organization</h2>
+      <p>View real-time usage metrics and manage resources all in one place.</p>
     </div>
 
-    <!-- Main Content -->
-    <div class="content-container">
-      <!-- Organization Details Panel -->
-      <h2 class="section-title">Organization Details</h2>
+    <!-- MAIN CONTENT -->
+    <div class="container">
+      <!-- ORG DETAILS -->
+      <h3 class="section-title">Organization Details</h3>
       <div class="info-panel">
         <table class="info-table">
           <tr><th>Name</th><td>${orgName}</td></tr>
@@ -268,39 +316,10 @@ export function getOrgInfoWebviewContent(
         </table>
       </div>
 
-      <!-- Usage vs Plan Section -->
-      <h2 class="section-title">Usage vs Plan</h2>
+      <!-- USAGE vs PLAN -->
+      <h3 class="section-title">Usage vs Plan</h3>
       <div class="usage-container">
-        <!-- Production Workers -->
-        <div class="usage-card">
-          <h3>Production Workers</h3>
-          ${renderUsageCard(usage.productionWorkers, plan.maxProductionWorkers)}
-        </div>
-        <!-- Sandbox Workers -->
-        <div class="usage-card">
-          <h3>Sandbox Workers</h3>
-          ${renderUsageCard(usage.sandboxWorkers, plan.maxSandboxWorkers)}
-        </div>
-        <!-- Standard Connectors -->
-        <div class="usage-card">
-          <h3>Standard Connectors</h3>
-          ${renderUsageCard(usage.standardConnectors, plan.maxStandardConnectors)}
-        </div>
-        <!-- Premium Connectors -->
-        <div class="usage-card">
-          <h3>Premium Connectors</h3>
-          ${renderUsageCard(usage.premiumConnectors, plan.maxPremiumConnectors)}
-        </div>
-        <!-- Static IPs -->
-        <div class="usage-card">
-          <h3>Static IPs</h3>
-          ${renderUsageCard(usage.staticIps, plan.maxStaticIps)}
-        </div>
-        <!-- Deployment Groups -->
-        <div class="usage-card">
-          <h3>Deployment Groups</h3>
-          ${renderUsageCard(usage.deploymentGroups, plan.maxDeploymentGroups)}
-        </div>
+        ${usageCardsHtml}
       </div>
     </div>
   </body>

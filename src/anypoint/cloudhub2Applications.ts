@@ -2,14 +2,13 @@ import * as vscode from 'vscode';
 import * as fs from 'fs';
 
 /**
- * Creates a webview panel and displays a table of applications,
- * styled similarly to your "tech" design, with DataTables for filtering/pagination.
+ * Creates a webview panel and displays a table of applications (CloudHub 2.0),
+ * with the same dark, techy vibe as your previous design.
  */
 export function showApplicationsWebview(context: vscode.ExtensionContext, data: any) {
-  // 1. Extract items from data
   const appsArray = Array.isArray(data.items) ? data.items : [];
 
-  // 2. Create the webview panel
+  // Create the webview panel
   const panel = vscode.window.createWebviewPanel(
     'applicationsView',
     'CloudHub 2.0 Applications',
@@ -17,10 +16,10 @@ export function showApplicationsWebview(context: vscode.ExtensionContext, data: 
     { enableScripts: true }
   );
 
-  // 3. Set the HTML content
+  // Set the HTML content
   panel.webview.html = getApplicationsHtml(appsArray, panel.webview, context.extensionUri);
 
-  // 4. Listen for messages (CSV export, etc.)
+  // Listen for messages (CSV export, etc.)
   panel.webview.onDidReceiveMessage(async (message) => {
     if (message.command === 'downloadCsv') {
       const csvData = generateCsvContent(appsArray);
@@ -37,7 +36,284 @@ export function showApplicationsWebview(context: vscode.ExtensionContext, data: 
 }
 
 /**
- * Helper to flatten a nested object into dot-notation keys.
+ * Generates the HTML for the dark theme + tech vibe.
+ */
+function getApplicationsHtml(
+  apps: any[],
+  webview: vscode.Webview,
+  extensionUri: vscode.Uri
+): string {
+  // 1. Flatten each item, gather all keys
+  const allKeys = new Set<string>();
+  const flattenedApps = apps.map((app) => {
+    const flat = flattenObject(app);
+    Object.keys(flat).forEach((k) => allKeys.add(k));
+    return flat;
+  });
+
+  // 2. Convert to array, remove "id", and sort
+  let allKeysArray = Array.from(allKeys).filter((k) => k !== 'id');
+  allKeysArray.sort();
+
+  // 3. URIs for resources
+  const logoPath = vscode.Uri.joinPath(extensionUri, 'logo.png');
+  const logoSrc = webview.asWebviewUri(logoPath);
+
+  // DataTables + jQuery
+  const jqueryJs = 'https://code.jquery.com/jquery-3.6.0.min.js';
+  const dataTableJs = 'https://cdn.datatables.net/1.13.4/js/jquery.dataTables.min.js';
+  const dataTableCss = 'https://cdn.datatables.net/1.13.4/css/jquery.dataTables.min.css';
+
+  // Google Fonts (Fira Code for the tech vibe)
+  const googleFontLink = 'https://fonts.googleapis.com/css2?family=Fira+Code:wght@400;600&display=swap';
+
+  return /* html */ `
+    <!DOCTYPE html>
+    <html lang="en">
+      <head>
+        <meta charset="UTF-8" />
+        <title>CloudHub 2.0 Applications</title>
+
+        <!-- DataTables + Fira Code Font -->
+        <link rel="stylesheet" href="${dataTableCss}" />
+        <link rel="stylesheet" href="${googleFontLink}" />
+
+        <style>
+          /* Dark Theme + Tech Vibe */
+          :root {
+            --background-color: #0D1117;
+            --card-color: #161B22;
+            --text-color: #C9D1D9;
+            --accent-color: #58A6FF;
+            --navbar-color: #141A22;
+            --navbar-text-color: #F0F6FC;
+            --button-hover-color: #3186D1;
+            --table-hover-color: #21262D;
+          }
+
+          body {
+            margin: 0;
+            padding: 0;
+            background-color: var(--background-color);
+            color: var(--text-color);
+            font-family: 'Fira Code', monospace, sans-serif;
+            font-size: 14px;
+          }
+
+          /* NAVBAR */
+          .navbar {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            background-color: var(--navbar-color);
+            padding: 0.75rem 1rem;
+          }
+          .navbar-left {
+            display: flex;
+            align-items: center;
+            gap: 1rem;
+          }
+          .navbar-left img {
+            height: 32px;
+            width: auto;
+          }
+          .navbar-left h1 {
+            color: var(--navbar-text-color);
+            font-size: 1.25rem;
+            margin: 0;
+          }
+          .navbar-right {
+            display: flex;
+            gap: 1.5rem;
+          }
+          .navbar-right a {
+            color: var(--navbar-text-color);
+            text-decoration: none;
+            font-weight: 500;
+            font-size: 0.9rem;
+          }
+          .navbar-right a:hover {
+            text-decoration: underline;
+          }
+
+          /* MAIN CONTAINER */
+          .container {
+            width: 90%;
+            max-width: 1200px;
+            margin: 1rem auto;
+          }
+
+          /* CARD */
+          .card {
+            background-color: var(--card-color);
+            border: 1px solid #30363D;
+            border-radius: 6px;
+            padding: 1rem;
+          }
+          .card-header {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            margin-bottom: 1rem;
+          }
+          .card-header h2 {
+            margin: 0;
+            font-size: 1.25rem;
+            color: var(--accent-color);
+          }
+
+          /* BUTTON */
+          .button {
+            padding: 6px 12px;
+            font-size: 0.85rem;
+            color: #ffffff;
+            background-color: var(--accent-color);
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            font-weight: 600;
+          }
+          .button:hover {
+            background-color: var(--button-hover-color);
+          }
+
+          /* TABLE + DATATABLES OVERRIDES */
+          #appTable_wrapper .dataTables_length,
+          #appTable_wrapper .dataTables_filter,
+          #appTable_wrapper .dataTables_info,
+          #appTable_wrapper .dataTables_paginate {
+            margin: 0.5rem 0;
+            font-size: 0.85rem;
+            color: var(--text-color);
+          }
+          /* "Show X entries" label and dropdown */
+          #appTable_length label {
+            color: var(--text-color);
+            font-weight: normal;
+          }
+          #appTable_length select {
+            background-color: #121212;
+            color: var(--text-color);
+            border: 1px solid #30363D;
+            border-radius: 4px;
+            padding: 2px 8px;
+            outline: none;
+          }
+
+          #appTable_wrapper input[type="search"] {
+            background-color: #121212;
+            color: var(--text-color);
+            border: 1px solid #30363D;
+          }
+          #appTable thead {
+            background-color: #21262D;
+          }
+          #appTable thead th {
+            color: var(--accent-color);
+            border-bottom: 1px solid #30363D;
+            white-space: nowrap;
+          }
+          #appTable tbody tr {
+            background-color: var(--card-color);
+            border-bottom: 1px solid #30363D;
+          }
+          #appTable tbody tr:hover {
+            background-color: var(--table-hover-color);
+          }
+          #appTable tbody td {
+            color: var(--text-color);
+            white-space: nowrap;
+          }
+          .dataTables_paginate .paginate_button {
+            color: var(--accent-color) !important;
+          }
+          .dataTables_paginate .paginate_button.current {
+            background: var(--accent-color) !important;
+            color: #fff !important;
+          }
+
+          /* SCROLLABLE TABLE WRAPPER */
+          .table-container {
+            width: 100%;
+            overflow-x: auto;
+          }
+        </style>
+      </head>
+      <body>
+        <!-- NAVBAR -->
+        <nav class="navbar">
+          <div class="navbar-left">
+            <img src="${logoSrc}" />
+            <h1>Anypoint Monitor Extension</h1>
+          </div>
+          <div class="navbar-right">
+            <a href="https://marketplace.visualstudio.com/items?itemName=EdgarMoran.anypoint-monitor">About</a>
+            <a href="https://www.buymeacoffee.com/yucelmoran">Buy Me a Coffee</a>
+          </div>
+        </nav>
+
+        <!-- MAIN CONTENT -->
+        <div class="container">
+          <div class="card">
+            <div class="card-header">
+              <h2>CloudHub 2.0 Applications</h2>
+              <button id="downloadCsv" class="button">Download as CSV</button>
+            </div>
+
+            <div class="table-container">
+              <table id="appTable" class="display" style="width:100%;">
+                <thead>
+                  <tr>
+                    ${allKeysArray.map((key) => `<th>${key}</th>`).join('')}
+                  </tr>
+                </thead>
+                <tbody>
+                  ${flattenedApps
+                    .map((flatApp) => {
+                      const rowCells = allKeysArray.map((key) => {
+                        const originalValue = flatApp[key];
+                        return `<td>${renderCell(key, originalValue)}</td>`;
+                      });
+                      return `<tr>${rowCells.join('')}</tr>`;
+                    })
+                    .join('')}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+
+        <!-- jQuery & DataTables -->
+        <script src="${jqueryJs}"></script>
+        <script src="${dataTableJs}"></script>
+        <script>
+          const vscode = acquireVsCodeApi();
+
+          // CSV download button
+          document.getElementById('downloadCsv').addEventListener('click', () => {
+            vscode.postMessage({ command: 'downloadCsv' });
+          });
+
+          // Initialize DataTables
+          $(document).ready(function () {
+            $('#appTable').DataTable({
+              pageLength: 10,
+              responsive: true,
+              autoWidth: false,
+              language: {
+                search: "Search:",
+                lengthMenu: "Show _MENU_ entries"
+              }
+            });
+          });
+        </script>
+      </body>
+    </html>
+  `;
+}
+
+/**
+ * Flatten a nested object into dot-notation keys.
  * e.g. { target: { provider: 'MC' } } -> { 'target.provider': 'MC' }
  */
 function flattenObject(obj: any, parentKey = '', res: any = {}): any {
@@ -59,7 +335,8 @@ function flattenObject(obj: any, parentKey = '', res: any = {}): any {
  */
 function renderCell(key: string, value: any): string {
   if (key === 'id') {
-    return ''; // We'll exclude the 'id' column entirely
+    // Exclude the 'id' column
+    return '';
   }
 
   // Format date fields (ends with "Date")
@@ -84,257 +361,10 @@ function renderCell(key: string, value: any): string {
 }
 
 /**
- * Generates HTML for the webview with a dynamic table that
- * shows all JSON attributes (flattened), plus DataTables for pagination/filtering.
- */
-function getApplicationsHtml(
-  apps: any[],
-  webview: vscode.Webview,
-  extensionUri: vscode.Uri
-): string {
-  // 1. Flatten each item, gather all keys
-  const allKeys = new Set<string>();
-  const flattenedApps = apps.map((app) => {
-    const flat = flattenObject(app);
-    Object.keys(flat).forEach((k) => allKeys.add(k));
-    return flat;
-  });
-
-  // 2. Convert to array, remove "id", and sort
-  let allKeysArray = Array.from(allKeys).filter((k) => k !== 'id');
-  allKeysArray.sort();
-
-  // 3. Construct URIs for your assets (e.g. logo)
-  const logoPath = vscode.Uri.joinPath(extensionUri, 'logo.png');
-  const logoSrc = webview.asWebviewUri(logoPath);
-
-  // 4. Because we want DataTables, include jQuery & DataTables scripts
-  //    using their public CDNs, plus the DataTables CSS
-  const jqueryJs = 'https://code.jquery.com/jquery-3.6.0.min.js';
-  const dataTableJs = 'https://cdn.datatables.net/1.13.4/js/jquery.dataTables.min.js';
-  const dataTableCss = 'https://cdn.datatables.net/1.13.4/css/jquery.dataTables.min.css';
-
-  return /* html */ `
-    <!DOCTYPE html>
-    <html lang="en">
-      <head>
-        <meta charset="UTF-8" />
-        <title>CloudHub 2.0 Applications</title>
-        <!-- OPTIONAL: modern Google Font -->
-        <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;600&display=swap" />
-
-        <!-- DataTables CSS -->
-        <link rel="stylesheet" href="${dataTableCss}" />
-
-        <style>
-          /* GLOBAL RESET & FONT */
-          body {
-            margin: 0;
-            padding: 0;
-            font-family: 'Inter', -apple-system, BlinkMacSystemFont, "Segoe UI",
-              Roboto, Helvetica, Arial, sans-serif, "Apple Color Emoji", "Segoe UI Emoji";
-            color: #212529;
-            background-color: #ffffff;
-          }
-
-          /* NAVBAR */
-          .navbar {
-            display: flex;
-            align-items: center;
-            justify-content: space-between;
-            background-color: #1f2b3c; /* Blue-gray tone */
-            padding: 0.75rem 1rem;
-          }
-          .navbar-left {
-            display: flex;
-            align-items: center;
-            gap: 1rem;
-          }
-          .navbar-left img {
-            height: 32px;
-            width: auto;
-          }
-          .navbar-left h1 {
-            color: #ffffff;
-            font-size: 1.25rem;
-            margin: 0;
-          }
-          .navbar-right {
-            display: flex;
-            gap: 1.5rem;
-          }
-          .navbar-right a {
-            color: #ffffff;
-            text-decoration: none;
-            font-weight: 500;
-            font-size: 0.9rem;
-          }
-          .navbar-right a:hover {
-            text-decoration: underline;
-          }
-
-          /* HERO SECTION */
-          .hero {
-            background: linear-gradient(90deg, #2c3e50 0%, #4a5965 50%, #67737b 100%);
-            color: #ffffff;
-            padding: 2rem 1rem;
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-          }
-          .hero-text {
-            max-width: 60%;
-          }
-          .hero-text h2 {
-            font-size: 2rem;
-            margin-bottom: 0.5rem;
-          }
-          .hero-text p {
-            margin-bottom: 0;
-            font-size: 1rem;
-            line-height: 1.4;
-          }
-
-          /* MAIN CONTAINER: ~80% width, centered */
-          .container {
-            width: 80%;
-            margin: 1rem auto;
-            background-color: #ffffff;
-          }
-
-          /* TITLE & BUTTON */
-          .title-bar {
-            display: flex;
-            align-items: center;
-            justify-content: space-between;
-            margin: 1rem 0;
-          }
-          .title-bar h4 {
-            font-size: 1.25rem;
-            margin: 0;
-          }
-          .button {
-            padding: 8px 14px;
-            font-size: 0.85rem;
-            color: #ffffff;
-            background-color: #52667a;
-            border: none;
-            border-radius: 4px;
-            cursor: pointer;
-            text-decoration: none;
-            font-weight: 600;
-          }
-          .button:hover {
-            background-color: #435362;
-          }
-
-          /* TABLE CONTAINER (SCROLLABLE) */
-          .table-container {
-            width: 100%;
-            overflow-x: auto;
-            margin-bottom: 2rem;
-          }
-
-          /* TABLE STYLES with DataTables */
-          table.dataTable { /* add .dataTable for styling from the included CSS */
-            border-collapse: collapse;
-            background-color: #fff;
-            box-shadow: 0 0 5px rgba(0,0,0,0.1);
-            width: 100%; /* Let it stretch full width */
-          }
-          table.dataTable thead th,
-          table.dataTable tbody td {
-            font-size: 0.8rem; /* smaller font */
-            padding: 6px 8px;  /* tighter cell padding */
-            white-space: nowrap;
-          }
-          /* Subtle row striping & hover highlight can be handled by DataTables,
-             but we can also keep our own if we prefer. */
-          table.dataTable tbody tr:nth-child(even) {
-            background-color: #fafbfc;
-          }
-          table.dataTable tbody tr:hover {
-            background-color: #f1f3f5;
-          }
-        </style>
-      </head>
-      <body>
-        <!-- NAVBAR -->
-        <nav class="navbar">
-          <div class="navbar-left">
-            <img src="${logoSrc}" />
-            <h1>Anypoint Monitor Extension</h1>
-          </div>
-          <div class="navbar-right">
-            <a href="https://marketplace.visualstudio.com/items?itemName=EdgarMoran.anypoint-monitor">About</a>
-            <a href="https://www.buymeacoffee.com/yucelmoran">Buy Me a Coffee</a>
-          </div>
-        </nav>
-
-        <!-- MAIN CONTENT -->
-        <div class="container">
-          <!-- Title & Button -->
-          <div class="title-bar">
-            <h4>CloudHub 2.0 Applications</h4>
-            <button id="downloadCsv" class="button">Download as CSV</button>
-          </div>
-
-          <!-- Scrollable Table Container -->
-          <div class="table-container">
-            <!-- IMPORTANT: id="appTable" and class="display" for DataTables -->
-            <table id="appTable" class="display">
-              <thead>
-                <tr>
-                  ${allKeysArray.map((key) => `<th>${key}</th>`).join('')}
-                </tr>
-              </thead>
-              <tbody>
-                ${flattenedApps
-                  .map((flatApp) => {
-                    const rowCells = allKeysArray.map((key) => {
-                      const originalValue = flatApp[key];
-                      return `<td>${renderCell(key, originalValue)}</td>`;
-                    });
-                    return `<tr>${rowCells.join('')}</tr>`;
-                  })
-                  .join('')}
-              </tbody>
-            </table>
-          </div>
-        </div>
-
-        <!-- jQuery and DataTables scripts -->
-        <script src="${jqueryJs}"></script>
-        <script src="${dataTableJs}"></script>
-
-        <script>
-          const vscode = acquireVsCodeApi();
-
-          // CSV download handler
-          document.getElementById('downloadCsv').addEventListener('click', () => {
-            vscode.postMessage({ command: 'downloadCsv' });
-          });
-
-          // Initialize DataTables
-          $(document).ready(function () {
-            $('#appTable').DataTable({
-              pageLength: 10,      // Show 10 rows per page by default
-              responsive: true,    // Make table responsive (requires extra plugin)
-              autoWidth: false,    // Don't force DataTables to auto-calculate column widths
-              // You can add more DataTables config here if desired
-            });
-          });
-        </script>
-      </body>
-    </html>
-  `;
-}
-
-/**
- * Generates CSV content (skips "id" column, formats date columns, etc.).
+ * Generates CSV content from the flattened objects.
  */
 function generateCsvContent(apps: any[]): string {
-  // Flatten each app to gather all keys
+  // Flatten each app, gather all keys
   const allKeys = new Set<string>();
   const flattenedApps = apps.map((app) => {
     const flat = flattenObject(app);

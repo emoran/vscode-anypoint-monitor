@@ -609,259 +609,325 @@
      }
    }
    
-   /**
-    * Builds the HTML for the environment/org panel
-    * with separate Show/Hide and Copy buttons for client secrets
-    */
-   function getEnvironmentOrgHtml(
-     webview: vscode.Webview,
-     extensionUri: vscode.Uri,
-     userInfo: { orgName: string; orgId: string },
-     environments: Array<{ id: string; name: string }>,
-     merakiClients: Array<{ client_id: string; client_secret: string; name: string }>
-   ): string {
-   
-     // Build environment table
-     const environmentRows = environments.map(env => {
-       return /*html*/`
-         <tr>
-           <td>${env.name || '(No Name)'}</td>
-           <td>${env.id || '(No ID)'}</td>
-         </tr>
-       `;
-     }).join('');
-   
-     // Build clients table
-     const clientRows = merakiClients.map(client => {
-       return /*html*/`
-         <tr>
-           <td>${client.name}</td>
-           <td>
-             <span class="copyable" data-copy="${client.client_id}" title="Copy Client ID">
-               ${client.client_id}
-             </span>
-           </td>
-           <td>
-             <!-- The real secret is stored in data-secret; default hidden -->
-             <span class="client-secret"
-                   data-state="hidden"
-                   data-secret="${client.client_secret}">
-               *****
-             </span>
-   
-             <!-- Toggle button to show/hide secret -->
-             <button class="button toggle-secret" style="margin-left:6px">
-               Show
-             </button>
-   
-             <!-- Separate button to copy the real secret -->
-             <button class="button copy-secret" style="margin-left:6px">
-               Copy
-             </button>
-           </td>
-         </tr>
-       `;
-     }).join('');
-   
-     return /*html*/`
-   <!DOCTYPE html>
-   <html lang="en">
-   <head>
-     <meta charset="UTF-8">
-     <title>Environment & Org Info</title>
-     <style>
-       /* Basic styling, you can tweak or replace */
-   
-       * {
-         box-sizing: border-box;
-         margin: 0;
-         padding: 0;
-       }
-       body {
-         font-family: 'Inter', -apple-system, BlinkMacSystemFont,
-           "Segoe UI", Roboto, Helvetica, Arial, sans-serif,
-           "Apple Color Emoji", "Segoe UI Emoji";
-         background-color: #f4f6f8;
-         color: #212529;
-       }
-       .container {
-         width: 90%;
-         max-width: 1200px;
-         margin: 1.5rem auto;
-       }
-       .slds-card {
-         background: #fff;
-         border-radius: 8px;
-         margin-bottom: 1.5rem;
-         padding: 1rem 1.5rem;
-         box-shadow: 0 4px 10px rgba(0,0,0,0.08);
-         border: 1px solid #e4e4e4;
-       }
-       .slds-card__header {
-         margin-bottom: 1rem;
-       }
-       .slds-card__header h2 {
-         margin:0;
-         font-size:1.15rem;
-         font-weight:600;
-         color:#333;
-       }
-       table {
-         width: 100%;
-         border-collapse: collapse;
-       }
-       thead th {
-         background-color: #f8f9fa;
-         text-align: left;
-         font-size: 0.9rem;
-         padding: 0.75rem;
-         border-bottom: 1px solid #e4e4e4;
-       }
-       tbody td {
-         border-bottom: 1px solid #e4e4e4;
-         padding: 0.75rem;
-         font-size:0.9rem;
-         vertical-align:middle;
-       }
-       tbody tr:last-child td {
-         border-bottom: none;
-       }
-       tbody tr:nth-child(even) {
-         background-color: #fafafa;
-       }
-       tbody tr:hover {
-         background-color: #f1f3f5;
-       }
-   
-       .button {
-         padding:5px 10px;
-         background:#52667a;
-         color:#fff;
-         border:none;
-         border-radius:4px;
-         font-size:0.85rem;
-         cursor:pointer;
-         font-weight:600;
-       }
-       .button:hover {
-         background:#435362;
-       }
-       .client-secret {
-         margin-left: 4px;
-       }
-       .copyable {
-         text-decoration: underline;
-         color: #0062cc;
-         cursor: pointer;
-       }
-       .copyable:hover {
-         color: #004a9f;
-       }
-       .copy-feedback {
-         display: none;
-         color: green;
-         font-size: 0.8rem;
-         margin-left: 0.5rem;
-       }
-     </style>
-   </head>
-   <body>
-     <div class="container">
-       <!-- Card: Orgs & Envs -->
-       <div class="slds-card">
-         <div class="slds-card__header">
-           <h2>Organization: ${userInfo.orgName} (ID: ${userInfo.orgId})</h2>
-         </div>
-         <table>
-           <thead>
-             <tr>
-               <th>Environment Name</th>
-               <th>Environment ID</th>
-             </tr>
-           </thead>
-           <tbody>
-             ${environmentRows}
-           </tbody>
-         </table>
-       </div>
-   
-       <!-- Card: Clients -->
-       <div class="slds-card">
-         <div class="slds-card__header">
-           <h2>Clients Environments</h2>
-         </div>
-         <table>
-           <thead>
-             <tr>
-               <th>Client Name</th>
-               <th>Client ID</th>
-               <th>Client Secret</th>
-             </tr>
-           </thead>
-           <tbody>
-             ${clientRows}
-           </tbody>
-         </table>
-       </div>
-     </div>
-   
-     <script>
-       // Show "Copied!" feedback for ~1.2 seconds
-       function showCopiedFeedback(el) {
-         const feedback = document.createElement('span');
-         feedback.className = 'copy-feedback';
-         feedback.textContent = 'Copied!';
-         el.insertAdjacentElement('afterend', feedback);
-         feedback.style.display = 'inline';
-         setTimeout(() => feedback.remove(), 1200);
-       }
-   
-       document.addEventListener('click', (e) => {
-         const target = e.target;
-         if (!target) return;
-   
-         // Toggle-secret button
-         if (target.classList.contains('toggle-secret')) {
-           const secretSpan = target.closest('td')?.querySelector('.client-secret');
-           if (!secretSpan) return;
-   
-           const state = secretSpan.getAttribute('data-state') || 'hidden';
-           const realSecret = secretSpan.getAttribute('data-secret') || '';
-   
-           if (state === 'hidden') {
-             // Reveal
-             secretSpan.textContent = realSecret;
-             secretSpan.setAttribute('data-state', 'visible');
-             target.textContent = 'Hide';
-           } else {
-             // Hide
-             secretSpan.textContent = '*****';
-             secretSpan.setAttribute('data-state', 'hidden');
-             target.textContent = 'Show';
-           }
-         }
-   
-         // Copy-secret button
-         if (target.classList.contains('copy-secret')) {
-           const secretSpan = target.closest('td')?.querySelector('.client-secret');
-           if (!secretSpan) return;
-           const realSecret = secretSpan.getAttribute('data-secret') || '';
-           navigator.clipboard.writeText(realSecret)
-             .then(() => showCopiedFeedback(target))
-             .catch(err => console.error('Failed to copy secret:', err));
-         }
-   
-         // Clickable client ID
-         if (target.classList.contains('copyable')) {
-           const toCopy = target.getAttribute('data-copy') || '';
-           navigator.clipboard.writeText(toCopy)
-             .then(() => showCopiedFeedback(target))
-             .catch(err => console.error('Failed to copy ID:', err));
-         }
-       });
-     </script>
-   </body>
-   </html>
-     `;
-   }
-   
+/**
+ * Builds the HTML for the environment/org panel
+ * with separate Show/Hide and Copy buttons for client secrets,
+ * using the dark theme + top navbar for consistency.
+ */
+function getEnvironmentOrgHtml(
+  webview: vscode.Webview,
+  extensionUri: vscode.Uri,
+  userInfo: { orgName: string; orgId: string },
+  environments: Array<{ id: string; name: string }>,
+  merakiClients: Array<{ client_id: string; client_secret: string; name: string }>
+
+): string {
+  // Build environment table
+  const logoPath = vscode.Uri.joinPath(extensionUri, 'logo.png');
+  const logoSrc = webview.asWebviewUri(logoPath);
+  const environmentRows = environments.map(env => {
+    return /*html*/`
+      <tr>
+        <td>${env.name || '(No Name)'}</td>
+        <td>${env.id || '(No ID)'}</td>
+      </tr>
+    `;
+  }).join('');
+
+  // Build clients table
+  const clientRows = merakiClients.map(client => {
+    return /*html*/`
+      <tr>
+        <td>${client.name}</td>
+        <td>
+          <span class="copyable" data-copy="${client.client_id}" title="Copy Client ID">
+            ${client.client_id}
+          </span>
+        </td>
+        <td>
+          <!-- The real secret is stored in data-secret; default hidden -->
+          <span class="client-secret"
+                data-state="hidden"
+                data-secret="${client.client_secret}">
+            *****
+          </span>
+
+          <!-- Toggle button to show/hide secret -->
+          <button class="button toggle-secret" style="margin-left:6px">
+            Show
+          </button>
+
+          <!-- Separate button to copy the real secret -->
+          <button class="button copy-secret" style="margin-left:6px">
+            Copy
+          </button>
+        </td>
+      </tr>
+    `;
+  }).join('');
+
+  // Construct the HTML with the dark theme + top navbar
+  return /*html*/ `
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Environment & Org Info</title>
+
+  <!-- Fira Code for tech vibe -->
+  <link
+    rel="stylesheet"
+    href="https://fonts.googleapis.com/css2?family=Fira+Code:wght@400;600&display=swap"
+  />
+
+  <style>
+    /* Dark Theme Variables (same as your other webviews) */
+    :root {
+      --background-color: #0D1117;
+      --card-color: #161B22;
+      --text-color: #C9D1D9;
+      --accent-color: #58A6FF;
+      --navbar-color: #141A22;
+      --navbar-text-color: #F0F6FC;
+      --button-hover-color: #3186D1;
+      --table-hover-color: #21262D;
+    }
+
+    body {
+      margin: 0;
+      padding: 0;
+      background-color: var(--background-color);
+      color: var(--text-color);
+      font-family: 'Fira Code', monospace, sans-serif;
+      font-size: 12px;
+    }
+
+    /* NAVBAR (same style as your other pages) */
+    .navbar {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      background-color: var(--navbar-color);
+      padding: 0.5rem 1rem;
+    }
+    .navbar-left {
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+    }
+    .navbar-left img {
+      height: 28px;
+      width: auto;
+    }
+    .navbar-left h1 {
+      color: var(--navbar-text-color);
+      font-size: 1rem;
+      margin: 0;
+    }
+    .navbar-right {
+      display: flex;
+      gap: 0.75rem;
+    }
+    .navbar-right a {
+      color: var(--navbar-text-color);
+      text-decoration: none;
+      font-weight: 500;
+      font-size: 0.75rem;
+    }
+    .navbar-right a:hover {
+      text-decoration: underline;
+    }
+
+    /* CONTAINER */
+    .container {
+      width: 90%;
+      max-width: 1200px;
+      margin: 0.75rem auto;
+    }
+
+    /* CARD */
+    .card {
+      background-color: var(--card-color);
+      border: 1px solid #30363D;
+      border-radius: 6px;
+      padding: 0.75rem;
+      margin-bottom: 1rem;
+    }
+    .card-header {
+      margin-bottom: 0.75rem;
+    }
+    .card-header h2 {
+      margin: 0;
+      font-size: 0.9rem;
+      color: var(--accent-color);
+    }
+
+    /* TABLES */
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 0.75rem;
+    }
+    thead th {
+      background-color: #21262D; /* Slightly darker for table header */
+      color: var(--accent-color);
+      text-align: left;
+      padding: 0.5rem;
+      border-bottom: 1px solid #30363D;
+      white-space: nowrap;
+    }
+    tbody td {
+      border-bottom: 1px solid #30363D;
+      padding: 0.5rem;
+      vertical-align: middle;
+    }
+    tbody tr:hover {
+      background-color: var(--table-hover-color);
+    }
+
+    /* BUTTON */
+    .button {
+      padding: 4px 8px;
+      font-size: 0.75rem;
+      color: #fff;
+      background-color: var(--accent-color);
+      border: none;
+      border-radius: 4px;
+      cursor: pointer;
+      font-weight: 600;
+    }
+    .button:hover {
+      background-color: var(--button-hover-color);
+    }
+
+    .client-secret {
+      margin-left: 4px;
+    }
+    .copyable {
+      text-decoration: underline;
+      color: var(--accent-color);
+      cursor: pointer;
+    }
+    .copyable:hover {
+      color: #6FB8FF; /* slightly lighter on hover */
+    }
+    .copy-feedback {
+      display: none;
+      color: #98EE99; /* light green */
+      font-size: 0.7rem;
+      margin-left: 0.5rem;
+    }
+  </style>
+</head>
+<body>
+  <!-- TOP NAVBAR (for consistent look) -->
+  <nav class="navbar">
+    <div class="navbar-left">
+      <img src="${logoSrc}" alt="Logo"/>
+      <h1>Anypoint Monitor Extension</h1>
+    </div>
+    <div class="navbar-right">
+      <a href="https://marketplace.visualstudio.com/items?itemName=EdgarMoran.anypoint-monitor">About</a>
+      <a href="https://www.buymeacoffee.com/yucelmoran">Buy Me a Coffee</a>
+    </div>
+  </nav>
+
+  <!-- MAIN CONTENT -->
+  <div class="container">
+    <!-- Card: Orgs & Envs -->
+    <div class="card">
+      <div class="card-header">
+        <h2>Organization: ${userInfo.orgName} (ID: ${userInfo.orgId})</h2>
+      </div>
+      <table>
+        <thead>
+          <tr>
+            <th>Environment Name</th>
+            <th>Environment ID</th>
+          </tr>
+        </thead>
+        <tbody>
+          ${environmentRows}
+        </tbody>
+      </table>
+    </div>
+
+    <!-- Card: Clients -->
+    <div class="card">
+      <div class="card-header">
+        <h2>Clients Environments</h2>
+      </div>
+      <table>
+        <thead>
+          <tr>
+            <th>Client Name</th>
+            <th>Client ID</th>
+            <th>Client Secret</th>
+          </tr>
+        </thead>
+        <tbody>
+          ${clientRows}
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+  <script>
+    // Show "Copied!" feedback for ~1.2 seconds
+    function showCopiedFeedback(el) {
+      const feedback = document.createElement('span');
+      feedback.className = 'copy-feedback';
+      feedback.textContent = 'Copied!';
+      el.insertAdjacentElement('afterend', feedback);
+      feedback.style.display = 'inline';
+      setTimeout(() => feedback.remove(), 1200);
+    }
+
+    document.addEventListener('click', (e) => {
+      const target = e.target;
+      if (!target) return;
+
+      // Toggle-secret button
+      if (target.classList.contains('toggle-secret')) {
+        const secretSpan = target.closest('td')?.querySelector('.client-secret');
+        if (!secretSpan) return;
+
+        const state = secretSpan.getAttribute('data-state') || 'hidden';
+        const realSecret = secretSpan.getAttribute('data-secret') || '';
+
+        if (state === 'hidden') {
+          // Reveal
+          secretSpan.textContent = realSecret;
+          secretSpan.setAttribute('data-state', 'visible');
+          target.textContent = 'Hide';
+        } else {
+          // Hide
+          secretSpan.textContent = '*****';
+          secretSpan.setAttribute('data-state', 'hidden');
+          target.textContent = 'Show';
+        }
+      }
+
+      // Copy-secret button
+      if (target.classList.contains('copy-secret')) {
+        const secretSpan = target.closest('td')?.querySelector('.client-secret');
+        if (!secretSpan) return;
+        const realSecret = secretSpan.getAttribute('data-secret') || '';
+        navigator.clipboard.writeText(realSecret)
+          .then(() => showCopiedFeedback(target))
+          .catch(err => console.error('Failed to copy secret:', err));
+      }
+
+      // Clickable client ID
+      if (target.classList.contains('copyable')) {
+        const toCopy = target.getAttribute('data-copy') || '';
+        navigator.clipboard.writeText(toCopy)
+          .then(() => showCopiedFeedback(target))
+          .catch(err => console.error('Failed to copy ID:', err));
+      }
+    });
+  </script>
+</body>
+</html>
+  `;
+}
