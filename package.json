@@ -27,7 +27,7 @@
     "Other"
   ],
   "activationEvents": [],
-  "main": "./out/extension.js",
+  "main": "./out/src/extension.js",
   "files": [
     "resources/**/*"
   ],
