@@ -66,6 +66,10 @@
         "title": "AM: Developer Utilities"
       },
       {
+        "command": "anypoint-monitor.retrieveAccessToken",
+        "title": "AM: Retrieve Access Token"
+      },
+      {
         "command": "anypoint-monitor.logout",
         "title": "AM: Logout"
       }

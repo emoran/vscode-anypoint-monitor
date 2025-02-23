@@ -281,6 +281,23 @@ export function activate(context: vscode.ExtensionContext) {
     	}
 	});
 
+	const retrieveAccessToken = vscode.commands.registerCommand('anypoint-monitor.retrieveAccessToken', async () => {
+		// Attempt to refresh the access token using your existing refresh logic
+		const didRefresh = await refreshAccessToken(context);
+		if (!didRefresh) {
+		  vscode.window.showErrorMessage('Failed to refresh access token. Please log in again.');
+		  return;
+		}
+		
+		// Retrieve the newly refreshed access token from secret storage
+		const refreshedToken = await context.secrets.get('anypoint.accessToken');
+		if (!refreshedToken) {
+		  vscode.window.showErrorMessage('No access token found after refresh. Please log in again.');
+		  return;
+		}
+		
+		vscode.window.showInformationMessage(`Access token: ${refreshedToken}`);
+	});
 
 	context.subscriptions.push(userInfo);
 	context.subscriptions.push(getApplications);
@@ -290,8 +307,8 @@ export function activate(context: vscode.ExtensionContext) {
 	context.subscriptions.push(getCH1Apps);
 	context.subscriptions.push(organizationInformation);
 	context.subscriptions.push(applicationDetails);
-	//context.subscriptions.push(devInfo);
 	context.subscriptions.push(subcriptionExpiration);
+	context.subscriptions.push(retrieveAccessToken);
 }
 
 export async function retrieveApplications(context: vscode.ExtensionContext, selectedEnvironmentId: string) {
