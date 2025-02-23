@@ -11,6 +11,6 @@ jobs:
       - run: npm install
       - uses: lannonbr/vsce-action@4.0.0
         with:
-          args: "publish -p $VSCE_TOKEN --baseContentUrl none --baseImagesUrl none"
+          args: "publish -p $VSCE_TOKEN --baseContentUrl none --baseImagesUrl none --allow-missing-repository" 
         env:
           VSCE_TOKEN: ${{ secrets.VSCE_TOKEN }}
