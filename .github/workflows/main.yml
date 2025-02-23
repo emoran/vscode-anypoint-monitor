@@ -1,36 +1,16 @@
-name: 'Publish Extension'
-
 on:
-  workflow_dispatch:
-    inputs:
-      semver:
-        description: 'Semantic Version'
-        required: true
-        default: 'patch'
-        type: choice
-        options:
-          - patch
-          - minor
-          - major
-
+  push:
+    branches:
+      - master
+name: Deploy Extension
 jobs:
-  build:
+  deploy:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v3
-      - uses: actions/setup-node@v3
+      - uses: actions/checkout@v2
+      - run: npm install
+      - uses: lannonbr/vsce-action@4.0.0
         with:
-          node-version: 18
-      - name: 'Install dependencies'
-        run: |
-          yarn global add @vscode/vsce
-          yarn install
-      - name: 'Authenticate'
-        run: |
-          git config --global user.email "${{ secrets.MY_GITHUB_EMAIL }}"
-          git config --global user.name "Benny Neugebauer"
-      - name: 'Publish VS Code extension'
+          args: "publish -p $VSCE_TOKEN"
         env:
-          VSCE_PAT: ${{ secrets.VSCE_PAT }}
-        run: |
-          vsce publish ${{ github.event.inputs.semver }}
+          VSCE_TOKEN: ${{ secrets.VSCE_TOKEN }}
