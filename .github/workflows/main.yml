@@ -1,33 +1,16 @@
-name: Publish VS Code Extension
-
 on:
   push:
     branches:
       - main
-    tags:
-      - 'v*'  # Trigger on version tags (e.g. v1.0.0)
-
+name: Deploy Extension
 jobs:
-  publish:
+  deploy:
     runs-on: ubuntu-latest
-
     steps:
-      - name: Checkout code
-        uses: actions/checkout@v3
-
-      - name: Setup Node.js
-        uses: actions/setup-node@v3
+      - uses: actions/checkout@v2
+      - run: npm install
+      - uses: lannonbr/vsce-action@4.0.0
         with:
-          node-version: '16.x'
-          cache: 'npm'
-
-      - name: Install dependencies
-        run: npm ci
-
-      - name: Build the extension
-        run: npm run build
-
-      - name: Publish Extension
+          args: "publish -p $VSCE_TOKEN"
         env:
-          VSCE_PAT: ${{ secrets.VSCE_PAT }}
-        run: npx vsce publish
+          VSCE_TOKEN: ${{ secrets.VSCE_TOKEN }}
