@@ -3,7 +3,7 @@
   "displayName": "anypoint-monitor",
   "description": "The extension allows to retrieve information from Anypoint Platform, Organization info and aditionaldata from the available API's in one single place",
   "publisher": "EdgarMoran",
-  "version": "0.0.11",
+  "version": "0.0.12",
   "engines": {
     "vscode": "^1.96.0"
   },
@@ -68,6 +68,10 @@
       {
         "command": "anypoint-monitor.retrieveAccessToken",
         "title": "AM: Retrieve Access Token"
+      },
+      {
+        "command": "anypoint-monitor.retrieveAPIManagerAPIs",
+        "title": "AM: Retrieve API Manager APIs"
       },
       {
         "command": "anypoint-monitor.logout",
