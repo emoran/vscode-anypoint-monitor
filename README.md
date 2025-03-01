@@ -23,7 +23,7 @@ An Anypoint Platform user Login.
 
 ## Release Notes
 
-### 0.0.10
+### 0.0.12
 
 Initial release of commands:
 
@@ -35,6 +35,8 @@ Initial release of commands:
 - AM: Show Cloudhub 1.0 Applications
 - AM: Application Details
 - AM: Subscription Expiration
+- AM: Retrieve Access Token
+- AM: Retrieve API Manager APIs
 - AM: Logout
 
 ---
