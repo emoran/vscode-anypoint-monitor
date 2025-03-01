@@ -277,7 +277,7 @@
          await context.secrets.store('anypoint.refreshToken', tokenData.refresh_token);
        }
    
-       vscode.window.showInformationMessage('Access token refreshed successfully!');
+       //vscode.window.showInformationMessage('Access token refreshed successfully!');
        return true;
      } catch (err: any) {
        vscode.window.showErrorMessage(`Failed to refresh token: ${err.message}`);
