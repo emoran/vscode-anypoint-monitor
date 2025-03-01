@@ -346,11 +346,13 @@ export function activate(context: vscode.ExtensionContext) {
 				return;
 			}
 
-			const userInfo = await context.secrets.get('anypoint.userInfo');		
-			const userInfoData = JSON.parse(userInfo);
-			const organizationID = userInfoData.organization.id;
-
-			showAPIManagerWebview(context,selectedEnvironmentId,organizationID);
+			const userInfo = await context.secrets.get('anypoint.userInfo');	
+			
+			if (userInfo) {			
+				const userInfoData = JSON.parse(userInfo);
+				const organizationID = userInfoData.organization.id;
+				showAPIManagerWebview(context,selectedEnvironmentId,organizationID);
+			}
 		
 		} 
 		catch (error: any) {
