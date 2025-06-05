@@ -1,71 +1,413 @@
+// cloudhub2Applications.ts
 import * as vscode from 'vscode';
 import * as fs from 'fs';
+import { showApplicationDetailsCH2Webview } from './/applicationDetailsCH2';
+
+// ==================== MAIN ENTRY POINTS ====================
 
 /**
- * Creates a webview panel and displays a table of applications (CloudHub 2.0),
- * with the same dark, techy vibe as your previous design.
+ * Show the CloudHub 2.0 applications list webview
  */
-export function showApplicationsWebview(context: vscode.ExtensionContext, data: any) {
-  const appsArray = Array.isArray(data.items) ? data.items : [];
+export async function showApplicationsWebview(
+  context: vscode.ExtensionContext,
+  applicationsData: any,
+  environment: string
+) {
+  // Debug: Log the received data structure
+  console.log('CloudHub 2.0 Applications Data Structure:', JSON.stringify(applicationsData, null, 2));
+  
+  // Handle different data structures
+  let applications: any[] = [];
+  
+  if (Array.isArray(applicationsData)) {
+    applications = applicationsData;
+  } else if (applicationsData && typeof applicationsData === 'object') {
+    // Check if it's wrapped in a property like { data: [...] } or { applications: [...] }
+    applications = applicationsData.data || applicationsData.applications || applicationsData.items || [];
+    
+    // If still not an array, check for other common API response structures
+    if (!Array.isArray(applications)) {
+      // Check for nested structures like { response: { data: [...] } }
+      applications = applicationsData.response?.data || 
+                    applicationsData.response?.applications ||
+                    applicationsData.result?.data ||
+                    applicationsData.result?.applications ||
+                    [];
+    }
+  }
+  
+  // Ensure we have an array
+  if (!Array.isArray(applications)) {
+    applications = [];
+    console.warn('Applications data is not in expected format. Received:', typeof applicationsData, applicationsData);
+    vscode.window.showWarningMessage(`Applications data format unexpected. Check console for details.`);
+  }
 
-  // Create the webview panel
+  console.log(`Processed ${applications.length} applications for display`);
+
   const panel = vscode.window.createWebviewPanel(
-    'applicationsView',
+    'cloudHub2Applications',
     'CloudHub 2.0 Applications',
     vscode.ViewColumn.One,
     { enableScripts: true }
   );
 
-  // Set the HTML content
-  panel.webview.html = getApplicationsHtml(appsArray, panel.webview, context.extensionUri);
+  panel.webview.html = getCloudHub2ApplicationsHtml(applications, panel.webview, context.extensionUri);
 
-  // Listen for messages (CSV export, etc.)
   panel.webview.onDidReceiveMessage(async (message) => {
-    if (message.command === 'downloadCsv') {
-      const csvData = generateCsvContent(appsArray);
-      const uri = await vscode.window.showSaveDialog({
-        filters: { 'CSV Files': ['csv'] },
-        saveLabel: 'Save Applications as CSV',
-      });
-      if (uri) {
-        fs.writeFileSync(uri.fsPath, csvData, 'utf-8');
-        vscode.window.showInformationMessage(`CSV file saved to ${uri.fsPath}`);
+    try {
+      switch (message.command) {
+        case 'openApplicationDetails':
+          // Open the new ApplicationDetailsCH2 webview
+          await showApplicationDetailsCH2Webview(context, message.appName, message.appData);
+          break;
+
+        case 'downloadCH2Csv':
+          const csvData = generateCH2ApplicationsCsv(applications);
+          if (!csvData) {
+            vscode.window.showInformationMessage('No application data to export.');
+            return;
+          }
+          const uri = await vscode.window.showSaveDialog({
+            filters: { 'CSV Files': ['csv'] },
+            saveLabel: 'Save as CSV',
+            defaultUri: vscode.Uri.file(`cloudhub2-applications-${new Date().toISOString().split('T')[0]}.csv`)
+          });
+          if (uri) {
+            fs.writeFileSync(uri.fsPath, csvData, 'utf-8');
+            vscode.window.showInformationMessage(`CSV file saved to ${uri.fsPath}`);
+          }
+          break;
+
+        case 'refreshApplications':
+          // Refresh the applications list using the correct API
+          try {
+            vscode.window.showInformationMessage('Refreshing CloudHub 2.0 applications...');
+            const refreshedApps = await getCH2Applications(context);
+            
+            // Update the webview with new data
+            panel.webview.html = getCloudHub2ApplicationsHtml(refreshedApps, panel.webview, context.extensionUri);
+            vscode.window.showInformationMessage(`Refreshed ${refreshedApps.length} applications`);
+          } catch (error: any) {
+            vscode.window.showErrorMessage(`Failed to refresh applications: ${error.message}`);
+          }
+          break;
+
+        default:
+          console.log('Unknown command:', message.command);
       }
+    } catch (error: any) {
+      vscode.window.showErrorMessage(`Error: ${error.message}`);
     }
   });
 }
 
 /**
- * Generates the HTML for the dark theme + tech vibe.
+ * Get CloudHub 2.0 applications/deployments list using stored credentials
  */
-function getApplicationsHtml(
-  apps: any[],
+export async function getCH2Applications(context: vscode.ExtensionContext): Promise<any[]> {
+  try {
+    const { orgId, envId } = await getStoredOrgAndEnvInfo(context);
+    const deployments = await getCH2Deployments(context, orgId, envId);
+    
+    // Transform deployments to match expected application structure
+    return deployments.map(deployment => ({
+      ...deployment,
+      // Ensure consistent naming
+      name: deployment.name || deployment.applicationName || deployment.application?.name || 'Unknown',
+      // Add deployment-specific data
+      deploymentId: deployment.id,
+      isCloudHub2: true
+    }));
+
+  } catch (error: any) {
+    console.error('Error fetching CloudHub 2.0 applications:', error);
+    vscode.window.showErrorMessage(`Failed to fetch applications: ${error.message}`);
+    return [];
+  }
+}
+
+/**
+ * Debug function to help identify data structure issues
+ */
+export function debugApplicationsData(data: any): void {
+  console.log('=== CloudHub 2.0 Applications Data Debug ===');
+  console.log('Type:', typeof data);
+  console.log('Is Array:', Array.isArray(data));
+  console.log('Data:', JSON.stringify(data, null, 2));
+  
+  if (data && typeof data === 'object' && !Array.isArray(data)) {
+    console.log('Object keys:', Object.keys(data));
+    
+    // Check common nested structures
+    const possibleArrays = ['data', 'applications', 'items', 'response', 'result'];
+    possibleArrays.forEach(key => {
+      if (data[key]) {
+        console.log(`Found ${key}:`, Array.isArray(data[key]) ? `Array with ${data[key].length} items` : typeof data[key]);
+      }
+    });
+  }
+  
+  console.log('=== End Debug ===');
+}
+
+// ==================== CLOUDHUB 2.0 API FUNCTIONS ====================
+
+/**
+ * Get organization and environment info from stored secrets
+ */
+export async function getStoredOrgAndEnvInfo(context: vscode.ExtensionContext): Promise<{orgId: string, envId: string, environments: any[]}> {
+  const storedUserInfo = await context.secrets.get('anypoint.userInfo');
+  const storedEnvironments = await context.secrets.get('anypoint.environments');
+
+  if (!storedUserInfo || !storedEnvironments) {
+    throw new Error('User info or environment info not found. Please log in first.');
+  }
+
+  const userInfo = JSON.parse(storedUserInfo);
+  const parsedEnvironments = JSON.parse(storedEnvironments); // { data: [...], total: N }
+
+  return {
+    orgId: userInfo.organization.id,
+    envId: parsedEnvironments.data[0]?.id || '', // Use first environment or let user select
+    environments: parsedEnvironments.data
+  };
+}
+
+/**
+ * Step 1: Get all deployments for the environment
+ */
+export async function getCH2Deployments(
+  context: vscode.ExtensionContext,
+  orgId: string,
+  envId: string
+): Promise<any[]> {
+  try {
+    const accessToken = await context.secrets.get('anypoint.accessToken');
+    if (!accessToken) {
+      throw new Error('No access token found. Please log in first.');
+    }
+
+    const url = `https://anypoint.mulesoft.com/amc/application-manager/api/v2/organizations/${orgId}/environments/${envId}/deployments`;
+    
+    console.log('Fetching CH2 deployments from:', url);
+
+    const response = await fetch(url, {
+      method: 'GET',
+      headers: {
+        'Authorization': `Bearer ${accessToken}`,
+        'Content-Type': 'application/json'
+      }
+    });
+
+    if (!response.ok) {
+      const errorText = await response.text();
+      console.error('CloudHub 2.0 deployments API error:', response.status, errorText);
+      throw new Error(`Failed to fetch deployments: ${response.status} ${response.statusText}`);
+    }
+
+    const deploymentsData = await response.json();
+    console.log('CH2 deployments response structure:', Object.keys(deploymentsData));
+
+    // Handle different response structures
+    let deployments = [];
+    if (Array.isArray(deploymentsData)) {
+      deployments = deploymentsData;
+    } else if (deploymentsData.data && Array.isArray(deploymentsData.data)) {
+      deployments = deploymentsData.data;
+    } else if (deploymentsData.deployments && Array.isArray(deploymentsData.deployments)) {
+      deployments = deploymentsData.deployments;
+    }
+
+    console.log(`Retrieved ${deployments.length} deployments`);
+    return deployments;
+
+  } catch (error: any) {
+    console.error('Error fetching CloudHub 2.0 deployments:', error);
+    throw error;
+  }
+}
+
+// ==================== HELPER FUNCTIONS ====================
+
+function getNestedValue(obj: any, path: string): any {
+  try {
+    if (!obj || typeof obj !== 'object') return '';
+    return path.split('.').reduce((current, key) => current?.[key], obj) || '';
+  } catch (error) {
+    console.warn(`Error getting nested value for path ${path}:`, error);
+    return '';
+  }
+}
+
+function renderStatusCell(status: string): string {
+  if (status === 'RUNNING' || status === 'STARTED') {
+    return `<span style="color: #00ff00;">● ${status}</span>`;
+  }
+  if (['STOPPED', 'UNDEPLOYED'].includes(status)) {
+    return `<span style="color: #ff0000;">● ${status}</span>`;
+  }
+  return status || '';
+}
+
+function formatDate(dateStr: string): string {
+  if (!dateStr) return '';
+  try {
+    return new Date(dateStr).toISOString().split('T')[0];
+  } catch {
+    return dateStr;
+  }
+}
+
+// ==================== UI BUILDING FUNCTIONS ====================
+
+/**
+ * Build the CloudHub 2.0 applications table with reordered columns and clickable names
+ */
+function buildCloudHub2ApplicationsTable(applications: any[]): string {
+  // Ensure applications is an array
+  if (!Array.isArray(applications)) {
+    console.warn('buildCloudHub2ApplicationsTable received non-array:', applications);
+    applications = [];
+  }
+
+  if (applications.length === 0) {
+    return `
+      <div class="card">
+        <div class="card-header">
+          <h2>CloudHub 2.0 Applications</h2>
+          <div class="button-group">
+            <button id="btnRefreshApps" class="button">Refresh</button>
+            <button id="btnDownloadCH2Csv" class="button">Download as CSV</button>
+          </div>
+        </div>
+        <p>No applications available.</p>
+      </div>
+    `;
+  }
+
+  // Define column order - name is now second
+  const columns = [
+    { key: 'application.status', label: 'Status' },
+    { key: 'name', label: 'Name' }, // Moved to second position
+    { key: 'creationDate', label: 'Creation Date' },
+    { key: 'currentRuntimeVersion', label: 'Current Runtime Version' },
+    { key: 'lastModifiedDate', label: 'Last Modified Date' },
+    { key: 'lastSuccessfulRuntimeVersion', label: 'Last Successful Runtime Version' },
+  ];
+
+  const rowsHtml = applications
+    .map((app, index) => {
+      const cells = columns.map((col) => {
+        const val = getNestedValue(app, col.key);
+        
+        // Special handling for the name column - make it clickable
+        if (col.key === 'name') {
+          return `<td><a href="#" class="app-name-link" data-app-name="${val}" data-app-index="${index}">${val}</a></td>`;
+        }
+        
+        // Special handling for status
+        if (col.key === 'application.status') {
+          return `<td>${renderStatusCell(val)}</td>`;
+        }
+        
+        // Special handling for dates
+        if (col.key.includes('Date')) {
+          return `<td>${formatDate(val)}</td>`;
+        }
+        
+        return `<td>${val || ''}</td>`;
+      });
+
+      return `<tr data-app-index="${index}">${cells.join('')}</tr>`;
+    })
+    .join('');
+
+  return `
+    <div class="card">
+      <div class="card-header">
+        <h2>CloudHub 2.0 Applications</h2>
+        <div class="button-group">
+          <button id="btnRefreshApps" class="button">Refresh</button>
+          <button id="btnDownloadCH2Csv" class="button">Download as CSV</button>
+        </div>
+      </div>
+      <div style="margin-bottom: 0.5rem; display: flex; gap: 1rem; align-items: center; flex-wrap: wrap;">
+        <label>Show 
+          <select id="entriesPerPage" style="padding: 2px; background-color: var(--card-color); color: var(--text-color); border: 1px solid #30363D;">
+            <option value="10">10</option>
+            <option value="25">25</option>
+            <option value="50">50</option>
+            <option value="100">100</option>
+          </select> entries
+        </label>
+        <label>Search: 
+          <input id="appSearch" type="text" placeholder="Search applications..." 
+                 style="padding: 4px; width: 200px; background-color: var(--card-color); color: var(--text-color); border: 1px solid #30363D;" />
+        </label>
+      </div>
+      <div class="table-container">
+        <table class="app-table">
+          <thead>
+            <tr>
+              ${columns.map(c => `<th>${c.label}</th>`).join('')}
+            </tr>
+          </thead>
+          <tbody id="ch2AppsTbody">
+            ${rowsHtml}
+          </tbody>
+        </table>
+      </div>
+      <div style="margin-top: 0.5rem; display: flex; align-items: center; justify-content: space-between;">
+        <span id="ch2AppsInfo">Showing 1 to ${Math.min(applications.length, 10)} of ${applications.length} entries</span>
+        <div style="display: flex; gap: 0.5rem; align-items: center;">
+          <button id="ch2AppsPrev" class="button">Previous</button>
+          <span id="ch2AppsPageNum" style="padding: 4px 8px;">1</span>
+          <button id="ch2AppsNext" class="button">Next</button>
+        </div>
+      </div>
+    </div>
+  `;
+}
+
+// ==================== DATA GENERATION FUNCTIONS ====================
+
+function generateCH2ApplicationsCsv(applications: any[]): string {
+  // Ensure applications is an array
+  if (!Array.isArray(applications) || applications.length === 0) {
+    console.warn('generateCH2ApplicationsCsv received invalid data:', applications);
+    return '';
+  }
+  
+  const headers = ['Status', 'Name', 'Creation Date', 'Current Runtime Version', 'Last Modified Date', 'Last Successful Runtime Version'];
+  const rows = applications.map(app => [
+    getNestedValue(app, 'application.status') || '',
+    app.name || '',
+    formatDate(app.creationDate) || '',
+    app.currentRuntimeVersion || '',
+    formatDate(app.lastModifiedDate) || '',
+    app.lastSuccessfulRuntimeVersion || ''
+  ]);
+  
+  const csvContent = [
+    headers.join(','),
+    ...rows.map(row => row.map(cell => `"${String(cell).replace(/"/g, '""')}"`).join(','))
+  ].join('\n');
+  
+  return csvContent;
+}
+
+// ==================== HTML GENERATION FUNCTIONS ====================
+
+function getCloudHub2ApplicationsHtml(
+  applications: any[],
   webview: vscode.Webview,
   extensionUri: vscode.Uri
 ): string {
-  // 1. Flatten each item, gather all keys
-  const allKeys = new Set<string>();
-  const flattenedApps = apps.map((app) => {
-    const flat = flattenObject(app);
-    Object.keys(flat).forEach((k) => allKeys.add(k));
-    return flat;
-  });
-
-  // 2. Convert to array, remove "id", and sort
-  let allKeysArray = Array.from(allKeys).filter((k) => k !== 'id');
-  allKeysArray.sort();
-
-  // 3. URIs for resources
   const logoPath = vscode.Uri.joinPath(extensionUri, 'logo.png');
   const logoSrc = webview.asWebviewUri(logoPath);
 
-  // DataTables + jQuery
-  const jqueryJs = 'https://code.jquery.com/jquery-3.6.0.min.js';
-  const dataTableJs = 'https://cdn.datatables.net/1.13.4/js/jquery.dataTables.min.js';
-  const dataTableCss = 'https://cdn.datatables.net/1.13.4/css/jquery.dataTables.min.css';
-
-  // Google Fonts (Fira Code for the tech vibe)
-  const googleFontLink = 'https://fonts.googleapis.com/css2?family=Fira+Code:wght@400;600&display=swap';
+  const applicationsTableHtml = buildCloudHub2ApplicationsTable(applications);
 
   return /* html */ `
     <!DOCTYPE html>
@@ -73,13 +415,8 @@ function getApplicationsHtml(
       <head>
         <meta charset="UTF-8" />
         <title>CloudHub 2.0 Applications</title>
-
-        <!-- DataTables + Fira Code Font -->
-        <link rel="stylesheet" href="${dataTableCss}" />
-        <link rel="stylesheet" href="${googleFontLink}" />
-
+        <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Fira+Code:wght@400;600&display=swap" />
         <style>
-          /* Dark Theme + Tech Vibe */
           :root {
             --background-color: #0D1117;
             --card-color: #161B22;
@@ -97,76 +434,77 @@ function getApplicationsHtml(
             background-color: var(--background-color);
             color: var(--text-color);
             font-family: 'Fira Code', monospace, sans-serif;
-            font-size: 14px;
+            font-size: 12px;
           }
 
-          /* NAVBAR */
           .navbar {
             display: flex;
             align-items: center;
             justify-content: space-between;
             background-color: var(--navbar-color);
-            padding: 0.75rem 1rem;
+            padding: 0.5rem 1rem;
           }
           .navbar-left {
             display: flex;
             align-items: center;
-            gap: 1rem;
+            gap: 0.5rem;
           }
           .navbar-left img {
-            height: 32px;
+            height: 28px;
             width: auto;
           }
           .navbar-left h1 {
             color: var(--navbar-text-color);
-            font-size: 1.25rem;
+            font-size: 1rem;
             margin: 0;
           }
           .navbar-right {
             display: flex;
-            gap: 1.5rem;
+            gap: 0.75rem;
           }
           .navbar-right a {
             color: var(--navbar-text-color);
             text-decoration: none;
             font-weight: 500;
-            font-size: 0.9rem;
+            font-size: 0.75rem;
           }
           .navbar-right a:hover {
             text-decoration: underline;
           }
 
-          /* MAIN CONTAINER */
           .container {
             width: 90%;
-            max-width: 1200px;
-            margin: 1rem auto;
+            max-width: 1400px;
+            margin: 0.5rem auto;
           }
 
-          /* CARD */
           .card {
             background-color: var(--card-color);
             border: 1px solid #30363D;
             border-radius: 6px;
-            padding: 1rem;
+            padding: 0.5rem;
+            margin-bottom: 1rem;
           }
           .card-header {
             display: flex;
             align-items: center;
             justify-content: space-between;
-            margin-bottom: 1rem;
+            margin-bottom: 0.5rem;
           }
           .card-header h2 {
             margin: 0;
-            font-size: 1.25rem;
+            font-size: 0.9rem;
             color: var(--accent-color);
           }
 
-          /* BUTTON */
+          .button-group {
+            display: flex;
+            gap: 0.25rem;
+          }
           .button {
-            padding: 6px 12px;
-            font-size: 0.85rem;
-            color: #ffffff;
+            padding: 4px 8px;
+            font-size: 0.75rem;
+            color: #fff;
             background-color: var(--accent-color);
             border: none;
             border-radius: 4px;
@@ -176,74 +514,50 @@ function getApplicationsHtml(
           .button:hover {
             background-color: var(--button-hover-color);
           }
-
-          /* TABLE + DATATABLES OVERRIDES */
-          #appTable_wrapper .dataTables_length,
-          #appTable_wrapper .dataTables_filter,
-          #appTable_wrapper .dataTables_info,
-          #appTable_wrapper .dataTables_paginate {
-            margin: 0.5rem 0;
-            font-size: 0.85rem;
-            color: var(--text-color);
-          }
-          /* "Show X entries" label and dropdown */
-          #appTable_length label {
-            color: var(--text-color);
-            font-weight: normal;
-          }
-          #appTable_length select {
-            background-color: #121212;
-            color: var(--text-color);
-            border: 1px solid #30363D;
-            border-radius: 4px;
-            padding: 2px 8px;
-            outline: none;
+          .button:disabled {
+            background-color: #6c757d;
+            cursor: not-allowed;
           }
 
-          #appTable_wrapper input[type="search"] {
-            background-color: #121212;
-            color: var(--text-color);
-            border: 1px solid #30363D;
-          }
-          #appTable thead {
-            background-color: #21262D;
-          }
-          #appTable thead th {
-            color: var(--accent-color);
-            border-bottom: 1px solid #30363D;
-            white-space: nowrap;
-          }
-          #appTable tbody tr {
-            background-color: var(--card-color);
-            border-bottom: 1px solid #30363D;
-          }
-          #appTable tbody tr:hover {
-            background-color: var(--table-hover-color);
-          }
-          #appTable tbody td {
-            color: var(--text-color);
-            white-space: nowrap;
-          }
-          .dataTables_paginate .paginate_button {
-            color: var(--accent-color) !important;
-          }
-          .dataTables_paginate .paginate_button.current {
-            background: var(--accent-color) !important;
-            color: #fff !important;
-          }
-
-          /* SCROLLABLE TABLE WRAPPER */
           .table-container {
             width: 100%;
             overflow-x: auto;
           }
+          table {
+            border-collapse: collapse;
+            width: 100%;
+          }
+          th, td {
+            padding: 4px;
+            border-bottom: 1px solid #30363D;
+            text-align: left;
+            vertical-align: top;
+          }
+          th {
+            color: var(--accent-color);
+            white-space: nowrap;
+          }
+          tr:hover {
+            background-color: var(--table-hover-color);
+          }
+          .app-table {
+            font-size: 0.75rem;
+          }
+
+          .app-name-link {
+            color: var(--accent-color);
+            text-decoration: none;
+            cursor: pointer;
+          }
+          .app-name-link:hover {
+            text-decoration: underline;
+          }
         </style>
       </head>
       <body>
-        <!-- NAVBAR -->
         <nav class="navbar">
           <div class="navbar-left">
-            <img src="${logoSrc}" />
+            <img src="${logoSrc}" alt="Logo"/>
             <h1>Anypoint Monitor Extension</h1>
           </div>
           <div class="navbar-right">
@@ -252,164 +566,154 @@ function getApplicationsHtml(
           </div>
         </nav>
 
-        <!-- MAIN CONTENT -->
         <div class="container">
-          <div class="card">
-            <div class="card-header">
-              <h2>CloudHub 2.0 Applications</h2>
-              <button id="downloadCsv" class="button">Download as CSV</button>
-            </div>
-
-            <div class="table-container">
-              <table id="appTable" class="display" style="width:100%;">
-                <thead>
-                  <tr>
-                    ${allKeysArray.map((key) => `<th>${key}</th>`).join('')}
-                  </tr>
-                </thead>
-                <tbody>
-                  ${flattenedApps
-                    .map((flatApp) => {
-                      const rowCells = allKeysArray.map((key) => {
-                        const originalValue = flatApp[key];
-                        return `<td>${renderCell(key, originalValue)}</td>`;
-                      });
-                      return `<tr>${rowCells.join('')}</tr>`;
-                    })
-                    .join('')}
-                </tbody>
-              </table>
-            </div>
-          </div>
+          ${applicationsTableHtml}
         </div>
 
-        <!-- jQuery & DataTables -->
-        <script src="${jqueryJs}"></script>
-        <script src="${dataTableJs}"></script>
         <script>
           const vscode = acquireVsCodeApi();
+          const applicationsRaw = ${JSON.stringify(applications)};
+          const applicationsData = Array.isArray(applicationsRaw) ? applicationsRaw : [];
+          let filteredApplications = [...applicationsData];
+          let currentPage = 1;
+          let entriesPerPage = 10;
 
-          // CSV download button
-          document.getElementById('downloadCsv').addEventListener('click', () => {
-            vscode.postMessage({ command: 'downloadCsv' });
-          });
-
-          // Initialize DataTables
-          $(document).ready(function () {
-            $('#appTable').DataTable({
-              pageLength: 10,
-              responsive: true,
-              autoWidth: false,
-              language: {
-                search: "Search:",
-                lengthMenu: "Show _MENU_ entries"
+          // Handle app name clicks
+          document.addEventListener('click', (e) => {
+            if (e.target.classList.contains('app-name-link')) {
+              e.preventDefault();
+              const appName = e.target.dataset.appName;
+              const appIndex = parseInt(e.target.dataset.appIndex);
+              if (appIndex >= 0 && appIndex < applicationsData.length) {
+                const appData = applicationsData[appIndex];
+                vscode.postMessage({
+                  command: 'openApplicationDetails',
+                  appName: appName,
+                  appData: appData
+                });
               }
-            });
+            }
           });
+
+          // Download CSV button
+          document.getElementById('btnDownloadCH2Csv')?.addEventListener('click', () => {
+            vscode.postMessage({ command: 'downloadCH2Csv' });
+          });
+
+          // Refresh button
+          document.getElementById('btnRefreshApps')?.addEventListener('click', () => {
+            vscode.postMessage({ command: 'refreshApplications' });
+          });
+
+          // Search functionality
+          const searchInput = document.getElementById('appSearch');
+          searchInput?.addEventListener('input', (e) => {
+            const searchTerm = e.target.value.toLowerCase();
+            filteredApplications = applicationsData.filter(app => {
+              if (!app || typeof app !== 'object') return false;
+              return Object.values(app).some(value => {
+                if (value === null || value === undefined) return false;
+                return String(value).toLowerCase().includes(searchTerm);
+              });
+            });
+            currentPage = 1;
+            renderTable();
+          });
+
+          // Entries per page
+          const entriesSelect = document.getElementById('entriesPerPage');
+          entriesSelect?.addEventListener('change', (e) => {
+            entriesPerPage = parseInt(e.target.value);
+            currentPage = 1;
+            renderTable();
+          });
+
+          // Pagination
+          document.getElementById('ch2AppsPrev')?.addEventListener('click', () => {
+            if (currentPage > 1) {
+              currentPage--;
+              renderTable();
+            }
+          });
+
+          document.getElementById('ch2AppsNext')?.addEventListener('click', () => {
+            const totalPages = Math.ceil(filteredApplications.length / entriesPerPage);
+            if (currentPage < totalPages) {
+              currentPage++;
+              renderTable();
+            }
+          });
+
+          function renderTable() {
+            const startIndex = (currentPage - 1) * entriesPerPage;
+            const endIndex = startIndex + entriesPerPage;
+            const pageApplications = filteredApplications.slice(startIndex, endIndex);
+            
+            const tbody = document.getElementById('ch2AppsTbody');
+            if (!tbody) return;
+
+            const rowsHtml = pageApplications.map((app, pageIndex) => {
+              if (!app || typeof app !== 'object') return '';
+              
+              const actualIndex = applicationsData.indexOf(app);
+              const status = (app.application && app.application.status) || app.status || '';
+              const statusHtml = status === 'RUNNING' || status === 'STARTED' 
+                ? \`<span style="color: #00ff00;">● \${status}</span>\`
+                : ['STOPPED', 'UNDEPLOYED'].includes(status)
+                ? \`<span style="color: #ff0000;">● \${status}</span>\`
+                : status;
+
+              const formatDateSafe = (dateStr) => {
+                if (!dateStr) return '';
+                try {
+                  return new Date(dateStr).toISOString().split('T')[0];
+                } catch {
+                  return dateStr;
+                }
+              };
+
+              return \`
+                <tr data-app-index="\${actualIndex}">
+                  <td>\${statusHtml}</td>
+                  <td><a href="#" class="app-name-link" data-app-name="\${app.name || ''}" data-app-index="\${actualIndex}">\${app.name || 'Unknown'}</a></td>
+                  <td>\${formatDateSafe(app.creationDate)}</td>
+                  <td>\${app.currentRuntimeVersion || ''}</td>
+                  <td>\${formatDateSafe(app.lastModifiedDate)}</td>
+                  <td>\${app.lastSuccessfulRuntimeVersion || ''}</td>
+                </tr>
+              \`;
+            }).filter(row => row !== '').join('');
+
+            tbody.innerHTML = rowsHtml;
+
+            // Update pagination info
+            const totalPages = Math.ceil(filteredApplications.length / entriesPerPage);
+            const showingStart = filteredApplications.length === 0 ? 0 : startIndex + 1;
+            const showingEnd = Math.min(endIndex, filteredApplications.length);
+            
+            const infoElement = document.getElementById('ch2AppsInfo');
+            const pageNumElement = document.getElementById('ch2AppsPageNum');
+            const prevButton = document.getElementById('ch2AppsPrev');
+            const nextButton = document.getElementById('ch2AppsNext');
+            
+            if (infoElement) {
+              infoElement.textContent = \`Showing \${showingStart} to \${showingEnd} of \${filteredApplications.length} entries\`;
+            }
+            if (pageNumElement) {
+              pageNumElement.textContent = currentPage.toString();
+            }
+            if (prevButton) {
+              prevButton.disabled = currentPage <= 1;
+            }
+            if (nextButton) {
+              nextButton.disabled = currentPage >= totalPages;
+            }
+          }
+
+          // Initial render
+          renderTable();
         </script>
       </body>
     </html>
   `;
-}
-
-/**
- * Flatten a nested object into dot-notation keys.
- * e.g. { target: { provider: 'MC' } } -> { 'target.provider': 'MC' }
- */
-function flattenObject(obj: any, parentKey = '', res: any = {}): any {
-  for (const key of Object.keys(obj)) {
-    const value = obj[key];
-    const newKey = parentKey ? `${parentKey}.${key}` : key;
-
-    if (value && typeof value === 'object' && !Array.isArray(value)) {
-      flattenObject(value, newKey, res);
-    } else {
-      res[newKey] = value;
-    }
-  }
-  return res;
-}
-
-/**
- * Renders a cell value given the key + original value.
- */
-function renderCell(key: string, value: any): string {
-  if (key === 'id') {
-    // Exclude the 'id' column
-    return '';
-  }
-
-  // Format date fields (ends with "Date")
-  if (key.match(/Date$/i)) {
-    const ms = parseInt(value, 10);
-    if (!isNaN(ms)) {
-      const dateObj = new Date(ms);
-      return dateObj.toISOString().split('T')[0]; // yyyy-mm-dd
-    }
-  }
-
-  // Show icon for application.status
-  if (key === 'application.status') {
-    if (value === 'RUNNING') {
-      return '🟢 RUNNING';
-    } else if (value === 'STOPPED') {
-      return '🔴 STOPPED';
-    }
-  }
-
-  return value ?? '';
-}
-
-/**
- * Generates CSV content from the flattened objects.
- */
-function generateCsvContent(apps: any[]): string {
-  // Flatten each app, gather all keys
-  const allKeys = new Set<string>();
-  const flattenedApps = apps.map((app) => {
-    const flat = flattenObject(app);
-    Object.keys(flat).forEach((k) => allKeys.add(k));
-    return flat;
-  });
-
-  // Remove "id", sort keys
-  let allKeysArray = Array.from(allKeys).filter((k) => k !== 'id');
-  allKeysArray.sort();
-
-  // Build CSV header
-  const headerRow = allKeysArray.join(',');
-
-  // Convert each row
-  const rows = flattenedApps.map((flatApp) => {
-    return allKeysArray
-      .map((key) => {
-        let val = flatApp[key] !== undefined ? flatApp[key] : '';
-
-        // Date fields
-        if (key.match(/Date$/i)) {
-          const ms = parseInt(val, 10);
-          if (!isNaN(ms)) {
-            const dateObj = new Date(ms);
-            val = dateObj.toISOString().split('T')[0];
-          }
-        }
-
-        // Status icons
-        if (key === 'application.status') {
-          if (val === 'RUNNING') {
-            val = '🟢 RUNNING';
-          } else if (val === 'STOPPED') {
-            val = '🔴 STOPPED';
-          }
-        }
-
-        // CSV-escape (surround with quotes, double any internal quotes)
-        const safeVal = String(val).replace(/"/g, '""');
-        return `"${safeVal}"`;
-      })
-      .join(',');
-  });
-
-  // Join header + rows
-  return [headerRow, ...rows].join('\n');
 }

@@ -230,7 +230,8 @@ export function activate(context: vscode.ExtensionContext) {
 				return;
 			}
 
-			await getCH2Applications(context,selectedEnvironmentId);
+			// MODIFIED: Pass both context and environment ID
+			await getCH2Applications(context, selectedEnvironmentId);
 		}
 		catch (error: any) {
         	vscode.window.showErrorMessage(`Error: ${error.message}`);
@@ -543,7 +544,7 @@ export async function retrieveApplications(context: vscode.ExtensionContext, sel
 	  return;
 	}
 
-	const logsURL= BASE_URL+ `/cloudhub/api/v2/applications/${selectedAppDomain}/deployments/${deploymentId}/logs?limit=100`;
+	const logsURL= BASE_URL+ `/cloudhub/api/v2/applications/${selectedAppDomain}/deployments/${deploymentId}/logs?limit=10000`;
 	let logs: any = null;
 	try {
 	  const detailsResponseLogs = await axios.get(logsURL, {
@@ -884,7 +885,7 @@ export async function getEnvironments(context: vscode.ExtensionContext) {
 }
 
 
-export async function getCH2Applications(context: vscode.ExtensionContext,environmentId: string) {
+export async function getCH2Applications(context: vscode.ExtensionContext, environmentId: string) {
 
 	// Retrieve the stored access token
 	let accessToken = await context.secrets.get('anypoint.accessToken');
@@ -918,9 +919,9 @@ export async function getCH2Applications(context: vscode.ExtensionContext,enviro
 			// 3. If we got here, the call succeeded!
 			const data = response.data;
 		
-			
-			// Show them in a webview
-			showApplicationsWebview(context, data);
+			// MODIFIED: Pass environment ID to showApplicationsWebview
+			// Show them in a webview with environment ID
+			showApplicationsWebview(context, data, environmentId);
 		
 			} catch (error: any) {
 			// 4. If we got a 401, try to refresh
@@ -954,8 +955,9 @@ export async function getCH2Applications(context: vscode.ExtensionContext,enviro
 		
 				const data = retryResponse.data;
 		
-				// Show them in a webview
-				showApplicationsWebview(context, data);
+				// MODIFIED: Pass environment ID to showApplicationsWebview
+				// Show them in a webview with environment ID
+				showApplicationsWebview(context, data, environmentId);
 
 				} catch (retryError: any) {
 				vscode.window.showErrorMessage(`API request failed after refresh: ${retryError.message}`);
