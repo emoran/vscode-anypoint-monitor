@@ -398,6 +398,28 @@ export async function getCH2Applications(context: vscode.ExtensionContext, envir
         throw new Error('No access token found. Please log in first.');
     }
 
+    // FIXED: Store the selected environment ID and get environment name
+    const storedEnvironments = await context.secrets.get('anypoint.environments');
+    let environmentName = environmentId; // fallback
+    
+    if (storedEnvironments) {
+        try {
+            const environments = JSON.parse(storedEnvironments);
+            const selectedEnv = environments.data?.find((env: any) => env.id === environmentId);
+            if (selectedEnv) {
+                environmentName = selectedEnv.name;
+            }
+        } catch (error) {
+            console.warn('Failed to parse environments for name lookup');
+        }
+    }
+
+    // FIXED: Store the selected environment info
+    await context.secrets.store('anypoint.selectedEnvironment', JSON.stringify({
+        id: environmentId,
+        name: environmentName
+    }));
+
     const apiUrl = BASE_URL + '/amc/application-manager/api/v2/organizations/' + organizationID + '/environments/' + environmentId + '/deployments';
 
     try {
@@ -408,7 +430,9 @@ export async function getCH2Applications(context: vscode.ExtensionContext, envir
             throw new Error(`API request failed with status ${response.status}`);
         }
         const data = response.data;
-        showApplicationsWebview(context, data, environmentId);
+        
+        // FIXED: Pass environment name for display, but ID is stored in secrets
+        showApplicationsWebview(context, data, environmentName);
     } catch (error: any) {
         if (error.response?.status === 401) {
             vscode.window.showInformationMessage('Access token expired. Attempting to refresh...');
@@ -430,7 +454,7 @@ export async function getCH2Applications(context: vscode.ExtensionContext, envir
                     throw new Error(`Retry API request failed with status ${retryResponse.status}`);
                 }
                 const data = retryResponse.data;
-                showApplicationsWebview(context, data, environmentId);
+                showApplicationsWebview(context, data, environmentName);
             } catch (retryError: any) {
                 vscode.window.showErrorMessage(`API request failed after refresh: ${retryError.message}`);
             }

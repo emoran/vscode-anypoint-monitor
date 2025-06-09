@@ -5,6 +5,8 @@ import { showApplicationDetailsCH2Webview } from './/applicationDetailsCH2';
 
 // ==================== MAIN ENTRY POINTS ====================
 
+// Updated functions in cloudhub2Applications.ts
+
 /**
  * Show the CloudHub 2.0 applications list webview
  */
@@ -52,54 +54,442 @@ export async function showApplicationsWebview(
     { enableScripts: true }
   );
 
-  panel.webview.html = getCloudHub2ApplicationsHtml(applications, panel.webview, context.extensionUri);
+  panel.webview.html = getCloudHub2ApplicationsHtml(applications, panel.webview, context.extensionUri, environment);
 
-  panel.webview.onDidReceiveMessage(async (message) => {
-    try {
-      switch (message.command) {
-        case 'openApplicationDetails':
-          // Open the new ApplicationDetailsCH2 webview
-          await showApplicationDetailsCH2Webview(context, message.appName, message.appData);
-          break;
+panel.webview.onDidReceiveMessage(async (message) => {
+  try {
+    console.log('=== WEBVIEW MESSAGE RECEIVED ===');
+    console.log('Command:', message.command);
+    console.log('Message data:', JSON.stringify(message, null, 2));
+    
+    switch (message.command) {
+      case 'openApplicationDetails':
+        console.log('🚀 Processing openApplicationDetails command...');
+        console.log('App name to open:', message.appName);
+        console.log('App data:', JSON.stringify(message.appData, null, 2));
+        
+        // Get the stored environment info
+        const storedEnvInfo = await context.secrets.get('anypoint.selectedEnvironment');
+        let environmentInfo = { id: '', name: environment };
+        
+        console.log('🔍 Stored environment info raw:', storedEnvInfo);
+        
+        if (storedEnvInfo) {
+          try {
+            environmentInfo = JSON.parse(storedEnvInfo);
+            console.log('✅ Successfully parsed environment info:', environmentInfo);
+          } catch (error) {
+            console.error('❌ Failed to parse stored environment info:', error);
+          }
+        } else {
+          console.warn('⚠️ No stored environment info found, using fallback');
+        }
+        
+        console.log('🎯 Final environment ID to use:', environmentInfo.id);
+        console.log('📱 About to call showApplicationDetailsCH2Webview...');
+        
+        // Import the function if not already imported
+        // const { showApplicationDetailsCH2Webview } = await import('.//applicationDetailsCH2');
+        
+        // Open the new ApplicationDetailsCH2 webview with environment info
+        await showApplicationDetailsCH2Webview(
+          context, 
+          message.appName, 
+          message.appData, 
+          environmentInfo.id
+        );
+        
+        console.log('✅ Application details webview call completed');
+        break;
 
-        case 'downloadCH2Csv':
-          const csvData = generateCH2ApplicationsCsv(applications);
-          if (!csvData) {
-            vscode.window.showInformationMessage('No application data to export.');
+      case 'downloadCH2Csv':
+        console.log('📥 Processing downloadCH2Csv command...');
+        const csvData = generateCH2ApplicationsCsv(applications);
+        if (!csvData) {
+          vscode.window.showInformationMessage('No application data to export.');
+          return;
+        }
+        const uri = await vscode.window.showSaveDialog({
+          filters: { 'CSV Files': ['csv'] },
+          saveLabel: 'Save as CSV',
+          defaultUri: vscode.Uri.file(`cloudhub2-applications-${new Date().toISOString().split('T')[0]}.csv`)
+        });
+        if (uri) {
+          fs.writeFileSync(uri.fsPath, csvData, 'utf-8');
+          vscode.window.showInformationMessage(`CSV file saved to ${uri.fsPath}`);
+        }
+        break;
+
+      case 'refreshApplications':
+        console.log('🔄 Processing refreshApplications command...');
+        try {
+          vscode.window.showInformationMessage('Refreshing CloudHub 2.0 applications...');
+          
+          // Get the stored environment info for refresh
+          const storedEnvInfo = await context.secrets.get('anypoint.selectedEnvironment');
+          if (!storedEnvInfo) {
+            vscode.window.showErrorMessage('Environment info not found. Please run the command again.');
             return;
           }
-          const uri = await vscode.window.showSaveDialog({
-            filters: { 'CSV Files': ['csv'] },
-            saveLabel: 'Save as CSV',
-            defaultUri: vscode.Uri.file(`cloudhub2-applications-${new Date().toISOString().split('T')[0]}.csv`)
-          });
-          if (uri) {
-            fs.writeFileSync(uri.fsPath, csvData, 'utf-8');
-            vscode.window.showInformationMessage(`CSV file saved to ${uri.fsPath}`);
-          }
-          break;
+          
+          const envInfo = JSON.parse(storedEnvInfo);
+          console.log('🔄 Refreshing with environment:', envInfo);
+          
+          const refreshedApps = await getCH2Applications(context);
+          
+          // Update the webview with new data
+          panel.webview.html = getCloudHub2ApplicationsHtml(refreshedApps, panel.webview, context.extensionUri, envInfo.name);
+          vscode.window.showInformationMessage(`Refreshed ${refreshedApps.length} applications`);
+        } catch (error: any) {
+          console.error('❌ Refresh failed:', error);
+          vscode.window.showErrorMessage(`Failed to refresh applications: ${error.message}`);
+        }
+        break;
 
-        case 'refreshApplications':
-          // Refresh the applications list using the correct API
-          try {
-            vscode.window.showInformationMessage('Refreshing CloudHub 2.0 applications...');
-            const refreshedApps = await getCH2Applications(context);
-            
-            // Update the webview with new data
-            panel.webview.html = getCloudHub2ApplicationsHtml(refreshedApps, panel.webview, context.extensionUri);
-            vscode.window.showInformationMessage(`Refreshed ${refreshedApps.length} applications`);
-          } catch (error: any) {
-            vscode.window.showErrorMessage(`Failed to refresh applications: ${error.message}`);
-          }
-          break;
-
-        default:
-          console.log('Unknown command:', message.command);
-      }
-    } catch (error: any) {
-      vscode.window.showErrorMessage(`Error: ${error.message}`);
+      default:
+        console.log('❓ Unknown command:', message.command);
     }
-  });
+  } catch (error: any) {
+    console.error('💥 Error in message handler:', error);
+    vscode.window.showErrorMessage(`Error: ${error.message}`);
+  }
+});
+}
+
+/**
+ * Updated HTML generation function to include environment info
+ */
+function getCloudHub2ApplicationsHtml(
+  applications: any[],
+  webview: vscode.Webview,
+  extensionUri: vscode.Uri,
+  environment?: string
+): string {
+  const logoPath = vscode.Uri.joinPath(extensionUri, 'logo.png');
+  const logoSrc = webview.asWebviewUri(logoPath);
+
+  const applicationsTableHtml = buildCloudHub2ApplicationsTable(applications);
+
+  return /* html */ `
+    <!DOCTYPE html>
+    <html lang="en">
+      <head>
+        <meta charset="UTF-8" />
+        <title>CloudHub 2.0 Applications - ${environment || 'Unknown Environment'}</title>
+        <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Fira+Code:wght@400;600&display=swap" />
+        <style>
+          :root {
+            --background-color: #0D1117;
+            --card-color: #161B22;
+            --text-color: #C9D1D9;
+            --accent-color: #58A6FF;
+            --navbar-color: #141A22;
+            --navbar-text-color: #F0F6FC;
+            --button-hover-color: #3186D1;
+            --table-hover-color: #21262D;
+          }
+
+          body {
+            margin: 0;
+            padding: 0;
+            background-color: var(--background-color);
+            color: var(--text-color);
+            font-family: 'Fira Code', monospace, sans-serif;
+            font-size: 12px;
+          }
+
+          .navbar {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            background-color: var(--navbar-color);
+            padding: 0.5rem 1rem;
+          }
+          .navbar-left {
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+          }
+          .navbar-left img {
+            height: 28px;
+            width: auto;
+          }
+          .navbar-left h1 {
+            color: var(--navbar-text-color);
+            font-size: 1rem;
+            margin: 0;
+          }
+          .navbar-right {
+            display: flex;
+            gap: 0.75rem;
+          }
+          .navbar-right a {
+            color: var(--navbar-text-color);
+            text-decoration: none;
+            font-weight: 500;
+            font-size: 0.75rem;
+          }
+          .navbar-right a:hover {
+            text-decoration: underline;
+          }
+
+          .container {
+            width: 90%;
+            max-width: 1400px;
+            margin: 0.5rem auto;
+          }
+
+          .card {
+            background-color: var(--card-color);
+            border: 1px solid #30363D;
+            border-radius: 6px;
+            padding: 0.5rem;
+            margin-bottom: 1rem;
+          }
+          .card-header {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            margin-bottom: 0.5rem;
+          }
+          .card-header h2 {
+            margin: 0;
+            font-size: 0.9rem;
+            color: var(--accent-color);
+          }
+
+          .button-group {
+            display: flex;
+            gap: 0.25rem;
+          }
+          .button {
+            padding: 4px 8px;
+            font-size: 0.75rem;
+            color: #fff;
+            background-color: var(--accent-color);
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            font-weight: 600;
+          }
+          .button:hover {
+            background-color: var(--button-hover-color);
+          }
+          .button:disabled {
+            background-color: #6c757d;
+            cursor: not-allowed;
+          }
+
+          .table-container {
+            width: 100%;
+            overflow-x: auto;
+          }
+          table {
+            border-collapse: collapse;
+            width: 100%;
+          }
+          th, td {
+            padding: 4px;
+            border-bottom: 1px solid #30363D;
+            text-align: left;
+            vertical-align: top;
+          }
+          th {
+            color: var(--accent-color);
+            white-space: nowrap;
+          }
+          tr:hover {
+            background-color: var(--table-hover-color);
+          }
+          .app-table {
+            font-size: 0.75rem;
+          }
+
+          .app-name-link {
+            color: var(--accent-color);
+            text-decoration: none;
+            cursor: pointer;
+          }
+          .app-name-link:hover {
+            text-decoration: underline;
+          }
+
+          .environment-info {
+            background-color: var(--card-color);
+            border: 1px solid #30363D;
+            border-radius: 4px;
+            padding: 0.5rem;
+            margin-bottom: 1rem;
+            font-size: 0.8rem;
+          }
+        </style>
+      </head>
+      <body>
+        <nav class="navbar">
+          <div class="navbar-left">
+            <img src="${logoSrc}" alt="Logo"/>
+            <h1>Anypoint Monitor Extension</h1>
+          </div>
+          <div class="navbar-right">
+            <a href="https://marketplace.visualstudio.com/items?itemName=EdgarMoran.anypoint-monitor">About</a>
+            <a href="https://www.buymeacoffee.com/yucelmoran">Buy Me a Coffee</a>
+          </div>
+        </nav>
+
+        <div class="container">
+          ${environment ? `<div class="environment-info">Environment: <strong>${environment}</strong></div>` : ''}
+          ${applicationsTableHtml}
+        </div>
+
+        <script>
+          const vscode = acquireVsCodeApi();
+          const applicationsRaw = ${JSON.stringify(applications)};
+          const applicationsData = Array.isArray(applicationsRaw) ? applicationsRaw : [];
+          const environmentName = '${environment || ''}';
+          let filteredApplications = [...applicationsData];
+          let currentPage = 1;
+          let entriesPerPage = 10;
+
+          // Handle app name clicks
+          document.addEventListener('click', (e) => {
+            if (e.target.classList.contains('app-name-link')) {
+              e.preventDefault();
+              const appName = e.target.dataset.appName;
+              const appIndex = parseInt(e.target.dataset.appIndex);
+              if (appIndex >= 0 && appIndex < applicationsData.length) {
+                const appData = applicationsData[appIndex];
+                console.log('Sending app data with environment:', environmentName);
+                vscode.postMessage({
+                  command: 'openApplicationDetails',
+                  appName: appName,
+                  appData: appData,
+                  environment: environmentName
+                });
+              }
+            }
+          });
+
+          // Download CSV button
+          document.getElementById('btnDownloadCH2Csv')?.addEventListener('click', () => {
+            vscode.postMessage({ command: 'downloadCH2Csv' });
+          });
+
+          // Refresh button
+          document.getElementById('btnRefreshApps')?.addEventListener('click', () => {
+            vscode.postMessage({ command: 'refreshApplications' });
+          });
+
+          // Search functionality
+          const searchInput = document.getElementById('appSearch');
+          searchInput?.addEventListener('input', (e) => {
+            const searchTerm = e.target.value.toLowerCase();
+            filteredApplications = applicationsData.filter(app => {
+              if (!app || typeof app !== 'object') return false;
+              return Object.values(app).some(value => {
+                if (value === null || value === undefined) return false;
+                return String(value).toLowerCase().includes(searchTerm);
+              });
+            });
+            currentPage = 1;
+            renderTable();
+          });
+
+          // Entries per page
+          const entriesSelect = document.getElementById('entriesPerPage');
+          entriesSelect?.addEventListener('change', (e) => {
+            entriesPerPage = parseInt(e.target.value);
+            currentPage = 1;
+            renderTable();
+          });
+
+          // Pagination
+          document.getElementById('ch2AppsPrev')?.addEventListener('click', () => {
+            if (currentPage > 1) {
+              currentPage--;
+              renderTable();
+            }
+          });
+
+          document.getElementById('ch2AppsNext')?.addEventListener('click', () => {
+            const totalPages = Math.ceil(filteredApplications.length / entriesPerPage);
+            if (currentPage < totalPages) {
+              currentPage++;
+              renderTable();
+            }
+          });
+
+          function renderTable() {
+            const startIndex = (currentPage - 1) * entriesPerPage;
+            const endIndex = startIndex + entriesPerPage;
+            const pageApplications = filteredApplications.slice(startIndex, endIndex);
+            
+            const tbody = document.getElementById('ch2AppsTbody');
+            if (!tbody) return;
+
+            const rowsHtml = pageApplications.map((app, pageIndex) => {
+              if (!app || typeof app !== 'object') return '';
+              
+              const actualIndex = applicationsData.indexOf(app);
+              const status = (app.application && app.application.status) || app.status || '';
+              const statusHtml = status === 'RUNNING' || status === 'STARTED' 
+                ? \`<span style="color: #00ff00;">● \${status}</span>\`
+                : ['STOPPED', 'UNDEPLOYED'].includes(status)
+                ? \`<span style="color: #ff0000;">● \${status}</span>\`
+                : status;
+
+              const formatDateSafe = (dateStr) => {
+                if (!dateStr) return '';
+                try {
+                  return new Date(dateStr).toISOString().split('T')[0];
+                } catch {
+                  return dateStr;
+                }
+              };
+
+              return \`
+                <tr data-app-index="\${actualIndex}">
+                  <td>\${statusHtml}</td>
+                  <td><a href="#" class="app-name-link" data-app-name="\${app.name || ''}" data-app-index="\${actualIndex}">\${app.name || 'Unknown'}</a></td>
+                  <td>\${formatDateSafe(app.creationDate)}</td>
+                  <td>\${app.currentRuntimeVersion || ''}</td>
+                  <td>\${formatDateSafe(app.lastModifiedDate)}</td>
+                  <td>\${app.lastSuccessfulRuntimeVersion || ''}</td>
+                </tr>
+              \`;
+            }).filter(row => row !== '').join('');
+
+            tbody.innerHTML = rowsHtml;
+
+            // Update pagination info
+            const totalPages = Math.ceil(filteredApplications.length / entriesPerPage);
+            const showingStart = filteredApplications.length === 0 ? 0 : startIndex + 1;
+            const showingEnd = Math.min(endIndex, filteredApplications.length);
+            
+            const infoElement = document.getElementById('ch2AppsInfo');
+            const pageNumElement = document.getElementById('ch2AppsPageNum');
+            const prevButton = document.getElementById('ch2AppsPrev');
+            const nextButton = document.getElementById('ch2AppsNext');
+            
+            if (infoElement) {
+              infoElement.textContent = \`Showing \${showingStart} to \${showingEnd} of \${filteredApplications.length} entries\`;
+            }
+            if (pageNumElement) {
+              pageNumElement.textContent = currentPage.toString();
+            }
+            if (prevButton) {
+              prevButton.disabled = currentPage <= 1;
+            }
+            if (nextButton) {
+              nextButton.disabled = currentPage >= totalPages;
+            }
+          }
+
+          // Initial render
+          renderTable();
+        </script>
+      </body>
+    </html>
+  `;
 }
 
 /**
@@ -175,7 +565,7 @@ export async function getStoredOrgAndEnvInfo(context: vscode.ExtensionContext): 
 }
 
 /**
- * Step 1: Get all deployments for the environment
+ * Step 1: Get all deployments for the environment - FIXED to handle 'items' property
  */
 export async function getCH2Deployments(
   context: vscode.ExtensionContext,
@@ -208,18 +598,48 @@ export async function getCH2Deployments(
 
     const deploymentsData = await response.json();
     console.log('CH2 deployments response structure:', Object.keys(deploymentsData));
+    console.log('Full response data:', JSON.stringify(deploymentsData, null, 2));
 
-    // Handle different response structures
+    // FIXED: Handle different response structures including 'items'
     let deployments = [];
     if (Array.isArray(deploymentsData)) {
       deployments = deploymentsData;
+      console.log('✅ Found deployments as direct array');
+    } else if (deploymentsData.items && Array.isArray(deploymentsData.items)) {
+      // ADDED: Handle 'items' property (most common for CloudHub 2.0)
+      deployments = deploymentsData.items;
+      console.log('✅ Found deployments in items property');
     } else if (deploymentsData.data && Array.isArray(deploymentsData.data)) {
       deployments = deploymentsData.data;
+      console.log('✅ Found deployments in data property');
     } else if (deploymentsData.deployments && Array.isArray(deploymentsData.deployments)) {
       deployments = deploymentsData.deployments;
+      console.log('✅ Found deployments in deployments property');
+    } else {
+      // Debug: Log the actual structure to understand what we're getting
+      console.error('❌ Unknown response structure. Available properties:', Object.keys(deploymentsData));
+      console.error('❌ Full response:', JSON.stringify(deploymentsData, null, 2));
+      
+      // Try to find any array property
+      const arrayProps = Object.keys(deploymentsData).filter(key => 
+        Array.isArray(deploymentsData[key])
+      );
+      
+      if (arrayProps.length > 0) {
+        console.log(`🔍 Found array properties: ${arrayProps.join(', ')}`);
+        deployments = deploymentsData[arrayProps[0]];
+        console.log(`⚠️ Using first array property '${arrayProps[0]}' with ${deployments.length} items`);
+      }
     }
 
     console.log(`Retrieved ${deployments.length} deployments`);
+    
+    // Debug: Log the first deployment to see its structure
+    if (deployments.length > 0) {
+      console.log('📋 First deployment structure:', Object.keys(deployments[0]));
+      console.log('📋 First deployment sample:', JSON.stringify(deployments[0], null, 2));
+    }
+
     return deployments;
 
   } catch (error: any) {
@@ -397,323 +817,3 @@ function generateCH2ApplicationsCsv(applications: any[]): string {
   return csvContent;
 }
 
-// ==================== HTML GENERATION FUNCTIONS ====================
-
-function getCloudHub2ApplicationsHtml(
-  applications: any[],
-  webview: vscode.Webview,
-  extensionUri: vscode.Uri
-): string {
-  const logoPath = vscode.Uri.joinPath(extensionUri, 'logo.png');
-  const logoSrc = webview.asWebviewUri(logoPath);
-
-  const applicationsTableHtml = buildCloudHub2ApplicationsTable(applications);
-
-  return /* html */ `
-    <!DOCTYPE html>
-    <html lang="en">
-      <head>
-        <meta charset="UTF-8" />
-        <title>CloudHub 2.0 Applications</title>
-        <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Fira+Code:wght@400;600&display=swap" />
-        <style>
-          :root {
-            --background-color: #0D1117;
-            --card-color: #161B22;
-            --text-color: #C9D1D9;
-            --accent-color: #58A6FF;
-            --navbar-color: #141A22;
-            --navbar-text-color: #F0F6FC;
-            --button-hover-color: #3186D1;
-            --table-hover-color: #21262D;
-          }
-
-          body {
-            margin: 0;
-            padding: 0;
-            background-color: var(--background-color);
-            color: var(--text-color);
-            font-family: 'Fira Code', monospace, sans-serif;
-            font-size: 12px;
-          }
-
-          .navbar {
-            display: flex;
-            align-items: center;
-            justify-content: space-between;
-            background-color: var(--navbar-color);
-            padding: 0.5rem 1rem;
-          }
-          .navbar-left {
-            display: flex;
-            align-items: center;
-            gap: 0.5rem;
-          }
-          .navbar-left img {
-            height: 28px;
-            width: auto;
-          }
-          .navbar-left h1 {
-            color: var(--navbar-text-color);
-            font-size: 1rem;
-            margin: 0;
-          }
-          .navbar-right {
-            display: flex;
-            gap: 0.75rem;
-          }
-          .navbar-right a {
-            color: var(--navbar-text-color);
-            text-decoration: none;
-            font-weight: 500;
-            font-size: 0.75rem;
-          }
-          .navbar-right a:hover {
-            text-decoration: underline;
-          }
-
-          .container {
-            width: 90%;
-            max-width: 1400px;
-            margin: 0.5rem auto;
-          }
-
-          .card {
-            background-color: var(--card-color);
-            border: 1px solid #30363D;
-            border-radius: 6px;
-            padding: 0.5rem;
-            margin-bottom: 1rem;
-          }
-          .card-header {
-            display: flex;
-            align-items: center;
-            justify-content: space-between;
-            margin-bottom: 0.5rem;
-          }
-          .card-header h2 {
-            margin: 0;
-            font-size: 0.9rem;
-            color: var(--accent-color);
-          }
-
-          .button-group {
-            display: flex;
-            gap: 0.25rem;
-          }
-          .button {
-            padding: 4px 8px;
-            font-size: 0.75rem;
-            color: #fff;
-            background-color: var(--accent-color);
-            border: none;
-            border-radius: 4px;
-            cursor: pointer;
-            font-weight: 600;
-          }
-          .button:hover {
-            background-color: var(--button-hover-color);
-          }
-          .button:disabled {
-            background-color: #6c757d;
-            cursor: not-allowed;
-          }
-
-          .table-container {
-            width: 100%;
-            overflow-x: auto;
-          }
-          table {
-            border-collapse: collapse;
-            width: 100%;
-          }
-          th, td {
-            padding: 4px;
-            border-bottom: 1px solid #30363D;
-            text-align: left;
-            vertical-align: top;
-          }
-          th {
-            color: var(--accent-color);
-            white-space: nowrap;
-          }
-          tr:hover {
-            background-color: var(--table-hover-color);
-          }
-          .app-table {
-            font-size: 0.75rem;
-          }
-
-          .app-name-link {
-            color: var(--accent-color);
-            text-decoration: none;
-            cursor: pointer;
-          }
-          .app-name-link:hover {
-            text-decoration: underline;
-          }
-        </style>
-      </head>
-      <body>
-        <nav class="navbar">
-          <div class="navbar-left">
-            <img src="${logoSrc}" alt="Logo"/>
-            <h1>Anypoint Monitor Extension</h1>
-          </div>
-          <div class="navbar-right">
-            <a href="https://marketplace.visualstudio.com/items?itemName=EdgarMoran.anypoint-monitor">About</a>
-            <a href="https://www.buymeacoffee.com/yucelmoran">Buy Me a Coffee</a>
-          </div>
-        </nav>
-
-        <div class="container">
-          ${applicationsTableHtml}
-        </div>
-
-        <script>
-          const vscode = acquireVsCodeApi();
-          const applicationsRaw = ${JSON.stringify(applications)};
-          const applicationsData = Array.isArray(applicationsRaw) ? applicationsRaw : [];
-          let filteredApplications = [...applicationsData];
-          let currentPage = 1;
-          let entriesPerPage = 10;
-
-          // Handle app name clicks
-          document.addEventListener('click', (e) => {
-            if (e.target.classList.contains('app-name-link')) {
-              e.preventDefault();
-              const appName = e.target.dataset.appName;
-              const appIndex = parseInt(e.target.dataset.appIndex);
-              if (appIndex >= 0 && appIndex < applicationsData.length) {
-                const appData = applicationsData[appIndex];
-                vscode.postMessage({
-                  command: 'openApplicationDetails',
-                  appName: appName,
-                  appData: appData
-                });
-              }
-            }
-          });
-
-          // Download CSV button
-          document.getElementById('btnDownloadCH2Csv')?.addEventListener('click', () => {
-            vscode.postMessage({ command: 'downloadCH2Csv' });
-          });
-
-          // Refresh button
-          document.getElementById('btnRefreshApps')?.addEventListener('click', () => {
-            vscode.postMessage({ command: 'refreshApplications' });
-          });
-
-          // Search functionality
-          const searchInput = document.getElementById('appSearch');
-          searchInput?.addEventListener('input', (e) => {
-            const searchTerm = e.target.value.toLowerCase();
-            filteredApplications = applicationsData.filter(app => {
-              if (!app || typeof app !== 'object') return false;
-              return Object.values(app).some(value => {
-                if (value === null || value === undefined) return false;
-                return String(value).toLowerCase().includes(searchTerm);
-              });
-            });
-            currentPage = 1;
-            renderTable();
-          });
-
-          // Entries per page
-          const entriesSelect = document.getElementById('entriesPerPage');
-          entriesSelect?.addEventListener('change', (e) => {
-            entriesPerPage = parseInt(e.target.value);
-            currentPage = 1;
-            renderTable();
-          });
-
-          // Pagination
-          document.getElementById('ch2AppsPrev')?.addEventListener('click', () => {
-            if (currentPage > 1) {
-              currentPage--;
-              renderTable();
-            }
-          });
-
-          document.getElementById('ch2AppsNext')?.addEventListener('click', () => {
-            const totalPages = Math.ceil(filteredApplications.length / entriesPerPage);
-            if (currentPage < totalPages) {
-              currentPage++;
-              renderTable();
-            }
-          });
-
-          function renderTable() {
-            const startIndex = (currentPage - 1) * entriesPerPage;
-            const endIndex = startIndex + entriesPerPage;
-            const pageApplications = filteredApplications.slice(startIndex, endIndex);
-            
-            const tbody = document.getElementById('ch2AppsTbody');
-            if (!tbody) return;
-
-            const rowsHtml = pageApplications.map((app, pageIndex) => {
-              if (!app || typeof app !== 'object') return '';
-              
-              const actualIndex = applicationsData.indexOf(app);
-              const status = (app.application && app.application.status) || app.status || '';
-              const statusHtml = status === 'RUNNING' || status === 'STARTED' 
-                ? \`<span style="color: #00ff00;">● \${status}</span>\`
-                : ['STOPPED', 'UNDEPLOYED'].includes(status)
-                ? \`<span style="color: #ff0000;">● \${status}</span>\`
-                : status;
-
-              const formatDateSafe = (dateStr) => {
-                if (!dateStr) return '';
-                try {
-                  return new Date(dateStr).toISOString().split('T')[0];
-                } catch {
-                  return dateStr;
-                }
-              };
-
-              return \`
-                <tr data-app-index="\${actualIndex}">
-                  <td>\${statusHtml}</td>
-                  <td><a href="#" class="app-name-link" data-app-name="\${app.name || ''}" data-app-index="\${actualIndex}">\${app.name || 'Unknown'}</a></td>
-                  <td>\${formatDateSafe(app.creationDate)}</td>
-                  <td>\${app.currentRuntimeVersion || ''}</td>
-                  <td>\${formatDateSafe(app.lastModifiedDate)}</td>
-                  <td>\${app.lastSuccessfulRuntimeVersion || ''}</td>
-                </tr>
-              \`;
-            }).filter(row => row !== '').join('');
-
-            tbody.innerHTML = rowsHtml;
-
-            // Update pagination info
-            const totalPages = Math.ceil(filteredApplications.length / entriesPerPage);
-            const showingStart = filteredApplications.length === 0 ? 0 : startIndex + 1;
-            const showingEnd = Math.min(endIndex, filteredApplications.length);
-            
-            const infoElement = document.getElementById('ch2AppsInfo');
-            const pageNumElement = document.getElementById('ch2AppsPageNum');
-            const prevButton = document.getElementById('ch2AppsPrev');
-            const nextButton = document.getElementById('ch2AppsNext');
-            
-            if (infoElement) {
-              infoElement.textContent = \`Showing \${showingStart} to \${showingEnd} of \${filteredApplications.length} entries\`;
-            }
-            if (pageNumElement) {
-              pageNumElement.textContent = currentPage.toString();
-            }
-            if (prevButton) {
-              prevButton.disabled = currentPage <= 1;
-            }
-            if (nextButton) {
-              nextButton.disabled = currentPage >= totalPages;
-            }
-          }
-
-          // Initial render
-          renderTable();
-        </script>
-      </body>
-    </html>
-  `;
-}

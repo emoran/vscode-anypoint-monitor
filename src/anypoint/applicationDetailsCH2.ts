@@ -5,16 +5,18 @@ import {getCH2Deployments } from './cloudhub2Applications';
 
 // ==================== MAIN APPLICATION DETAILS WEBVIEW ====================
 
-/**
- * Show the ApplicationDetailsCH2 webview - detailed view for a single CloudHub 2.0 application
- * Modified to accept environment ID parameter
- */
+// Updated showApplicationDetailsCH2Webview function in applicationDetailsCH2.ts
 export async function showApplicationDetailsCH2Webview(
   context: vscode.ExtensionContext,
   appName: string,
   appData: any,
-  environmentId?: string // Add environment ID parameter
+  environmentId: string // FIXED: Changed to accept environment ID directly as string
 ) {
+  console.log('🎯 === SHOW APPLICATION DETAILS CH2 WEBVIEW ===');
+  console.log(`📱 Opening application details for: ${appName}`);
+  console.log(`🌍 Environment ID: ${environmentId}`);
+  console.log(`📊 App data keys:`, Object.keys(appData || {}));
+  
   const panel = vscode.window.createWebviewPanel(
     'applicationDetailsCH2',
     `Application Details - ${appName}`,
@@ -24,9 +26,19 @@ export async function showApplicationDetailsCH2Webview(
 
   // Store environment ID in panel context
   (panel as any).environmentId = environmentId;
+  console.log(`💾 Stored environment ID in panel: ${environmentId}`);
 
-  // Fetch additional data for the application using the provided environment ID
+  // FIXED: Fetch additional data using the correct environment ID
+  console.log(`🔍 About to fetch additional data for app: ${appName}`);
   const additionalData = await fetchCH2ApplicationDetails(context, appName, appData, environmentId);
+  console.log(`📋 Additional data fetched:`, {
+    logs: additionalData.logs?.length || 0,
+    schedulers: additionalData.schedulers?.length || 0,
+    alerts: additionalData.alerts?.length || 0,
+    deploymentId: additionalData.deploymentId,
+    specificationId: additionalData.specificationId,
+    error: additionalData.error
+  });
 
   panel.webview.html = getApplicationDetailsCH2Html(
     appName, 
@@ -36,6 +48,10 @@ export async function showApplicationDetailsCH2Webview(
     context.extensionUri
   );
 
+  console.log(`🎨 Webview HTML generated and set for: ${appName}`);
+  console.log('✅ === END SHOW APPLICATION DETAILS CH2 WEBVIEW ===');
+
+  // Rest of the function remains the same...
   panel.webview.onDidReceiveMessage(async (message) => {
     try {
       switch (message.command) {
@@ -116,7 +132,7 @@ export async function showApplicationDetailsCH2Webview(
           break;
 
         case 'loadMoreLogs':
-          // Load more logs with pagination using correct IDs
+          // FIXED: Use the stored environment ID
           try {
             if (!additionalData.deploymentId || !additionalData.specificationId) {
               throw new Error('Deployment or specification ID not available');
@@ -130,7 +146,7 @@ export async function showApplicationDetailsCH2Webview(
               additionalData.specificationId, 
               offset, 
               50,
-              environmentId || (panel as any).environmentId
+              environmentId // FIXED: Use the environment ID from function parameter
             );
             
             // Send the additional logs back to the webview
@@ -147,7 +163,7 @@ export async function showApplicationDetailsCH2Webview(
           break;
 
         case 'searchLogs':
-          // Search logs with specific criteria using correct IDs
+          // FIXED: Use the stored environment ID
           try {
             if (!additionalData.deploymentId || !additionalData.specificationId) {
               throw new Error('Deployment or specification ID not available');
@@ -165,7 +181,7 @@ export async function showApplicationDetailsCH2Webview(
                 endTime: message.endTime,
                 limit: 100
               },
-              environmentId || (panel as any).environmentId
+              environmentId // FIXED: Use the environment ID from function parameter
             );
             
             // Send search results back to the webview
@@ -255,7 +271,7 @@ async function getCH2DeploymentById(
 }
 
 /**
- * Step 3: Get deployment specs
+ * Step 3: Get deployment specs - FIXED to handle version field correctly
  */
 async function getCH2DeploymentSpecs(
   context: vscode.ExtensionContext,
@@ -289,18 +305,41 @@ async function getCH2DeploymentSpecs(
 
     const specsData = await response.json();
     console.log('CH2 deployment specs response structure:', Object.keys(specsData));
+    console.log('Full specs response:', JSON.stringify(specsData, null, 2));
 
-    // Handle different response structures
+    // FIXED: Handle the actual response structure - specs come as a direct array
     let specs = [];
     if (Array.isArray(specsData)) {
       specs = specsData;
-    } else if (specsData.data && Array.isArray(specsData.data)) {
-      specs = specsData.data;
-    } else if (specsData.specs && Array.isArray(specsData.specs)) {
-      specs = specsData.specs;
+      console.log('✅ Found specs as direct array');
+    } else {
+      console.error('❌ Expected array but got:', typeof specsData);
+      console.error('❌ Available properties:', Object.keys(specsData));
+      specs = [];
     }
 
+    // IMPORTANT: Transform specs to have 'id' field for compatibility with existing code
+    // The API returns 'version' field, but we need 'id' for the getLatestSpec function
+    specs = specs.map(spec => ({
+      ...spec,
+      id: spec.version, // Map version to id for compatibility
+      // Keep the original version field as well
+      originalVersion: spec.version
+    }));
+
     console.log(`Retrieved ${specs.length} deployment specs`);
+    
+    // Debug: Log the first spec to see its structure
+    if (specs.length > 0) {
+      console.log('📋 First spec structure:', Object.keys(specs[0]));
+      console.log('📋 First spec sample:', JSON.stringify(specs[0], null, 2));
+      console.log('📋 Version/ID mapping:', {
+        originalVersion: specs[0].originalVersion,
+        mappedId: specs[0].id,
+        createdAt: specs[0].createdAt
+      });
+    }
+
     return specs;
 
   } catch (error: any) {
@@ -358,7 +397,7 @@ async function getCH2DeploymentLogs(
       queryParams.append('search', finalOptions.search);
     }
 
-    const url = `https://anypoint.mulesoft.com/amc/application-manager/api/v2/organizations/${orgId}/environments/${envId}/deployments/${deploymentId}/specs/${specificationId}/logs?${queryParams.toString()}`;
+    const url = `https://anypoint.mulesoft.com/amc/application-manager/api/v2/organizations/${orgId}/environments/${envId}/deployments/${deploymentId}/specs/${specificationId}/logs`;
     
     console.log('Fetching CH2 logs from:', url);
 
@@ -376,22 +415,46 @@ async function getCH2DeploymentLogs(
       throw new Error(`Failed to fetch logs: ${response.status} ${response.statusText}`);
     }
 
-    const logsData = await response.json();
+ const logsData = await response.json();
     console.log('CH2 logs response structure:', Object.keys(logsData));
+    console.log('Full logs response sample:', JSON.stringify(logsData, null, 2));
 
-    // Handle different response structures
+    // FIXED: Handle different response structures - logs might come as direct array
     let logs = [];
     if (Array.isArray(logsData)) {
       logs = logsData;
-    } else if (logsData.data && Array.isArray(logsData.data)) {
-      logs = logsData.data;
-    } else if (logsData.logs && Array.isArray(logsData.logs)) {
-      logs = logsData.logs;
+      console.log('✅ Found logs as direct array');
     } else if (logsData.items && Array.isArray(logsData.items)) {
       logs = logsData.items;
+      console.log('✅ Found logs in items property');
+    } else if (logsData.data && Array.isArray(logsData.data)) {
+      logs = logsData.data;
+      console.log('✅ Found logs in data property');
+    } else if (logsData.logs && Array.isArray(logsData.logs)) {
+      logs = logsData.logs;
+      console.log('✅ Found logs in logs property');
+    } else {
+      console.error('❌ Unknown logs response structure. Available properties:', Object.keys(logsData));
+      // Try to find any array property as fallback
+      const arrayProps = Object.keys(logsData).filter(key => 
+        Array.isArray(logsData[key])
+      );
+      
+      if (arrayProps.length > 0) {
+        console.log(`🔍 Found array properties: ${arrayProps.join(', ')}`);
+        logs = logsData[arrayProps[0]];
+        console.log(`⚠️ Using first array property '${arrayProps[0]}' with ${logs.length} items`);
+      }
     }
 
     console.log(`Retrieved ${logs.length} log entries`);
+    
+    // Debug: Log a sample log entry structure
+    if (logs.length > 0) {
+      console.log('📋 First log entry structure:', Object.keys(logs[0]));
+      console.log('📋 First log entry sample:', JSON.stringify(logs[0], null, 2));
+    }
+
     return logs;
 
   } catch (error: any) {
@@ -400,10 +463,7 @@ async function getCH2DeploymentLogs(
   }
 }
 
-/**
- * Main function to fetch CloudHub 2.0 application details following the correct API flow
- * Modified to accept environment ID parameter
- */
+// Updated fetchCH2ApplicationDetails with better debugging
 async function fetchCH2ApplicationDetails(
   context: vscode.ExtensionContext,
   appName: string,
@@ -411,20 +471,38 @@ async function fetchCH2ApplicationDetails(
   environmentId?: string // Add environment ID parameter
 ): Promise<any> {
   try {
+    console.log('=== FETCH CH2 APPLICATION DETAILS DEBUG ===');
     console.log(`Fetching details for CloudHub 2.0 application: ${appName}`);
-    console.log(`Using provided environment ID: ${environmentId}`);
+    console.log(`Provided environment ID: ${environmentId}`);
+    console.log(`App data keys:`, Object.keys(appData || {}));
 
     // Step 1: Get org and env info - use provided environment ID if available
     const { orgId, envId } = await getStoredOrgAndEnvInfo(context, environmentId);
     console.log(`Using orgId: ${orgId}, envId: ${envId}`);
 
-    // Step 2: Get all deployments
+    // VALIDATION: Make sure we're using the correct environment ID
+    if (environmentId && envId !== environmentId) {
+      console.warn(`Environment ID mismatch! Provided: ${environmentId}, Using: ${envId}`);
+    }
+
+    // Step 2: Get all deployments for this specific environment
+    console.log(`Fetching deployments for environment: ${envId}`);
     const deployments = await getCH2Deployments(context, orgId, envId);
+    console.log(`Retrieved ${deployments.length} deployments`);
     
+    // DEBUG: Log all deployment names to help identify the issue
+    console.log('Available deployments:', deployments.map(d => ({
+      name: d.name,
+      applicationName: d.applicationName,
+      id: d.id,
+      allKeys: Object.keys(d)
+    })));
+
     // Step 3: Find the deployment for this application
     const deployment = findDeploymentByAppName(deployments, appName);
     if (!deployment) {
-      console.warn(`No deployment found for application: ${appName}`);
+      console.error(`No deployment found for application: ${appName}`);
+      console.error('Available deployment names:', deployments.map(d => d.name || d.applicationName || 'Unknown'));
       return {
         logs: [],
         schedulers: [],
@@ -439,40 +517,46 @@ async function fetchCH2ApplicationDetails(
     console.log(`Found deployment ID: ${deploymentId} for app: ${appName}`);
 
     // Step 4: Get deployment details (optional, for additional info)
+    console.log(`Fetching deployment details for ID: ${deploymentId}`);
     const deploymentDetails = await getCH2DeploymentById(context, orgId, envId, deploymentId);
 
     // Step 5: Get deployment specs
+    console.log(`Fetching deployment specs for ID: ${deploymentId}`);
     const specs = await getCH2DeploymentSpecs(context, orgId, envId, deploymentId);
+    console.log(`Retrieved ${specs.length} specs`);
     
     // Step 6: Get the latest spec
     const latestSpec = getLatestSpec(specs);
     if (!latestSpec) {
-      console.warn(`No specs found for deployment: ${deploymentId}`);
-      return {
-        logs: [],
-        schedulers: [],
-        alerts: [],
-        deployment: deploymentDetails,
-        specs: specs,
-        error: `No specs found for deployment: ${deploymentId}`,
-        environmentId: envId
-      };
+      console.error(`No specs found for deployment: ${deploymentId}`);
+      // Don't return early, try to fetch logs without spec ID
     }
 
-    const specificationId = latestSpec.id;
-    console.log(`Using latest spec ID: ${specificationId}`);
+    const specificationId = latestSpec ? latestSpec.id : deploymentId;
+    console.log(`Using spec ID: ${specificationId} (fallback to deployment ID if no spec)`);
 
     // Step 7: Fetch logs using deployment and spec IDs
-    const logs = await getCH2DeploymentLogs(context, orgId, envId, deploymentId, specificationId, {
-      limit: 50, // Start with 50 logs
-      priority: ['ERROR', 'WARN', 'INFO']
-    });
+    console.log(`Fetching logs for deployment: ${deploymentId}, spec: ${specificationId}`);
+    let logs = [];
+    try {
+      logs = await getCH2DeploymentLogs(context, orgId, envId, deploymentId, specificationId, {
+        limit: 50, // Start with 50 logs
+        priority: ['ERROR', 'WARN', 'INFO']
+      });
+    } catch (logsError: any) {
+      console.error('Failed to fetch logs:', logsError.message);
+      // Continue without logs rather than failing completely
+      logs = [];
+    }
+
+    console.log(`Successfully fetched ${logs.length} log entries`);
 
     // TODO: Implement schedulers and alerts fetching if available in CH2 API
     const schedulers = await fetchCH2Schedulers(context, orgId, envId, deploymentId).catch(() => []);
     const alerts = await fetchCH2Alerts(context, orgId, envId, deploymentId).catch(() => []);
 
     console.log(`Successfully fetched application details - Logs: ${logs.length}, Schedulers: ${schedulers.length}, Alerts: ${alerts.length}`);
+    console.log('=== END DEBUG ===');
 
     return {
       logs,
@@ -488,7 +572,9 @@ async function fetchCH2ApplicationDetails(
     };
 
   } catch (error: any) {
-    console.error('Error fetching CloudHub 2.0 application details:', error);
+    console.error('=== ERROR in fetchCH2ApplicationDetails ===');
+    console.error('Error details:', error);
+    console.error('Stack trace:', error.stack);
     vscode.window.showErrorMessage(`Failed to fetch application details: ${error.message}`);
     
     return {
@@ -694,15 +780,69 @@ function findDeploymentByAppName(deployments: any[], appName: string): any {
 }
 
 function getLatestSpec(specs: any[]): any {
-  if (!specs || specs.length === 0) return null;
+  console.log('🔍 getLatestSpec called with:', specs);
   
-  const sortedSpecs = specs.sort((a, b) => {
-    const dateA = new Date(a.createdAt || a.creationDate || 0);
-    const dateB = new Date(b.createdAt || b.creationDate || 0);
-    return dateB.getTime() - dateA.getTime();
+  if (!specs || specs.length === 0) {
+    console.log('⚠️ getLatestSpec: No specs provided or empty array');
+    return null;
+  }
+  
+  console.log(`📊 Processing ${specs.length} specs for latest determination`);
+  
+  // Log each spec's date info
+  specs.forEach((spec, index) => {
+    console.log(`  Spec ${index} date info:`, {
+      id: spec.id,
+      version: spec.version || spec.originalVersion,
+      createdAt: spec.createdAt,
+      createdAtDate: spec.createdAt ? new Date(spec.createdAt).toISOString() : 'N/A',
+      hasValidId: !!spec.id
+    });
   });
   
-  return sortedSpecs[0];
+  try {
+    const sortedSpecs = specs.sort((a, b) => {
+      // Handle Unix timestamps (numbers) vs ISO strings
+      let timestampA = 0;
+      let timestampB = 0;
+
+      if (a.createdAt) {
+        // If it's a number (Unix timestamp), use it directly
+        // If it's a string (ISO), convert to timestamp
+        timestampA = typeof a.createdAt === 'number' ? a.createdAt : new Date(a.createdAt).getTime();
+      }
+
+      if (b.createdAt) {
+        timestampB = typeof b.createdAt === 'number' ? b.createdAt : new Date(b.createdAt).getTime();
+      }
+      
+      console.log(`📅 Comparing timestamps: A=${timestampA} (${new Date(timestampA).toISOString()}) vs B=${timestampB} (${new Date(timestampB).toISOString()})`);
+      
+      // Sort descending (newest first)
+      return timestampB - timestampA;
+    });
+    
+    console.log('✅ Sorted specs:', sortedSpecs.map(s => ({ 
+      id: s.id,
+      version: s.version || s.originalVersion,
+      createdAt: s.createdAt,
+      date: new Date(s.createdAt).toISOString()
+    })));
+    
+    const latestSpec = sortedSpecs[0];
+    console.log('🎯 Selected latest spec:', {
+      id: latestSpec?.id,
+      version: latestSpec?.version || latestSpec?.originalVersion,
+      hasId: !!latestSpec?.id,
+      createdAt: latestSpec?.createdAt,
+      createdAtDate: latestSpec?.createdAt ? new Date(latestSpec.createdAt).toISOString() : 'N/A'
+    });
+    
+    return latestSpec;
+  } catch (error) {
+    console.error('❌ Error in getLatestSpec:', error);
+    return specs[0] || null; // Fallback to first spec
+  }
 }
 
 function renderCH2AppInfoCell(key: string, value: any): string {
