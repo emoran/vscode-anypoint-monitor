@@ -219,6 +219,42 @@ function generateCsvContent(data: any): string {
   return [header, row].join('\n');
 }
 
+/** Generate log file content in different formats */
+function generateLogContent(logs: any[], format: 'json' | 'txt' | 'csv'): string {
+  if (!logs || !Array.isArray(logs) || logs.length === 0) {
+    return format === 'json' ? '[]' : '';
+  }
+
+  switch (format) {
+    case 'json':
+      return JSON.stringify(logs, null, 2);
+    
+    case 'txt':
+      return logs
+        .map(log => {
+          const timestamp = new Date(log.timestamp).toISOString();
+          const priority = log.priority || 'INFO';
+          const message = (log.message || '').replace(/\\n/g, '\n');
+          return `[${timestamp}] ${priority}: ${message}`;
+        })
+        .join('\n\n');
+    
+    case 'csv':
+      const headers = ['Timestamp', 'Priority', 'Thread Name', 'Message'];
+      const csvRows = logs.map(log => {
+        const timestamp = new Date(log.timestamp).toISOString();
+        const priority = log.priority || '';
+        const threadName = log.threadName || '';
+        const message = (log.message || '').replace(/"/g, '""');
+        return `"${timestamp}","${priority}","${threadName}","${message}"`;
+      });
+      return [headers.join(','), ...csvRows].join('\n');
+    
+    default:
+      return '';
+  }
+}
+
 /**
  * Helper to update the application status via CloudHub API.
  * status can be "stop" | "start" | "restart".
@@ -287,6 +323,45 @@ export async function showDashboardWebview(
         fs.writeFileSync(uri.fsPath, csvData, 'utf-8');
         vscode.window.showInformationMessage(`CSV file saved to ${uri.fsPath}`);
       }
+    } else if (message.command === 'downloadLogs') {
+      const logs = Array.isArray(data.logs?.data) ? data.logs.data : 
+                   Array.isArray(data.logs) ? data.logs : [];
+      
+      if (logs.length === 0) {
+        vscode.window.showInformationMessage('No log data to export.');
+        return;
+      }
+
+      // Show format selection
+      const format = await vscode.window.showQuickPick(
+        [
+          { label: 'JSON', description: 'Structured JSON format', value: 'json' },
+          { label: 'Text', description: 'Human-readable text format', value: 'txt' },
+          { label: 'CSV', description: 'Comma-separated values', value: 'csv' }
+        ],
+        { placeHolder: 'Select log file format' }
+      );
+
+      if (!format) return;
+
+      const logContent = generateLogContent(logs, format.value as 'json' | 'txt' | 'csv');
+      const fileExtension = format.value;
+      const defaultFileName = `logs-${new Date().toISOString().split('T')[0]}.${fileExtension}`;
+
+      const uri = await vscode.window.showSaveDialog({
+        filters: {
+          'JSON Files': ['json'],
+          'Text Files': ['txt'],
+          'CSV Files': ['csv']
+        },
+        defaultUri: vscode.Uri.file(defaultFileName),
+        saveLabel: 'Save Logs'
+      });
+
+      if (uri) {
+        fs.writeFileSync(uri.fsPath, logContent, 'utf-8');
+        vscode.window.showInformationMessage(`Log file saved to ${uri.fsPath}`);
+      }
     } else if (message.command === 'stopApp') {
       try {
         const accessToken = await context.secrets.get('anypoint.accessToken');
@@ -336,11 +411,14 @@ function getDashboardHtml(
       <p>${JSON.stringify(data.alerts)}</p>
     </div>
   `;
-  // NOTE: The logs area below now has a larger max-height (600px).
+  // Updated logs section with download button
   const logsHtml = `
     <div class="card logs">
       <div class="card-header">
         <h2>Logs</h2>
+        <div class="button-group">
+          <button id="btnDownloadLogs" class="button">Download Logs</button>
+        </div>
       </div>
       <div style="margin-bottom: 0.5rem;">
         <input 
@@ -668,6 +746,11 @@ function getDashboardHtml(
           });
           document.getElementById('btnRestartApp')?.addEventListener('click', () => {
             vscode.postMessage({ command: 'restartApp' });
+          });
+
+          // Download Logs Button
+          document.getElementById('btnDownloadLogs')?.addEventListener('click', () => {
+            vscode.postMessage({ command: 'downloadLogs' });
           });
         </script>
       </body>
