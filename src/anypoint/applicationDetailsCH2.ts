@@ -51,157 +51,98 @@ export async function showApplicationDetailsCH2Webview(
   console.log(`🎨 Webview HTML generated and set for: ${appName}`);
   console.log('✅ === END SHOW APPLICATION DETAILS CH2 WEBVIEW ===');
 
-  // Rest of the function remains the same...
-  panel.webview.onDidReceiveMessage(async (message) => {
-    try {
-      switch (message.command) {
-        case 'stopApp':
-          const accessTokenStop = await context.secrets.get('anypoint.accessToken');
-          if (!accessTokenStop) throw new Error('No access token found. Please log in first.');
-          await updateCH2ApplicationStatus(appName, 'stop', accessTokenStop, additionalData.deploymentId);
-          vscode.window.showInformationMessage(`Application ${appName} is being stopped...`);
-          break;
+// Updated message handler in showApplicationDetailsCH2Webview function
+// Replace the existing panel.webview.onDidReceiveMessage section with this simplified version:
 
-        case 'startApp':
-          const accessTokenStart = await context.secrets.get('anypoint.accessToken');
-          if (!accessTokenStart) throw new Error('No access token found. Please log in first.');
-          await updateCH2ApplicationStatus(appName, 'start', accessTokenStart, additionalData.deploymentId);
-          vscode.window.showInformationMessage(`Application ${appName} is being started...`);
-          break;
+panel.webview.onDidReceiveMessage(async (message) => {
+  try {
+    switch (message.command) {
+      case 'stopApp':
+        const accessTokenStop = await context.secrets.get('anypoint.accessToken');
+        if (!accessTokenStop) throw new Error('No access token found. Please log in first.');
+        await updateCH2ApplicationStatus(appName, 'stop', accessTokenStop, additionalData.deploymentId);
+        vscode.window.showInformationMessage(`Application ${appName} is being stopped...`);
+        break;
 
-        case 'restartApp':
-          const accessTokenRestart = await context.secrets.get('anypoint.accessToken');
-          if (!accessTokenRestart) throw new Error('No access token found. Please log in first.');
-          await updateCH2ApplicationStatus(appName, 'restart', accessTokenRestart, additionalData.deploymentId);
-          vscode.window.showInformationMessage(`Application ${appName} is being restarted...`);
-          break;
+      case 'startApp':
+        const accessTokenStart = await context.secrets.get('anypoint.accessToken');
+        if (!accessTokenStart) throw new Error('No access token found. Please log in first.');
+        await updateCH2ApplicationStatus(appName, 'start', accessTokenStart, additionalData.deploymentId);
+        vscode.window.showInformationMessage(`Application ${appName} is being started...`);
+        break;
 
-        case 'downloadAppData':
-          const csvData = generateCH2ApplicationDetailsCsv(appData);
-          if (!csvData) {
-            vscode.window.showInformationMessage('No application data to export.');
-            return;
-          }
-          const appUri = await vscode.window.showSaveDialog({
-            filters: { 'CSV Files': ['csv'] },
-            saveLabel: 'Save as CSV',
-            defaultUri: vscode.Uri.file(`${appName}-details-${new Date().toISOString().split('T')[0]}.csv`)
-          });
-          if (appUri) {
-            fs.writeFileSync(appUri.fsPath, csvData, 'utf-8');
-            vscode.window.showInformationMessage(`CSV file saved to ${appUri.fsPath}`);
-          }
-          break;
+      case 'restartApp':
+        const accessTokenRestart = await context.secrets.get('anypoint.accessToken');
+        if (!accessTokenRestart) throw new Error('No access token found. Please log in first.');
+        await updateCH2ApplicationStatus(appName, 'restart', accessTokenRestart, additionalData.deploymentId);
+        vscode.window.showInformationMessage(`Application ${appName} is being restarted...`);
+        break;
 
-        case 'downloadLogs':
-          const logs = additionalData.logs || [];
-          if (logs.length === 0) {
-            vscode.window.showInformationMessage('No log data to export.');
-            return;
-          }
+      case 'downloadAppData':
+        const csvData = generateCH2ApplicationDetailsCsv(appData);
+        if (!csvData) {
+          vscode.window.showInformationMessage('No application data to export.');
+          return;
+        }
+        const appUri = await vscode.window.showSaveDialog({
+          filters: { 'CSV Files': ['csv'] },
+          saveLabel: 'Save as CSV',
+          defaultUri: vscode.Uri.file(`${appName}-details-${new Date().toISOString().split('T')[0]}.csv`)
+        });
+        if (appUri) {
+          fs.writeFileSync(appUri.fsPath, csvData, 'utf-8');
+          vscode.window.showInformationMessage(`CSV file saved to ${appUri.fsPath}`);
+        }
+        break;
 
-          const format = await vscode.window.showQuickPick(
-            [
-              { label: 'JSON', description: 'Structured JSON format', value: 'json' },
-              { label: 'Text', description: 'Human-readable text format', value: 'txt' },
-              { label: 'CSV', description: 'Comma-separated values', value: 'csv' }
-            ],
-            { placeHolder: 'Select log file format' }
-          );
+      case 'downloadLogs':
+        const logs = additionalData.logs || [];
+        if (logs.length === 0) {
+          vscode.window.showInformationMessage('No log data to export.');
+          return;
+        }
 
-          if (!format) return;
+        const format = await vscode.window.showQuickPick(
+          [
+            { label: 'JSON', description: 'Structured JSON format', value: 'json' },
+            { label: 'Text', description: 'Human-readable text format', value: 'txt' },
+            { label: 'CSV', description: 'Comma-separated values', value: 'csv' }
+          ],
+          { placeHolder: 'Select log file format' }
+        );
 
-          const logContent = generateLogContent(logs, format.value as 'json' | 'txt' | 'csv');
-          const fileExtension = format.value;
-          const defaultFileName = `${appName}-logs-${new Date().toISOString().split('T')[0]}.${fileExtension}`;
+        if (!format) return;
 
-          const logUri = await vscode.window.showSaveDialog({
-            filters: {
-              'JSON Files': ['json'],
-              'Text Files': ['txt'],
-              'CSV Files': ['csv']
-            },
-            defaultUri: vscode.Uri.file(defaultFileName),
-            saveLabel: 'Save Logs'
-          });
+        const logContent = generateLogContent(logs, format.value as 'json' | 'txt' | 'csv');
+        const fileExtension = format.value;
+        const defaultFileName = `${appName}-logs-${new Date().toISOString().split('T')[0]}.${fileExtension}`;
 
-          if (logUri) {
-            fs.writeFileSync(logUri.fsPath, logContent, 'utf-8');
-            vscode.window.showInformationMessage(`Log file saved to ${logUri.fsPath}`);
-          }
-          break;
+        const logUri = await vscode.window.showSaveDialog({
+          filters: {
+            'JSON Files': ['json'],
+            'Text Files': ['txt'],
+            'CSV Files': ['csv']
+          },
+          defaultUri: vscode.Uri.file(defaultFileName),
+          saveLabel: 'Save Logs'
+        });
 
-        case 'loadMoreLogs':
-          // FIXED: Use the stored environment ID
-          try {
-            if (!additionalData.deploymentId || !additionalData.specificationId) {
-              throw new Error('Deployment or specification ID not available');
-            }
-            
-            const offset = message.offset || 0;
-            const moreLogsResult = await fetchMoreCH2Logs(
-              context, 
-              appName, 
-              additionalData.deploymentId, 
-              additionalData.specificationId, 
-              offset, 
-              50,
-              environmentId // FIXED: Use the environment ID from function parameter
-            );
-            
-            // Send the additional logs back to the webview
-            panel.webview.postMessage({
-              command: 'moreLogsLoaded',
-              logs: moreLogsResult.logs,
-              hasMore: moreLogsResult.hasMore,
-              offset: offset + moreLogsResult.logs.length
-            });
-            
-          } catch (error: any) {
-            vscode.window.showErrorMessage(`Failed to load more logs: ${error.message}`);
-          }
-          break;
+        if (logUri) {
+          fs.writeFileSync(logUri.fsPath, logContent, 'utf-8');
+          vscode.window.showInformationMessage(`Log file saved to ${logUri.fsPath}`);
+        }
+        break;
 
-        case 'searchLogs':
-          // FIXED: Use the stored environment ID
-          try {
-            if (!additionalData.deploymentId || !additionalData.specificationId) {
-              throw new Error('Deployment or specification ID not available');
-            }
+      // REMOVED: loadMoreLogs case - no longer needed
+      // REMOVED: searchLogs case - since we removed date filtering
 
-            const searchResults = await searchCH2Logs(
-              context, 
-              appName, 
-              additionalData.deploymentId, 
-              additionalData.specificationId, 
-              {
-                search: message.searchTerm,
-                priority: message.priority,
-                startTime: message.startTime,
-                endTime: message.endTime,
-                limit: 100
-              },
-              environmentId // FIXED: Use the environment ID from function parameter
-            );
-            
-            // Send search results back to the webview
-            panel.webview.postMessage({
-              command: 'searchResults',
-              logs: searchResults
-            });
-            
-          } catch (error: any) {
-            vscode.window.showErrorMessage(`Failed to search logs: ${error.message}`);
-          }
-          break;
-
-        default:
-          console.log('Unknown command:', message.command);
-      }
-    } catch (error: any) {
-      vscode.window.showErrorMessage(`Error: ${error.message}`);
+      default:
+        console.log('Unknown command:', message.command);
     }
-  });
+  } catch (error: any) {
+    vscode.window.showErrorMessage(`Error: ${error.message}`);
+  }
+});
 }
 
 // ==================== CLOUDHUB 2.0 API FUNCTIONS ====================
@@ -463,12 +404,12 @@ async function getCH2DeploymentLogs(
   }
 }
 
-// Updated fetchCH2ApplicationDetails with better debugging
+// Updated fetchCH2ApplicationDetails with improved schedulers fetching
 async function fetchCH2ApplicationDetails(
   context: vscode.ExtensionContext,
   appName: string,
   appData: any,
-  environmentId?: string // Add environment ID parameter
+  environmentId?: string
 ): Promise<any> {
   try {
     console.log('=== FETCH CH2 APPLICATION DETAILS DEBUG ===');
@@ -535,33 +476,50 @@ async function fetchCH2ApplicationDetails(
     const specificationId = latestSpec ? latestSpec.id : deploymentId;
     console.log(`Using spec ID: ${specificationId} (fallback to deployment ID if no spec)`);
 
-    // Step 7: Fetch logs using deployment and spec IDs
-    console.log(`Fetching logs for deployment: ${deploymentId}, spec: ${specificationId}`);
-    let logs = [];
-    try {
-      logs = await getCH2DeploymentLogs(context, orgId, envId, deploymentId, specificationId, {
-        limit: 50, // Start with 50 logs
+    // Step 7: Fetch all data in parallel for better performance
+    console.log(`Fetching logs, schedulers, and alerts in parallel...`);
+    
+    const [logs, schedulers, alerts] = await Promise.allSettled([
+      // Fetch logs
+      getCH2DeploymentLogs(context, orgId, envId, deploymentId, specificationId, {
+        limit: 50,
         priority: ['ERROR', 'WARN', 'INFO']
-      });
-    } catch (logsError: any) {
-      console.error('Failed to fetch logs:', logsError.message);
-      // Continue without logs rather than failing completely
-      logs = [];
-    }
+      }).catch(error => {
+        console.error('Failed to fetch logs:', error.message);
+        return [];
+      }),
+      
+      // Fetch schedulers
+      fetchCH2Schedulers(context, orgId, envId, deploymentId).catch(error => {
+        console.error('Failed to fetch schedulers:', error.message);
+        return [];
+      }),
+      
+      // Fetch alerts
+      fetchCH2Alerts(context, orgId, envId, deploymentId).catch(error => {
+        console.error('Failed to fetch alerts:', error.message);
+        return [];
+      })
+    ]);
 
-    console.log(`Successfully fetched ${logs.length} log entries`);
+    // Extract results from Promise.allSettled
+    const logsResult = logs.status === 'fulfilled' ? logs.value : [];
+    const schedulersResult = schedulers.status === 'fulfilled' ? schedulers.value : [];
+    const alertsResult = alerts.status === 'fulfilled' ? alerts.value : [];
 
-    // TODO: Implement schedulers and alerts fetching if available in CH2 API
-    const schedulers = await fetchCH2Schedulers(context, orgId, envId, deploymentId).catch(() => []);
-    const alerts = await fetchCH2Alerts(context, orgId, envId, deploymentId).catch(() => []);
-
-    console.log(`Successfully fetched application details - Logs: ${logs.length}, Schedulers: ${schedulers.length}, Alerts: ${alerts.length}`);
+    console.log(`Successfully fetched application details:`, {
+      logs: logsResult.length,
+      schedulers: schedulersResult.length,
+      alerts: alertsResult.length,
+      deploymentId,
+      specificationId
+    });
     console.log('=== END DEBUG ===');
 
     return {
-      logs,
-      schedulers,
-      alerts,
+      logs: logsResult,
+      schedulers: schedulersResult,
+      alerts: alertsResult,
       deployment: deploymentDetails,
       specs: specs,
       latestSpec: latestSpec,
@@ -652,7 +610,7 @@ async function searchCH2Logs(
 }
 
 /**
- * Fetch schedulers (if available in CH2 API)
+ * Updated Fetch schedulers for CloudHub 2.0 API
  */
 async function fetchCH2Schedulers(
   context: vscode.ExtensionContext,
@@ -664,9 +622,10 @@ async function fetchCH2Schedulers(
     const accessToken = await context.secrets.get('anypoint.accessToken');
     if (!accessToken) throw new Error('No access token found.');
 
-    // This endpoint might not exist in CH2, check documentation
     const url = `https://anypoint.mulesoft.com/amc/application-manager/api/v2/organizations/${orgId}/environments/${envId}/deployments/${deploymentId}/schedulers`;
     
+    console.log('Fetching CH2 schedulers from:', url);
+
     const response = await fetch(url, {
       method: 'GET',
       headers: {
@@ -676,17 +635,159 @@ async function fetchCH2Schedulers(
     });
 
     if (!response.ok) {
-      console.log('Schedulers endpoint not available or no schedulers found');
-      return [];
+      const errorText = await response.text();
+      console.error('CloudHub 2.0 schedulers API error:', response.status, errorText);
+      
+      // If it's a 404, the endpoint might not exist for this deployment
+      if (response.status === 404) {
+        console.log('Schedulers endpoint not found - deployment may not have schedulers');
+        return [];
+      }
+      
+      throw new Error(`Failed to fetch schedulers: ${response.status} ${response.statusText}`);
     }
 
     const schedulersData = await response.json();
-    return Array.isArray(schedulersData) ? schedulersData : schedulersData.data || [];
+    console.log('CH2 schedulers response structure:', Object.keys(schedulersData));
+    console.log('Full schedulers response:', JSON.stringify(schedulersData, null, 2));
+
+    // Handle the response structure: { items: [...], total: N }
+    let schedulers = [];
+    if (schedulersData.items && Array.isArray(schedulersData.items)) {
+      schedulers = schedulersData.items;
+      console.log('✅ Found schedulers in items property');
+    } else if (Array.isArray(schedulersData)) {
+      schedulers = schedulersData;
+      console.log('✅ Found schedulers as direct array');
+    } else {
+      console.error('❌ Unknown schedulers response structure. Available properties:', Object.keys(schedulersData));
+      schedulers = [];
+    }
+
+    console.log(`Retrieved ${schedulers.length} schedulers`);
+    
+    // Debug: Log a sample scheduler entry structure
+    if (schedulers.length > 0) {
+      console.log('📋 First scheduler structure:', Object.keys(schedulers[0]));
+      console.log('📋 First scheduler sample:', JSON.stringify(schedulers[0], null, 2));
+    }
+
+    return schedulers;
 
   } catch (error: any) {
-    console.log('Schedulers not available:', error.message);
+    console.error('Error fetching CloudHub 2.0 schedulers:', error);
+    // Return empty array instead of throwing to not break the entire flow
     return [];
   }
+}
+
+/**
+ * Updated Build schedulers table for CloudHub 2.0 response format
+ */
+function buildSchedulersTable(schedulers: any[]): string {
+  if (!schedulers || schedulers.length === 0) {
+    return `
+      <div class="card">
+        <h2>Schedulers</h2>
+        <p>No schedulers available for this deployment.</p>
+      </div>
+    `;
+  }
+
+  // Map CloudHub 2.0 scheduler fields to display columns
+  const columns = [
+    { key: 'flowName', label: 'Flow Name' },
+    { key: 'type', label: 'Type' },
+    { key: 'enabled', label: 'Enabled' },
+    { key: 'frequency', label: 'Frequency' },
+    { key: 'timeUnit', label: 'Time Unit' },
+    { key: 'startDelay', label: 'Start Delay' }
+  ];
+  const rowsHtml = schedulers
+    .map((scheduler) => {
+      const cells = columns.map((col) => {
+        let val: string;
+        
+        switch (col.key) {
+          case 'enabled':
+            val = `<input type="checkbox" disabled ${scheduler.enabled ? 'checked' : ''} />`;
+            break;
+          case 'schedule':
+            // Combine frequency and timeUnit for better readability
+            if (scheduler.frequency && scheduler.timeUnit) {
+              val = `${scheduler.frequency} ${scheduler.timeUnit}`;
+            } else if (scheduler.frequency) {
+              val = scheduler.frequency;
+            } else if (scheduler.timeUnit) {
+              val = scheduler.timeUnit;
+            } else {
+              val = '';
+            }
+            break;
+          case 'flowName':
+            val = scheduler.flowName || '';
+            break;
+          case 'type':
+            val = scheduler.type || '';
+            break;
+          case 'startDelay':
+            val = scheduler.startDelay || '';
+            break;
+          default:
+            val = scheduler[col.key] || '';
+        }
+        
+        return `<td>${val}</td>`;
+      });
+
+      return `<tr>${cells.join('')}</tr>`;
+    })
+    .join('');
+
+  // Filter out the timeUnit column header since we're combining it with frequency
+  const filteredColumns = columns.filter(col => col.key !== 'timeUnit');
+
+return `
+    <div class="card">
+      <h2>Schedulers</h2>
+      <div class="table-container">
+        <table class="app-table">
+          <thead>
+            <tr>
+              ${columns.map(c => `<th>${c.label}</th>`).join('')}
+            </tr>
+          </thead>
+          <tbody>
+            ${rowsHtml}
+          </tbody>
+        </table>
+      </div>
+      <div style="margin-top: 0.5rem; font-size: 0.8rem; color: #8b949e;">
+        Total schedulers: ${schedulers.length}
+      </div>
+    </div>
+  `;
+}
+
+/**
+ * Helper function to format scheduler information for better display
+ */
+function formatSchedulerInfo(scheduler: any): string {
+  const parts = [];
+  
+  if (scheduler.type) {
+    parts.push(`Type: ${scheduler.type}`);
+  }
+  
+  if (scheduler.frequency && scheduler.timeUnit) {
+    parts.push(`Every ${scheduler.frequency} ${scheduler.timeUnit.toLowerCase()}`);
+  }
+  
+  if (scheduler.startDelay && scheduler.startDelay !== '0') {
+    parts.push(`Start delay: ${scheduler.startDelay}`);
+  }
+  
+  return parts.join(' | ');
 }
 
 /**
@@ -975,67 +1076,6 @@ function buildCH2ApplicationInfoTable(appData: any): string {
   `;
 }
 
-/** Build schedulers table */
-function buildSchedulersTable(schedulers: any[]): string {
-  if (!schedulers || schedulers.length === 0) {
-    return `
-      <div class="card">
-        <h2>Schedulers</h2>
-        <p>No schedulers available.</p>
-      </div>
-    `;
-  }
-
-  const columns = [
-    { key: 'flow', label: 'Flow' },
-    { key: 'name', label: 'Name' },
-    { key: 'lastRun', label: 'Last Run' },
-    { key: 'enabled', label: 'Enabled' },
-    { key: 'status', label: 'Status' },
-  ];
-
-  const rowsHtml = schedulers
-    .map((sched) => {
-      let scheduleDisplay = '';
-      if (sched.schedule) {
-        if (sched.schedule.cronExpression) {
-          scheduleDisplay = `Cron: ${sched.schedule.cronExpression}`;
-        } else if (sched.schedule.period !== undefined && sched.schedule.timeUnit) {
-          scheduleDisplay = `Every ${sched.schedule.period} ${sched.schedule.timeUnit}`;
-        }
-      }
-
-      const cells = columns.map((col) => {
-        const val = sched[col.key];
-        return `<td>${renderCH2AppInfoCell(col.key, val)}</td>`;
-      });
-      // Add schedule column
-      cells.push(`<td>${scheduleDisplay}</td>`);
-
-      return `<tr>${cells.join('')}</tr>`;
-    })
-    .join('');
-
-  return `
-    <div class="card">
-      <h2>Schedulers</h2>
-      <div class="table-container">
-        <table class="app-table">
-          <thead>
-            <tr>
-              ${columns.map(c => `<th>${c.label}</th>`).join('')}
-              <th>Schedule</th>
-            </tr>
-          </thead>
-          <tbody>
-            ${rowsHtml}
-          </tbody>
-        </table>
-      </div>
-    </div>
-  `;
-}
-
 // ==================== DATA GENERATION FUNCTIONS ====================
 
 function generateCH2ApplicationDetailsCsv(appData: any): string {
@@ -1098,6 +1138,7 @@ function generateLogContent(logs: any[], format: 'json' | 'txt' | 'csv'): string
 
 // ==================== HTML GENERATION FUNCTION ====================
 
+
 function getApplicationDetailsCH2Html(
   appName: string,
   appData: any,
@@ -1118,13 +1159,15 @@ function getApplicationDetailsCH2Html(
     </div>
   `;
   
+  
+// Updated logs HTML section in getApplicationDetailsCH2Html function
+// Replace the existing logsHtml variable with this:
+// UPDATED LOGS HTML - REMOVED BUTTONS AND COMMENTED DATE FILTERS
   const logsHtml = `
     <div class="card logs">
       <div class="card-header">
         <h2>Logs</h2>
         <div class="button-group">
-          <button id="btnLoadMoreLogs" class="button">Load More</button>
-          <button id="btnAdvancedSearch" class="button">Advanced Search</button>
           <button id="btnDownloadLogs" class="button">Download Logs</button>
         </div>
       </div>
@@ -1142,19 +1185,7 @@ function getApplicationDetailsCH2Html(
           <option value="INFO">INFO</option>
           <option value="DEBUG">DEBUG</option>
         </select>
-        <input 
-          id="startTime" 
-          type="datetime-local" 
-          placeholder="Start time..."
-          style="padding: 4px; background-color: var(--card-color); color: var(--text-color); border: 1px solid #30363D;"
-        />
-        <input 
-          id="endTime" 
-          type="datetime-local" 
-          placeholder="End time..."
-          style="padding: 4px; background-color: var(--card-color); color: var(--text-color); border: 1px solid #30363D;"
-        />
-        <button id="btnApplyTimeFilter" class="button" style="font-size: 0.7rem;">Apply Time Filter</button>
+
       </div>
       <div class="table-container" style="max-height: 600px; overflow-y: auto;">
         <table class="logs-table">
@@ -1176,7 +1207,186 @@ function getApplicationDetailsCH2Html(
     </div>
   `;
 
-  return /* html */ `
+const updatedScript = `
+<script>
+  const vscode = acquireVsCodeApi();
+
+  // Tab switching logic
+  const tabBtns = document.querySelectorAll('.tab-btn');
+  const tabContents = document.querySelectorAll('.tab-content');
+  tabBtns.forEach((btn) => {
+    btn.addEventListener('click', () => {
+      tabBtns.forEach(b => b.classList.remove('active'));
+      tabContents.forEach(tc => tc.classList.remove('active'));
+      btn.classList.add('active');
+      const tabId = 'tab-' + btn.dataset.tab;
+      document.getElementById(tabId)?.classList.add('active');
+    });
+  });
+
+  // Logs filtering & paging
+  const logsRaw = ${JSON.stringify(additionalData.logs || [])};
+  let logsData = Array.isArray(logsRaw) ? logsRaw : [];
+  let filteredLogs = [...logsData];
+  let currentPage = 1;
+  const pageSize = 10;
+
+  const logFilter = document.getElementById('logFilter');
+  const logsTbody = document.getElementById('logsTbody');
+  const logsPrev = document.getElementById('logsPrev');
+  const logsNext = document.getElementById('logsNext');
+  const logsPageInfo = document.getElementById('logsPageInfo');
+
+  // Listen for messages from extension
+  window.addEventListener('message', event => {
+    const message = event.data;
+    switch (message.command) {
+      case 'searchResults':
+        // Replace current logs with search results
+        logsData = message.logs;
+        filteredLogs = [...logsData];
+        currentPage = 1;
+        renderLogsTable();
+        break;
+    }
+  });
+
+  function renderLogsTable() {
+    const startIndex = (currentPage - 1) * pageSize;
+    const endIndex = startIndex + pageSize;
+    const pageLogs = filteredLogs.slice(startIndex, endIndex);
+    const rowsHtml = pageLogs.map(log => {
+      const dateStr = log.timestamp ? new Date(log.timestamp).toISOString() : 'Unknown';
+      const msg = (log.message || '').replace(/\\n/g, '<br/>').replace(/\\r/g, '');
+      return \`
+        <tr>
+          <td>\${dateStr}</td>
+          <td>\${log.priority || log.level || ''}</td>
+          <td style="max-width: 400px; word-wrap: break-word;">\${msg}</td>
+        </tr>
+      \`;
+    }).join('');
+    
+    logsTbody.innerHTML = rowsHtml || '<tr><td colspan="3" style="text-align: center;">No logs available</td></tr>';
+    
+    const totalPages = Math.ceil(filteredLogs.length / pageSize);
+    logsPageInfo.textContent = \`Page \${currentPage} of \${totalPages} (\${filteredLogs.length} total logs)\`;
+    logsPrev.disabled = (currentPage <= 1);
+    logsNext.disabled = (currentPage >= totalPages);
+  }
+
+  function applyLogFilter() {
+    const term = (logFilter.value || '').toLowerCase();
+    const selectedPriority = document.getElementById('priorityFilter')?.value || '';
+    
+    filteredLogs = logsData.filter(log => {
+      if (!log) return false;
+      
+      // Text filter
+      let textMatch = true;
+      if (term) {
+        const combined = [log.threadName, log.priority, log.level, log.message, log.logger]
+          .filter(val => val != null)
+          .join(' ')
+          .toLowerCase();
+        textMatch = combined.includes(term);
+      }
+      
+      // Priority filter
+      let priorityMatch = true;
+      if (selectedPriority) {
+        priorityMatch = (log.priority || log.level || '').toLowerCase() === selectedPriority.toLowerCase();
+      }
+      
+      return textMatch && priorityMatch;
+    });
+    
+    currentPage = 1;
+    renderLogsTable();
+  }
+
+  // Event listeners
+  logsPrev?.addEventListener('click', () => {
+    if (currentPage > 1) {
+      currentPage--;
+      renderLogsTable();
+    }
+  });
+  
+  logsNext?.addEventListener('click', () => {
+    const totalPages = Math.ceil(filteredLogs.length / pageSize);
+    if (currentPage < totalPages) {
+      currentPage++;
+      renderLogsTable();
+    }
+  });
+  
+  // Real-time filtering
+  logFilter?.addEventListener('input', applyLogFilter);
+  
+  // Priority filter change
+  document.getElementById('priorityFilter')?.addEventListener('change', applyLogFilter);
+  
+  // Initial render
+  renderLogsTable();
+
+  // Application control buttons
+  document.getElementById('btnStopApp')?.addEventListener('click', () => {
+    vscode.postMessage({ command: 'stopApp' });
+  });
+  document.getElementById('btnStartApp')?.addEventListener('click', () => {
+    vscode.postMessage({ command: 'startApp' });
+  });
+  document.getElementById('btnRestartApp')?.addEventListener('click', () => {
+    vscode.postMessage({ command: 'restartApp' });
+  });
+
+  // Download logs button
+  document.getElementById('btnDownloadLogs')?.addEventListener('click', () => {
+    vscode.postMessage({ command: 'downloadLogs' });
+  });
+
+  // COMMENTED OUT DATE FILTER FUNCTIONALITY
+  /*
+  // Set default time range (last 24 hours)
+  const now = new Date();
+  const yesterday = new Date(now.getTime() - 24 * 60 * 60 * 1000);
+  
+  const startTimeInput = document.getElementById('startTime');
+  const endTimeInput = document.getElementById('endTime');
+  
+  if (startTimeInput) {
+    startTimeInput.value = yesterday.toISOString().slice(0, 16);
+  }
+  if (endTimeInput) {
+    endTimeInput.value = now.toISOString().slice(0, 16);
+  }
+
+  // Apply Time Filter button
+  document.getElementById('btnApplyTimeFilter')?.addEventListener('click', () => {
+    const startTime = document.getElementById('startTime')?.value || '';
+    const endTime = document.getElementById('endTime')?.value || '';
+    const priority = document.getElementById('priorityFilter')?.value || '';
+
+    if (!startTime && !endTime && !priority) {
+      alert('Please select at least a start time, end time, or priority level.');
+      return;
+    }
+
+    vscode.postMessage({
+      command: 'searchLogs',
+      searchTerm: '',
+      priority: priority ? [priority] : [],
+      startTime: startTime ? new Date(startTime).toISOString() : '',
+      endTime: endTime ? new Date(endTime).toISOString() : '',
+      limit: 200
+    });
+  });
+  */
+</script>
+`;
+
+return /* html */ `
     <!DOCTYPE html>
     <html lang="en">
       <head>
@@ -1400,7 +1610,6 @@ function getApplicationDetailsCH2Html(
           let filteredLogs = [...logsData];
           let currentPage = 1;
           const pageSize = 10;
-          let totalLogsOffset = logsData.length; // Track total loaded logs for pagination
 
           const logFilter = document.getElementById('logFilter');
           const logsTbody = document.getElementById('logsTbody');
@@ -1412,12 +1621,6 @@ function getApplicationDetailsCH2Html(
           window.addEventListener('message', event => {
             const message = event.data;
             switch (message.command) {
-              case 'moreLogsLoaded':
-                // Add new logs to the existing data
-                logsData = [...logsData, ...message.logs];
-                applyLogFilter(); // Refresh the filtered view
-                totalLogsOffset = message.offset;
-                break;
               case 'searchResults':
                 // Replace current logs with search results
                 logsData = message.logs;
@@ -1454,18 +1657,35 @@ function getApplicationDetailsCH2Html(
 
           function applyLogFilter() {
             const term = (logFilter.value || '').toLowerCase();
+            const selectedPriority = document.getElementById('priorityFilter')?.value || '';
+            
             filteredLogs = logsData.filter(log => {
               if (!log) return false;
-              const combined = [log.threadName, log.priority, log.level, log.message, log.logger]
-                .filter(val => val != null)
-                .join(' ')
-                .toLowerCase();
-              return combined.includes(term);
+              
+              // Text filter
+              let textMatch = true;
+              if (term) {
+                const combined = [log.threadName, log.priority, log.level, log.message, log.logger]
+                  .filter(val => val != null)
+                  .join(' ')
+                  .toLowerCase();
+                textMatch = combined.includes(term);
+              }
+              
+              // Priority filter
+              let priorityMatch = true;
+              if (selectedPriority) {
+                priorityMatch = (log.priority || log.level || '').toLowerCase() === selectedPriority.toLowerCase();
+              }
+              
+              return textMatch && priorityMatch;
             });
+            
             currentPage = 1;
             renderLogsTable();
           }
 
+          // Event listeners
           logsPrev?.addEventListener('click', () => {
             if (currentPage > 1) {
               currentPage--;
@@ -1481,7 +1701,11 @@ function getApplicationDetailsCH2Html(
             }
           });
           
+          // Real-time filtering
           logFilter?.addEventListener('input', applyLogFilter);
+          
+          // Priority filter change
+          document.getElementById('priorityFilter')?.addEventListener('change', applyLogFilter);
           
           // Initial render
           renderLogsTable();
@@ -1497,36 +1721,28 @@ function getApplicationDetailsCH2Html(
             vscode.postMessage({ command: 'restartApp' });
           });
 
-          // Download buttons
+          // Download logs button
           document.getElementById('btnDownloadLogs')?.addEventListener('click', () => {
             vscode.postMessage({ command: 'downloadLogs' });
           });
 
-          // Load More Logs button
-          document.getElementById('btnLoadMoreLogs')?.addEventListener('click', () => {
-            vscode.postMessage({ 
-              command: 'loadMoreLogs', 
-              offset: totalLogsOffset 
-            });
-          });
+\
 
-          // Advanced Search button
-          document.getElementById('btnAdvancedSearch')?.addEventListener('click', () => {
-            const searchTerm = document.getElementById('logFilter')?.value || '';
-            const priority = document.getElementById('priorityFilter')?.value || '';
-            const startTime = document.getElementById('startTime')?.value || '';
-            const endTime = document.getElementById('endTime')?.value || '';
+          /*
+          // COMMENTED OUT DATE FILTER FUNCTIONALITY
+          const now = new Date();
+          const yesterday = new Date(now.getTime() - 24 * 60 * 60 * 1000);
+          
+          const startTimeInput = document.getElementById('startTime');
+          const endTimeInput = document.getElementById('endTime');
+          
+          if (startTimeInput) {
+            startTimeInput.value = yesterday.toISOString().slice(0, 16);
+          }
+          if (endTimeInput) {
+            endTimeInput.value = now.toISOString().slice(0, 16);
+          }
 
-            vscode.postMessage({
-              command: 'searchLogs',
-              searchTerm,
-              priority: priority ? [priority] : [],
-              startTime: startTime ? new Date(startTime).toISOString() : '',
-              endTime: endTime ? new Date(endTime).toISOString() : ''
-            });
-          });
-
-          // Apply Time Filter button
           document.getElementById('btnApplyTimeFilter')?.addEventListener('click', () => {
             const startTime = document.getElementById('startTime')?.value || '';
             const endTime = document.getElementById('endTime')?.value || '';
@@ -1547,33 +1763,28 @@ function getApplicationDetailsCH2Html(
             });
           });
 
-          // Priority filter change
-          document.getElementById('priorityFilter')?.addEventListener('change', (e) => {
-            const selectedPriority = e.target.value;
-            if (selectedPriority) {
-              filteredLogs = logsData.filter(log => 
-                (log.priority || log.level || '').toLowerCase() === selectedPriority.toLowerCase()
-              );
-            } else {
-              filteredLogs = [...logsData];
-            }
-            currentPage = 1;
-            renderLogsTable();
+          document.getElementById('btnLoadMoreLogs')?.addEventListener('click', () => {
+            vscode.postMessage({ 
+              command: 'loadMoreLogs', 
+              offset: totalLogsOffset 
+            });
           });
 
-          // Set default time range (last 24 hours)
-          const now = new Date();
-          const yesterday = new Date(now.getTime() - 24 * 60 * 60 * 1000);
-          
-          const startTimeInput = document.getElementById('startTime');
-          const endTimeInput = document.getElementById('endTime');
-          
-          if (startTimeInput) {
-            startTimeInput.value = yesterday.toISOString().slice(0, 16);
-          }
-          if (endTimeInput) {
-            endTimeInput.value = now.toISOString().slice(0, 16);
-          }
+          document.getElementById('btnAdvancedSearch')?.addEventListener('click', () => {
+            const searchTerm = document.getElementById('logFilter')?.value || '';
+            const priority = document.getElementById('priorityFilter')?.value || '';
+            const startTime = document.getElementById('startTime')?.value || '';
+            const endTime = document.getElementById('endTime')?.value || '';
+
+            vscode.postMessage({
+              command: 'searchLogs',
+              searchTerm,
+              priority: priority ? [priority] : [],
+              startTime: startTime ? new Date(startTime).toISOString() : '',
+              endTime: endTime ? new Date(endTime).toISOString() : ''
+            });
+          });
+          */
         </script>
       </body>
     </html>
