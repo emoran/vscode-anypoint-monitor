@@ -3,7 +3,7 @@
   "displayName": "anypoint-monitor",
   "description": "The extension allows to retrieve information from Anypoint Platform, Organization info and aditionaldata from the available API's in one single place",
   "publisher": "EdgarMoran",
-  "version": "0.0.13",
+  "version": "0.0.14",
   "engines": {
     "vscode": "^1.96.0"
   },
@@ -23,8 +23,24 @@
       "icon": "resources/logo.svg"
     }
   ],
+  "keywords": [
+    "anypoint",
+    "mulesoft", 
+    "cloudhub",
+    "api management",
+    "monitoring",
+    "anypoint platform",
+    "integration",
+    "mule",
+    "api",
+    "cloudhub 2.0",
+    "runtime manager",
+    "anypoint studio"
+  ],
   "categories": [
-    "Other"
+    "Other",
+    "Snippets",
+    "Debuggers"
   ],
   "activationEvents": [],
   "main": "./out/extension.js",

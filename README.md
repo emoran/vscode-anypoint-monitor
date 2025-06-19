@@ -1,58 +1,116 @@
-# anypoint-monitor README
+# Anypoint Monitor - Anypoint Management in VSCode
 
-![logo](https://github.com/user-attachments/assets/4b8116e5-ed51-4802-ad83-b1e55fbd02a3)
+[![VS Marketplace Version](https://img.shields.io/visual-studio-marketplace/v/EdgarMoran.anypoint-monitor?style=for-the-badge&logo=visual-studio-code)](https://marketplace.visualstudio.com/items?itemName=EdgarMoran.anypoint-monitor)
+[![VS Marketplace Downloads](https://img.shields.io/visual-studio-marketplace/d/EdgarMoran.anypoint-monitor?style=for-the-badge)](https://marketplace.visualstudio.com/items?itemName=EdgarMoran.anypoint-monitor)
+[![VS Marketplace Rating](https://img.shields.io/visual-studio-marketplace/r/EdgarMoran.anypoint-monitor?style=for-the-badge)](https://marketplace.visualstudio.com/items?itemName=EdgarMoran.anypoint-monitor)
+[![License](https://img.shields.io/github/license/emoran/vscode-anypoint-monitor?style=for-the-badge)](LICENSE)
 
-## Features
+![Anypoint Monitor Logo](https://github.com/user-attachments/assets/4b8116e5-ed51-4802-ad83-b1e55fbd02a3)
 
-Allow to show Anypoint Platform information and add some features in one single page.
+**The ultimate VSCode extension for MuleSoft Anypoint Platform.** Monitor CloudHub applications, manage APIs, track subscriptions, and view organization details—all without leaving your code editor.
 
-- Show UserInformation (Logged User)
-- Get CloudHub 1.0 applications
-- Get CloudHub 2.0 applications
-- Get Organization Details and usage
-- Application Details (One page to show all details of the app CH1 only for now)
-- Subscription Expiration
+## 🚀 Why Anypoint Monitor?
 
-> Note: Some of the features might not be availble due entitlement or permissions
+- **⚡ Boost Productivity**: Access all Anypoint Platform info directly from VSCode
+- **🔄 Real-time Monitoring**: Check CloudHub 1.0 and 2.0 application status instantly
+- **📊 Comprehensive Overview**: Organization details, subscriptions, and API management in one place
+- **🛡️ Secure Authentication**: Safe login with Anypoint Platform credentials
+- **💼 Multi-Environment Support**: Manage multiple Anypoint environments seamlessly
 
-## Requirements
+## 📸 Screenshots
 
-An Anypoint Platform user Login.
+> Add screenshots here showing the extension in action
 
-## Known Issues
+## ✨ Key Features
 
-## Release Notes
+### 🏢 Organization Management
 
-### 0.0.12
+- **View Organization Details**: Get comprehensive information about your Anypoint organization
+- **Monitor Usage Metrics**: Track your organization's resource consumption and limits
+- **Subscription Tracking**: Keep an eye on subscription expiration dates and renewal status
 
-Initial release of commands:
+### ☁️ CloudHub Application Monitoring
 
-- AM: My Information
-- AM: Organization Details
-- AM: Developer Information
-- AM: Login into Anypoint Platform
-- AM: Show Cloudhub 2.0 Applications
-- AM: Show Cloudhub 1.0 Applications
-- AM: Application Details
-- AM: Subscription Expiration
-- AM: Retrieve Access Token
-- AM: Retrieve API Manager APIs
-- AM: Logout
+- **CloudHub 1.0 Applications**: Complete visibility into your CH1 deployments
+- **CloudHub 2.0 Applications**: Modern CH2 application management and monitoring
+- **Application Details**: Deep dive into individual application configurations and status
+- **Real-time Status**: Instant application health and performance indicators
 
----
+### 🔐 User & Security Management
 
-## Following extension guidelines
+- **User Information**: View current logged-in user details and permissions
+- **Developer Information**: Access developer-specific data and entitlements
+- **Secure Token Management**: Retrieve and manage access tokens safely
 
-Ensure that you've read through the extensions guidelines and follow the best practices for creating your extension.
+### 🔌 API Management
 
-- [Extension Guidelines](https://code.visualstudio.com/api/references/extension-guidelines)
+- **API Manager Integration**: View and manage your APIs directly from VSCode
+- **API Catalog Access**: Browse available APIs in your organization
+- **Endpoint Monitoring**: Track API performance and availability
 
-## For more information
+## 🎯 Available Commands
 
-- [Visual Studio Code's Markdown Support](http://code.visualstudio.com/docs/languages/markdown)
-- [Markdown Syntax Reference](https://help.github.com/articles/markdown-basics/)
+Access all commands through the Command Palette (`Ctrl+Shift+P` / `Cmd+Shift+P`) by typing "AM":
 
-**Enjoy!**
+### Authentication Commands
 
-[![VS Marketplace Version](https://img.shields.io/visual-studio-marketplace/v/emoran.anypoint-monitor)](https://marketplace.visualstudio.com/items?itemName=emoran.anypoint-monitor)
-[![License](https://img.shields.io/github/license/emoran/vscode-anypoint-monitor)](LICENSE)
+| Command                            | Description                                          | Usage                                  |
+| ---------------------------------- | ---------------------------------------------------- | -------------------------------------- |
+| `AM: Login into Anypoint Platform` | Authenticate with your Anypoint Platform credentials | Use this first to establish connection |
+| `AM: Logout`                       | Securely logout from Anypoint Platform               | Clear stored credentials and tokens    |
+| `AM: Retrieve Access Token`        | Get current authentication token for debugging       | View token details and expiration      |
+
+### User & Organization Commands
+
+| Command                     | Description                                  | Details                                                      |
+| --------------------------- | -------------------------------------------- | ------------------------------------------------------------ |
+| `AM: My Information`        | Display current user profile and permissions | Shows username, email, roles, and organization membership    |
+| `AM: Organization Details`  | View comprehensive organization information  | Organization name, ID, usage statistics, and resource limits |
+| `AM: Developer Information` | Access developer-specific data               | Developer roles, entitlements, and access permissions        |
+
+### CloudHub Management Commands
+
+| Command                              | Description                                   | What You'll See                                                       |
+| ------------------------------------ | --------------------------------------------- | --------------------------------------------------------------------- |
+| `AM: Show CloudHub 1.0 Applications` | List all CloudHub 1.0 applications            | Application names, status, environment, workers, and runtime versions |
+| `AM: Show CloudHub 2.0 Applications` | Display CloudHub 2.0 applications             | Modern CH2 apps with scaling info, replicas, and deployment status    |
+| `AM: Application Details`            | Get detailed view of specific CH1 application | Full configuration, logs access, properties, and monitoring data      |
+
+### API & Subscription Commands
+
+| Command                         | Description                                    | Information Displayed                                   |
+| ------------------------------- | ---------------------------------------------- | ------------------------------------------------------- |
+| `AM: Retrieve API Manager APIs` | View all APIs in API Manager                   | API names, versions, endpoints, policies, and SLA tiers |
+| `AM: Subscription Expiration`   | Check subscription status and expiration dates | Renewal dates, subscription types, and usage limits     |
+
+## 🛠️ Installation
+
+### From VSCode Marketplace
+
+1. Open VSCode
+2. Go to Extensions view (`Ctrl+Shift+X`)
+3. Search for "Anypoint Monitor"
+4. Click "Install"
+
+### From Command Line
+
+```bash
+code --install-extension EdgarMoran.anypoint-monitor
+```
+
+## 🚦 Getting Started
+
+### Step 1: Install the Extension
+
+Install Anypoint Monitor from the VSCode Marketplace.
+
+### Step 2: Login to Anypoint Platform
+
+1. Open Command Palette (`Ctrl+Shift+P` / `Cmd+Shift+P`)
+2. Type `AM: Login into Anypoint Platform`
+3. Enter your Anypoint Platform credentials
+4. Select your business group (if applicable)
+
+### Step 3: Explore Your Applications
+
+-
