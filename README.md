@@ -18,8 +18,12 @@
 - **💼 Multi-Environment Support**: Manage multiple Anypoint environments seamlessly
 
 ## 📸 Screenshots
+<img width="2009" alt="anypoint-monitor_4" src="https://github.com/user-attachments/assets/3a8eba0d-3773-4d94-b692-deb76cc35f67" />
+<img width="2006" alt="anypoint-monitor_3" src="https://github.com/user-attachments/assets/3a037265-d9b2-454d-9faf-8575367fca3f" />
+<img width="1902" alt="anypoint-monitor_2" src="https://github.com/user-attachments/assets/37eb9dd6-0f9e-4930-8a94-165a4c3e00fb" />
+<img width="2009" alt="anypoint-monitor_1" src="https://github.com/user-attachments/assets/5492f8f5-0f5c-474f-a631-e35a4980b934" />
 
-> Add screenshots here showing the extension in action
+
 
 ## ✨ Key Features
 
