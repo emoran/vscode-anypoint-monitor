@@ -5,8 +5,6 @@
 [![VS Marketplace Rating](https://img.shields.io/visual-studio-marketplace/r/EdgarMoran.anypoint-monitor?style=for-the-badge)](https://marketplace.visualstudio.com/items?itemName=EdgarMoran.anypoint-monitor)
 [![License](https://img.shields.io/github/license/emoran/vscode-anypoint-monitor?style=for-the-badge)](LICENSE)
 
-![Anypoint Monitor Logo](https://github.com/user-attachments/assets/4b8116e5-ed51-4802-ad83-b1e55fbd02a3)
-
 **The ultimate VSCode extension for MuleSoft Anypoint Platform.** Monitor CloudHub applications, manage APIs, track subscriptions, and view organization details—all without leaving your code editor.
 
 ## 🚀 Why Anypoint Monitor?
@@ -18,12 +16,11 @@
 - **💼 Multi-Environment Support**: Manage multiple Anypoint environments seamlessly
 
 ## 📸 Screenshots
+
 <img width="2009" alt="anypoint-monitor_4" src="https://github.com/user-attachments/assets/3a8eba0d-3773-4d94-b692-deb76cc35f67" />
 <img width="2006" alt="anypoint-monitor_3" src="https://github.com/user-attachments/assets/3a037265-d9b2-454d-9faf-8575367fca3f" />
 <img width="1902" alt="anypoint-monitor_2" src="https://github.com/user-attachments/assets/37eb9dd6-0f9e-4930-8a94-165a4c3e00fb" />
 <img width="2009" alt="anypoint-monitor_1" src="https://github.com/user-attachments/assets/5492f8f5-0f5c-474f-a631-e35a4980b934" />
-
-
 
 ## ✨ Key Features
 
