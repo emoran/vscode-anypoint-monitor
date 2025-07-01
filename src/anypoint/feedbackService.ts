@@ -1,5 +1,7 @@
 import * as vscode from 'vscode';
 import axios from 'axios';
+import * as fs from 'fs';
+import * as path from 'path';
 
 interface FeedbackItem {
     id: string;
@@ -22,7 +24,17 @@ interface FeedbackItem {
     };
 }
 
-const SLACK_WEBHOOK_URL = 'https://hooks.slack.com/services/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';
+function getSlackWebhookUrl(): string {
+    try {
+        const configPath = path.join(__dirname, '../../config/secrets.json');
+        const configData = fs.readFileSync(configPath, 'utf8');
+        const config = JSON.parse(configData);
+        return config.slackWebhookUrl || '';
+    } catch (error) {
+        console.error('Failed to load webhook URL from config:', error);
+        return '';
+    }
+}
 
 export async function provideFeedback(context: vscode.ExtensionContext) {
     try {
@@ -231,7 +243,12 @@ async function sendFeedbackToSlack(feedback: FeedbackItem): Promise<boolean> {
         };
 
 
-        const response = await axios.post(SLACK_WEBHOOK_URL, slackMessage, {
+        const webhookUrl = getSlackWebhookUrl();
+        if (!webhookUrl) {
+            throw new Error('Slack webhook URL not configured');
+        }
+
+        const response = await axios.post(webhookUrl, slackMessage, {
             headers: {
                 'Content-Type': 'application/json'
             },
@@ -325,6 +342,6 @@ Why this would be helpful:`;
 }
 
 function generateId(): string {
-    return Date.now().toString(36) + Math.random().toString(36).substr(2);
+    return Date.now().toString(36) + Math.random().toString(36).substring(2);
 }
 
