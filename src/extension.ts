@@ -17,6 +17,8 @@ import {
     getCH1Applications,
     retrieveAPIManagerAPIs
 } from "./controllers/anypointService";
+import { showCommunityEvents } from "./anypoint/communityEvents";
+import { provideFeedback } from "./anypoint/feedbackService";
 
 // This method is called when your extension is activated
 // Your extension is activated the very first time the command is executed
@@ -298,6 +300,22 @@ export function activate(context: vscode.ExtensionContext) {
                 await retrieveAPIManagerAPIs(context);
         });
 
+	const communityEventsCmd = vscode.commands.registerCommand('anypoint-monitor.communityEvents', async () => {
+		try {
+			await showCommunityEvents(context);
+		} catch (error: any) {
+			vscode.window.showErrorMessage(`Error loading community events: ${error.message}`);
+		}
+	});
+
+	const provideFeedbackCmd = vscode.commands.registerCommand('anypoint-monitor.provideFeedback', async () => {
+		try {
+			await provideFeedback(context);
+		} catch (error: any) {
+			vscode.window.showErrorMessage(`Error providing feedback: ${error.message}`);
+		}
+	});
+
 	context.subscriptions.push(userInfo);
 	context.subscriptions.push(getApplications);
 	context.subscriptions.push(revokeAccessCommand);
@@ -309,6 +327,8 @@ export function activate(context: vscode.ExtensionContext) {
 	context.subscriptions.push(subcriptionExpiration);
 	context.subscriptions.push(retrieveAccessToken);
 	context.subscriptions.push(retrieveAPIManagerAPIsCmd);
+	context.subscriptions.push(communityEventsCmd);
+	context.subscriptions.push(provideFeedbackCmd);
 }
 
 // This method is called when your extension is deactivated

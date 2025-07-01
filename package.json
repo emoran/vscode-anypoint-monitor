@@ -90,6 +90,14 @@
         "title": "AM: Retrieve API Manager APIs"
       },
       {
+        "command": "anypoint-monitor.communityEvents",
+        "title": "AM: MuleSoft Community Events"
+      },
+      {
+        "command": "anypoint-monitor.provideFeedback",
+        "title": "AM: Provide Feedback"
+      },
+      {
         "command": "anypoint-monitor.logout",
         "title": "AM: Logout"
       }
