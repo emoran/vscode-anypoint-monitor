@@ -22,7 +22,7 @@ interface FeedbackItem {
     };
 }
 
-const SLACK_WEBHOOK_URL = 'https://hooks.slack.com/services/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';
+const SLACK_WEBHOOK_URL = 'https://hooks.slack.com/services/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';
 
 export async function provideFeedback(context: vscode.ExtensionContext) {
     try {
