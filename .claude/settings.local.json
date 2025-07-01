@@ -4,7 +4,9 @@
       "WebFetch(domain:meetups.mulesoft.com)",
       "Bash(npm run compile:*)",
       "Bash(npm run lint)",
-      "Bash(rm:*)"
+      "Bash(rm:*)",
+      "Bash(find:*)",
+      "Bash(mkdir:*)"
     ],
     "deny": []
   }
