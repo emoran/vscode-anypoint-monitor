@@ -1,5 +1,6 @@
 import * as secrets from '../config/secrets.json';
 
+
 export const CLIENT_ID = secrets.CLIENT_ID;
 export const CLIENT_SECRET = secrets.CLIENT_SECRET;
 
