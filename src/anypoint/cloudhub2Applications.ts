@@ -54,6 +54,10 @@ export async function showApplicationsWebview(
     { enableScripts: true }
   );
 
+  panel.onDidDispose(() => {
+    // Panel disposed - cleanup if needed
+  });
+
   panel.webview.html = getCloudHub2ApplicationsHtml(applications, panel.webview, context.extensionUri, environment);
 
 panel.webview.onDidReceiveMessage(async (message) => {
@@ -115,8 +119,12 @@ panel.webview.onDidReceiveMessage(async (message) => {
           defaultUri: vscode.Uri.file(`cloudhub2-applications-${new Date().toISOString().split('T')[0]}.csv`)
         });
         if (uri) {
-          fs.writeFileSync(uri.fsPath, csvData, 'utf-8');
-          vscode.window.showInformationMessage(`CSV file saved to ${uri.fsPath}`);
+          try {
+            await fs.promises.writeFile(uri.fsPath, csvData, 'utf-8');
+            vscode.window.showInformationMessage(`CSV file saved to ${uri.fsPath}`);
+          } catch (error: any) {
+            vscode.window.showErrorMessage(`Failed to save CSV file: ${error.message}`);
+          }
         }
         break;
 

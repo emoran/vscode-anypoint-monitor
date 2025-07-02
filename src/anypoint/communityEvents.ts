@@ -84,6 +84,10 @@ export async function showCommunityEvents(context: vscode.ExtensionContext) {
                 }
             );
 
+            panel.onDidDispose(() => {
+                // Panel disposed - cleanup if needed
+            });
+
             panel.webview.html = generateEventsTableHTML(filteredEvents);
         });
 

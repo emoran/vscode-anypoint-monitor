@@ -18,6 +18,54 @@ import {
     retrieveAPIManagerAPIs
 } from "./controllers/anypointService";
 import { showCommunityEvents } from "./anypoint/communityEvents";
+
+interface EnvironmentOption {
+	label: string;
+	id: string;
+}
+
+async function selectEnvironment(context: vscode.ExtensionContext): Promise<string | null> {
+	const storedEnvironments = await context.secrets.get('anypoint.environments');
+	if (!storedEnvironments) {
+		vscode.window.showErrorMessage('No environment information found. Please log in first.');
+		return null;
+	}
+
+	const environments = JSON.parse(storedEnvironments) as {
+		data: { id: string; name: string }[];
+		total: number;
+	};
+
+	if (!environments.data || environments.data.length === 0) {
+		vscode.window.showErrorMessage('No environments available.');
+		return null;
+	}
+
+	const environmentOptions: EnvironmentOption[] = environments.data.map(env => ({
+		label: env.name,
+		id: env.id,
+	}));
+
+	const selectedEnvironment = await vscode.window.showQuickPick(
+		environmentOptions.map(option => option.label),
+		{
+			placeHolder: 'Select an environment',
+		}
+	);
+
+	if (!selectedEnvironment) {
+		vscode.window.showInformationMessage('No environment selected.');
+		return null;
+	}
+
+	const selectedEnvironmentId = environmentOptions.find(option => option.label === selectedEnvironment)?.id;
+	if (!selectedEnvironmentId) {
+		vscode.window.showErrorMessage('Failed to find the selected environment ID.');
+		return null;
+	}
+
+	return selectedEnvironmentId;
+}
 import { provideFeedback } from "./anypoint/feedbackService";
 
 // This method is called when your extension is activated
@@ -74,163 +122,38 @@ export function activate(context: vscode.ExtensionContext) {
 
 	const applicationDetails = vscode.commands.registerCommand('anypoint-monitor.applicationDetails', async () => {
 		try {
-		  // Retrieve stored environments from secure storage
-		  const storedEnvironments = await context.secrets.get('anypoint.environments');
-		  if (!storedEnvironments) {
-			vscode.window.showErrorMessage('No environment information found. Please log in first.');
-			return;
-		  }
-	  
-		  // Parse the stored environments JSON
-		  const environments = JSON.parse(storedEnvironments) as {
-			data: { id: string; name: string }[];
-			total: number;
-		  };
-	  
-		  if (!environments.data || environments.data.length === 0) {
-			vscode.window.showErrorMessage('No environments available.');
-			return;
-		  }
-	  
-		  // Extract environment names and map to IDs
-		  const environmentOptions = environments.data.map(env => ({
-			label: env.name,
-			id: env.id,
-		  }));
-	  
-		  // Prompt the user to select an environment
-		  const selectedEnvironment = await vscode.window.showQuickPick(
-			environmentOptions.map(option => option.label),
-			{
-			  placeHolder: 'Select an environment',
+			const selectedEnvironmentId = await selectEnvironment(context);
+			if (!selectedEnvironmentId) {
+				return;
 			}
-		  );
-	  
-		  if (!selectedEnvironment) {
-			vscode.window.showInformationMessage('No environment selected.');
-			return;
-		  }
-	  
-		  // Find the corresponding environment ID
-		  const selectedEnvironmentId = environmentOptions.find(option => option.label === selectedEnvironment)?.id;
-		  if (!selectedEnvironmentId) {
-			vscode.window.showErrorMessage('Failed to find the selected environment ID.');
-			return;
-		  }
-	  
-		  await retrieveApplications(context, selectedEnvironmentId);
-		 
-	  
+			await retrieveApplications(context, selectedEnvironmentId);
 		} catch (error: any) {
-		  vscode.window.showErrorMessage(`Error: ${error.message || error}`);
+			vscode.window.showErrorMessage(`Error: ${error.message || error}`);
 		}
-	  });
+	});
 	  
 	const getCH1Apps = vscode.commands.registerCommand('anypoint-monitor.cloudhub1Apps', async () => {
-		// Retrieve stored environments from secure storage
-		const storedEnvironments = await context.secrets.get('anypoint.environments');
-		if (!storedEnvironments) {
-			vscode.window.showErrorMessage('No environment information found. Please log in first.');
-			return;
-		}
-
-		try{
-			// Parse the stored environments JSON
-			const environments = JSON.parse(storedEnvironments) as {
-				data: { id: string; name: string }[];
-				total: number;
-			};
-
-			if (!environments.data || environments.data.length === 0) {
-				vscode.window.showErrorMessage('No environments available.');
-				return;
-			}
-
-			// Extract environment names and map to IDs
-			const environmentOptions = environments.data.map(env => ({
-				label: env.name,
-				id: env.id,
-			}));
-
-			// Prompt the user to select an environment
-			const selectedEnvironment = await vscode.window.showQuickPick(
-				environmentOptions.map(option => option.label),
-				{
-					placeHolder: 'Select an environment',
-				}
-			);
-
-			if (!selectedEnvironment) {
-				vscode.window.showInformationMessage('No environment selected.');
-				return;
-			}
-	
-			// Find the corresponding environment ID
-			const selectedEnvironmentId = environmentOptions.find(option => option.label === selectedEnvironment)?.id;
+		try {
+			const selectedEnvironmentId = await selectEnvironment(context);
 			if (!selectedEnvironmentId) {
-				vscode.window.showErrorMessage('Failed to find the selected environment ID.');
 				return;
 			}
-
-			await getCH1Applications(context,selectedEnvironmentId);
-		}
-		catch (error: any) {
+			await getCH1Applications(context, selectedEnvironmentId);
+		} catch (error: any) {
 			vscode.window.showErrorMessage(`Error: ${error.message}`);
-		}			
+		}
 	});
 
 	const getApplications = vscode.commands.registerCommand('anypoint-monitor.cloudhub2Apps', async () => {
-		// Retrieve stored environments from secure storage
-		const storedEnvironments = await context.secrets.get('anypoint.environments');
-		if (!storedEnvironments) {
-			vscode.window.showErrorMessage('No environment information found. Please log in first.');
-			return;
-		}
-
-		try{
-			// Parse the stored environments JSON
-			const environments = JSON.parse(storedEnvironments) as {
-				data: { id: string; name: string }[];
-				total: number;
-			};
-
-			if (!environments.data || environments.data.length === 0) {
-				vscode.window.showErrorMessage('No environments available.');
-				return;
-			}
-
-			// Extract environment names and map to IDs
-			const environmentOptions = environments.data.map(env => ({
-				label: env.name,
-				id: env.id,
-			}));
-
-			// Prompt the user to select an environment
-			const selectedEnvironment = await vscode.window.showQuickPick(
-				environmentOptions.map(option => option.label),
-				{
-					placeHolder: 'Select an environment',
-				}
-			);
-
-			if (!selectedEnvironment) {
-				vscode.window.showInformationMessage('No environment selected.');
-				return;
-			}
-	
-			// Find the corresponding environment ID
-			const selectedEnvironmentId = environmentOptions.find(option => option.label === selectedEnvironment)?.id;
+		try {
+			const selectedEnvironmentId = await selectEnvironment(context);
 			if (!selectedEnvironmentId) {
-				vscode.window.showErrorMessage('Failed to find the selected environment ID.');
 				return;
 			}
-
-			// MODIFIED: Pass both context and environment ID
 			await getCH2Applications(context, selectedEnvironmentId);
+		} catch (error: any) {
+			vscode.window.showErrorMessage(`Error: ${error.message}`);
 		}
-		catch (error: any) {
-        	vscode.window.showErrorMessage(`Error: ${error.message}`);
-    	}
 	});
 
 	const subcriptionExpiration = vscode.commands.registerCommand('anypoint-monitor.subscriptionExpiration', async () => {

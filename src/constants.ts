@@ -1,5 +1,7 @@
-export const CLIENT_ID = '05ce4abd0fc047b4bcd512f15b3445c9';
-export const CLIENT_SECRET = 'b5d7dBEe693c4C3fa50C183A3f6570D2';
+import * as secrets from '../config/secrets.json';
+
+export const CLIENT_ID = secrets.CLIENT_ID;
+export const CLIENT_SECRET = secrets.CLIENT_SECRET;
 
 export const BASE_URL = 'https://anypoint.mulesoft.com';
 export const AUTHORIZATION_ENDPOINT = `${BASE_URL}/accounts/api/v2/oauth2/authorize`;

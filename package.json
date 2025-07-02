@@ -3,7 +3,7 @@
   "displayName": "Anypoint Monitor",
   "description": "Complete Anypoint Platform management toolkit for VS Code. Monitor CloudHub apps, manage APIs, view org details, and streamline MuleSoft development workflows - all from your IDE.",
   "publisher": "EdgarMoran",
-  "version": "0.0.18",
+  "version": "0.0.19",
   "engines": {
     "vscode": "^1.96.0"
   },

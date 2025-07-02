@@ -117,61 +117,45 @@ export async function retrieveApplications(context: vscode.ExtensionContext, sel
     }
 
     const schedulesURL = BASE_URL + `/cloudhub/api/applications/${selectedAppDomain}/schedules`;
-    let schedules: any = null;
-    try {
-        const detailsResponse = await axios.get(schedulesURL, {
-            headers: {
-                Authorization: `Bearer ${accessToken}`,
-                'X-ANYPNT-ENV-ID': selectedEnvironmentId,
-                'X-ANYPNT-ORG-ID': organizationID,
-            },
-        });
-        if (detailsResponse.status !== 200) {
-            throw new Error(`Application details request failed with status ${detailsResponse.status}`);
-        }
-        schedules = detailsResponse.data;
-    } catch (error: any) {
-        vscode.window.showErrorMessage(`Error fetching application schedule details: ${error.message}`);
-        return;
-    }
-
     const deploymentsURL = BASE_URL + `/cloudhub/api/v2/applications/${selectedAppDomain}/deployments?orderByDate=DESC`;
+    
+    const headers = {
+        Authorization: `Bearer ${accessToken}`,
+        'X-ANYPNT-ENV-ID': selectedEnvironmentId,
+        'X-ANYPNT-ORG-ID': organizationID,
+    };
+
+    let schedules: any = null;
     let deploymentId: any = null;
     let instanceId: any = null;
-    try {
-        const detailsResponseDeployments = await axios.get(deploymentsURL, {
-            headers: {
-                Authorization: `Bearer ${accessToken}`,
-                'X-ANYPNT-ENV-ID': selectedEnvironmentId,
-                'X-ANYPNT-ORG-ID': organizationID,
-            },
-        });
-        if (detailsResponseDeployments.status !== 200) {
-            throw new Error(`Application details request failed with status ${detailsResponseDeployments.status}`);
-        }
-        deploymentId = detailsResponseDeployments.data.data[0].deploymentId;
-        instanceId = detailsResponseDeployments.data.data[0].instances[0].instanceId;
-    } catch (error: any) {
-        vscode.window.showErrorMessage(`Error fetching application schedule details: ${error.message}`);
-        return;
-    }
-
-    const logsURL = BASE_URL + `/cloudhub/api/v2/applications/${selectedAppDomain}/deployments/${deploymentId}/logs?limit=10000`;
     let logs: any = null;
+
     try {
-        const detailsResponseLogs = await axios.get(logsURL, {
-            headers: {
-                Authorization: `Bearer ${accessToken}`,
-                'X-ANYPNT-ENV-ID': selectedEnvironmentId,
-                'X-ANYPNT-ORG-ID': organizationID,
-            },
-        });
-        if (detailsResponseLogs.status !== 200) {
-            throw new Error(`Application details request failed with status ${detailsResponseLogs.status}`);
+        const [schedulesResponse, deploymentsResponse] = await Promise.all([
+            axios.get(schedulesURL, { headers }),
+            axios.get(deploymentsURL, { headers })
+        ]);
+
+        if (schedulesResponse.status !== 200) {
+            throw new Error(`Schedules request failed with status ${schedulesResponse.status}`);
         }
-        logs = detailsResponseLogs.data;
+        if (deploymentsResponse.status !== 200) {
+            throw new Error(`Deployments request failed with status ${deploymentsResponse.status}`);
+        }
+
+        schedules = schedulesResponse.data;
+        deploymentId = deploymentsResponse.data.data[0].deploymentId;
+        instanceId = deploymentsResponse.data.data[0].instances[0].instanceId;
+
+        const logsURL = BASE_URL + `/cloudhub/api/v2/applications/${selectedAppDomain}/deployments/${deploymentId}/logs?limit=10000`;
+        const logsResponse = await axios.get(logsURL, { headers });
+        
+        if (logsResponse.status !== 200) {
+            throw new Error(`Logs request failed with status ${logsResponse.status}`);
+        }
+        logs = logsResponse.data;
     } catch (error: any) {
-        vscode.window.showErrorMessage(`Error fetching application schedule details: ${error.message}`);
+        vscode.window.showErrorMessage(`Error fetching application details: ${error.message}`);
         return;
     }
 

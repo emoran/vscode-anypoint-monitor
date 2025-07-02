@@ -33,8 +33,12 @@ export function showApplicationsWebview1(context: vscode.ExtensionContext, data:
       });
 
       if (uri) {
-        fs.writeFileSync(uri.fsPath, csvContent, 'utf-8');
-        vscode.window.showInformationMessage(`CSV file saved to ${uri.fsPath}`);
+        try {
+          await fs.promises.writeFile(uri.fsPath, csvContent, 'utf-8');
+          vscode.window.showInformationMessage(`CSV file saved to ${uri.fsPath}`);
+        } catch (error: any) {
+          vscode.window.showErrorMessage(`Failed to save CSV file: ${error.message}`);
+        }
       }
     }
   });
