@@ -17,6 +17,7 @@ import {
     getCH1Applications,
     retrieveAPIManagerAPIs
 } from "./controllers/anypointService";
+import { auditAPIs } from "./anypoint/apiAudit";
 import { showCommunityEvents } from "./anypoint/communityEvents";
 
 interface EnvironmentOption {
@@ -239,6 +240,18 @@ export function activate(context: vscode.ExtensionContext) {
 		}
 	});
 
+	const auditAPIsCmd = vscode.commands.registerCommand('anypoint-monitor.auditAPIs', async () => {
+		try {
+			const selectedEnvironmentId = await selectEnvironment(context);
+			if (!selectedEnvironmentId) {
+				return;
+			}
+			await auditAPIs(context, selectedEnvironmentId);
+		} catch (error: any) {
+			vscode.window.showErrorMessage(`Error auditing APIs: ${error.message}`);
+		}
+	});
+
 	context.subscriptions.push(userInfo);
 	context.subscriptions.push(getApplications);
 	context.subscriptions.push(revokeAccessCommand);
@@ -252,6 +265,7 @@ export function activate(context: vscode.ExtensionContext) {
 	context.subscriptions.push(retrieveAPIManagerAPIsCmd);
 	context.subscriptions.push(communityEventsCmd);
 	context.subscriptions.push(provideFeedbackCmd);
+	context.subscriptions.push(auditAPIsCmd);
 }
 
 // This method is called when your extension is deactivated

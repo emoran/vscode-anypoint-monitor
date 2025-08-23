@@ -100,6 +100,10 @@
       {
         "command": "anypoint-monitor.logout",
         "title": "AM: Logout"
+      },
+      {
+        "command": "anypoint-monitor.auditAPIs",
+        "title": "AM: Audit APIs"
       }
     ]
   },
