@@ -76,6 +76,7 @@ Access all commands through the Command Palette (`Ctrl+Shift+P` / `Cmd+Shift+P`)
 | `AM: Show CloudHub 1.0 Applications` | List all CloudHub 1.0 applications            | Application names, status, environment, workers, and runtime versions |
 | `AM: Show CloudHub 2.0 Applications` | Display CloudHub 2.0 applications             | Modern CH2 apps with scaling info, replicas, and deployment status    |
 | `AM: Application Details`            | Get detailed view of specific CH1 application | Full configuration, logs access, properties, and monitoring data      |
+| `AM: Real-Time Logs`                 | **Premium** Live log streaming for CH1 & CH2  | Real-time log tailing with filtering, search, and multi-format export |
 
 ### API & Subscription Commands
 

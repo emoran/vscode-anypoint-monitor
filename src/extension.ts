@@ -19,6 +19,8 @@ import {
 } from "./controllers/anypointService";
 import { auditAPIs } from "./anypoint/apiAudit";
 import { showCommunityEvents } from "./anypoint/communityEvents";
+import { showRealTimeLogs } from "./anypoint/realTimeLogs";
+import { BASE_URL } from "./constants";
 
 interface EnvironmentOption {
 	label: string;
@@ -252,6 +254,304 @@ export function activate(context: vscode.ExtensionContext) {
 		}
 	});
 
+	const realTimeLogsCmd = vscode.commands.registerCommand('anypoint-monitor.realTimeLogs', async () => {
+		try {
+			const selectedEnvironmentId = await selectEnvironment(context);
+			if (!selectedEnvironmentId) {
+				return;
+			}
+			
+			// Get applications for the selected environment
+			const userInfoStr = await context.secrets.get('anypoint.userInfo');
+			const accessToken = await context.secrets.get('anypoint.accessToken');
+			
+			if (!userInfoStr || !accessToken) {
+				vscode.window.showErrorMessage('Please log in first.');
+				return;
+			}
+
+			const userInfoData = JSON.parse(userInfoStr);
+			const organizationID = userInfoData.organization.id;
+
+			console.log('Real-time logs: Environment ID:', selectedEnvironmentId);
+			console.log('Real-time logs: Organization ID:', organizationID);
+			console.log('Real-time logs: Access token exists:', !!accessToken);
+
+			// Fetch both CloudHub 1.0 and 2.0 applications
+			const axios = require('axios');
+			let ch1Apps: any[] = [];
+			let ch2Apps: any[] = [];
+
+			// Fetch CloudHub 1.0 applications
+			try {
+				const ch1Response = await axios.get(BASE_URL + '/cloudhub/api/applications', {
+					headers: {
+						Authorization: `Bearer ${accessToken}`,
+						'X-ANYPNT-ENV-ID': selectedEnvironmentId,
+						'X-ANYPNT-ORG-ID': organizationID,
+					},
+				});
+				if (ch1Response.status === 200) {
+					ch1Apps = Array.isArray(ch1Response.data) ? ch1Response.data : [];
+					console.log(`Real-time logs: Found ${ch1Apps.length} CloudHub 1.0 applications`);
+				}
+			} catch (error: any) {
+				console.error('CloudHub 1.0 apps fetch failed:', {
+					status: error.response?.status,
+					statusText: error.response?.statusText,
+					data: error.response?.data,
+					message: error.message
+				});
+				
+				// Handle token refresh for 401 errors
+				if (error.response?.status === 401) {
+					console.log('Real-time logs: Attempting to refresh access token for CH1...');
+					const didRefresh = await refreshAccessToken(context);
+					if (didRefresh) {
+						const newAccessToken = await context.secrets.get('anypoint.accessToken');
+						try {
+							const ch1RetryResponse = await axios.get(BASE_URL + '/cloudhub/api/applications', {
+								headers: {
+									Authorization: `Bearer ${newAccessToken}`,
+									'X-ANYPNT-ENV-ID': selectedEnvironmentId,
+									'X-ANYPNT-ORG-ID': organizationID,
+								},
+							});
+							if (ch1RetryResponse.status === 200) {
+								ch1Apps = Array.isArray(ch1RetryResponse.data) ? ch1RetryResponse.data : [];
+								console.log(`Real-time logs: Found ${ch1Apps.length} CloudHub 1.0 applications after token refresh`);
+							}
+						} catch (retryError: any) {
+							console.error('CloudHub 1.0 retry after refresh failed:', retryError.message);
+						}
+					}
+				}
+			}
+
+			// Fetch CloudHub 2.0 applications
+			try {
+				const ch2Response = await axios.get(BASE_URL + '/amc/application-manager/api/v2/organizations/' + organizationID + '/environments/' + selectedEnvironmentId + '/deployments', {
+					headers: { Authorization: `Bearer ${accessToken}` },
+				});
+				if (ch2Response.status === 200) {
+					// Handle different data structures from CH2 API response
+					let applicationsData = ch2Response.data;
+					console.log('Real-time logs: Raw CH2 response structure:', JSON.stringify(applicationsData, null, 2));
+					
+					if (Array.isArray(applicationsData)) {
+						ch2Apps = applicationsData;
+					} else if (applicationsData && typeof applicationsData === 'object') {
+						// Check if it's wrapped in a property like { data: [...] } or { applications: [...] }
+						ch2Apps = applicationsData.data || applicationsData.applications || applicationsData.items || [];
+						
+						// If still not an array, check for other common API response structures
+						if (!Array.isArray(ch2Apps)) {
+							ch2Apps = applicationsData.response?.data || 
+									applicationsData.response?.applications ||
+									applicationsData.result?.data ||
+									applicationsData.result?.applications ||
+									[];
+						}
+					}
+					
+					// Ensure we have an array
+					if (!Array.isArray(ch2Apps)) {
+						ch2Apps = [];
+						console.warn('CH2 applications data is not in expected format. Received:', typeof applicationsData, applicationsData);
+					} else {
+						console.log(`Real-time logs: Found ${ch2Apps.length} CloudHub 2.0 applications`);
+					}
+				}
+			} catch (error: any) {
+				console.error('CloudHub 2.0 apps fetch failed:', {
+					status: error.response?.status,
+					statusText: error.response?.statusText,
+					data: error.response?.data,
+					message: error.message
+				});
+				
+				// Handle token refresh for 401 errors
+				if (error.response?.status === 401) {
+					console.log('Real-time logs: Attempting to refresh access token for CH2...');
+					const didRefresh = await refreshAccessToken(context);
+					if (didRefresh) {
+						const newAccessToken = await context.secrets.get('anypoint.accessToken');
+						try {
+							const ch2RetryResponse = await axios.get(BASE_URL + '/amc/application-manager/api/v2/organizations/' + organizationID + '/environments/' + selectedEnvironmentId + '/deployments', {
+								headers: { Authorization: `Bearer ${newAccessToken}` },
+							});
+							if (ch2RetryResponse.status === 200) {
+								// Handle different data structures from CH2 API response
+								let applicationsData = ch2RetryResponse.data;
+								console.log('Real-time logs: Raw CH2 response structure after refresh:', JSON.stringify(applicationsData, null, 2));
+								
+								if (Array.isArray(applicationsData)) {
+									ch2Apps = applicationsData;
+								} else if (applicationsData && typeof applicationsData === 'object') {
+									// Check if it's wrapped in a property like { data: [...] } or { applications: [...] }
+									ch2Apps = applicationsData.data || applicationsData.applications || applicationsData.items || [];
+									
+									// If still not an array, check for other common API response structures
+									if (!Array.isArray(ch2Apps)) {
+										ch2Apps = applicationsData.response?.data || 
+												applicationsData.response?.applications ||
+												applicationsData.result?.data ||
+												applicationsData.result?.applications ||
+												[];
+									}
+								}
+								
+								// Ensure we have an array
+								if (!Array.isArray(ch2Apps)) {
+									ch2Apps = [];
+									console.warn('CH2 applications data is not in expected format after refresh. Received:', typeof applicationsData, applicationsData);
+								} else {
+									console.log(`Real-time logs: Found ${ch2Apps.length} CloudHub 2.0 applications after token refresh`);
+								}
+							}
+						} catch (retryError: any) {
+							console.error('CloudHub 2.0 retry after refresh failed:', retryError.message);
+						}
+					}
+				}
+			}
+
+			// Create unified application list
+			const allApplications = [
+				...ch1Apps.map(app => ({
+					label: `📦 CH1: ${app.domain} (${app.status})`,
+					domain: app.domain,
+					cloudhubVersion: 'CH1' as const,
+					status: app.status
+				})),
+				...await Promise.all(ch2Apps.map(async app => {
+					// For CH2 apps, we need to fetch the specs to get the correct specificationId
+					let specificationId = app.id; // Default fallback to deployment ID
+					
+					try {
+						const specsUrl = `${BASE_URL}/amc/application-manager/api/v2/organizations/${organizationID}/environments/${selectedEnvironmentId}/deployments/${app.id}/specs`;
+						let currentAccessToken = accessToken;
+						
+						try {
+							const specsResponse = await axios.get(specsUrl, {
+								headers: { Authorization: `Bearer ${currentAccessToken}` },
+							});
+							
+							if (specsResponse.status === 200 && specsResponse.data) {
+								console.log(`Real-time logs: Raw specs response for deployment ${app.id}:`, JSON.stringify(specsResponse.data, null, 2));
+								
+								const specs = Array.isArray(specsResponse.data) ? specsResponse.data : specsResponse.data.data || [];
+								console.log(`Real-time logs: Processed specs array length: ${specs.length}`);
+								
+								if (specs.length > 0) {
+									// Get the latest spec (first one is usually the latest)
+									const latestSpec = specs[0];
+									console.log(`Real-time logs: Latest spec structure:`, JSON.stringify(latestSpec, null, 2));
+									
+									// Check for different ID fields like the working implementation does
+									specificationId = latestSpec.id || latestSpec.version || app.id;
+									console.log(`Real-time logs: Found spec ID ${specificationId} for deployment ${app.id} (id: ${latestSpec.id}, version: ${latestSpec.version})`);
+								} else {
+									console.log(`Real-time logs: No specs found for deployment ${app.id}, using deployment ID as fallback`);
+								}
+							}
+						} catch (specsError: any) {
+							// Handle token refresh for specs API
+							if (specsError.response?.status === 401) {
+								console.log(`Real-time logs: Attempting to refresh access token for specs API (deployment ${app.id})...`);
+								const didRefresh = await refreshAccessToken(context);
+								if (didRefresh) {
+									currentAccessToken = await context.secrets.get('anypoint.accessToken') || accessToken;
+									const specsRetryResponse = await axios.get(specsUrl, {
+										headers: { Authorization: `Bearer ${currentAccessToken}` },
+									});
+									
+									if (specsRetryResponse.status === 200 && specsRetryResponse.data) {
+										console.log(`Real-time logs: Raw specs retry response for deployment ${app.id}:`, JSON.stringify(specsRetryResponse.data, null, 2));
+										
+										const specs = Array.isArray(specsRetryResponse.data) ? specsRetryResponse.data : specsRetryResponse.data.data || [];
+										console.log(`Real-time logs: Processed specs retry array length: ${specs.length}`);
+										
+										if (specs.length > 0) {
+											// Get the latest spec (first one is usually the latest)
+											const latestSpec = specs[0];
+											console.log(`Real-time logs: Latest retry spec structure:`, JSON.stringify(latestSpec, null, 2));
+											
+											// Check for different ID fields like the working implementation does
+											specificationId = latestSpec.id || latestSpec.version || app.id;
+											console.log(`Real-time logs: Found spec ID ${specificationId} for deployment ${app.id} after token refresh (id: ${latestSpec.id}, version: ${latestSpec.version})`);
+										} else {
+											console.log(`Real-time logs: No specs found for deployment ${app.id} after retry, using deployment ID as fallback`);
+										}
+									}
+								}
+							} else {
+								throw specsError;
+							}
+						}
+					} catch (specError: any) {
+						console.warn(`Real-time logs: Could not fetch specs for deployment ${app.id}, using deployment ID as spec ID:`, specError.message);
+					}
+					
+					return {
+						label: `🚀 CH2: ${app.name} (${app.status})`,
+						domain: app.name,
+						cloudhubVersion: 'CH2' as const,
+						status: app.status,
+						deploymentId: app.id,
+						specificationId: specificationId
+					};
+				}))
+			];
+
+			if (allApplications.length === 0) {
+				vscode.window.showErrorMessage('No applications found in this environment.');
+				return;
+			}
+
+			// Show unified application selection
+			const selectedAppLabel = await vscode.window.showQuickPick(
+				allApplications.map(app => app.label),
+				{ 
+					placeHolder: 'Select an application for real-time logs (CH1 = CloudHub 1.0, CH2 = CloudHub 2.0)',
+					title: 'Real-Time Logs - Select Application'
+				}
+			);
+
+			if (!selectedAppLabel) {
+				vscode.window.showInformationMessage('No application selected.');
+				return;
+			}
+
+			const selectedApp = allApplications.find(app => app.label === selectedAppLabel);
+			if (!selectedApp) {
+				vscode.window.showErrorMessage('Failed to determine selected application.');
+				return;
+			}
+
+			// Show real-time logs with appropriate parameters
+			if (selectedApp.cloudhubVersion === 'CH2') {
+				await showRealTimeLogs(
+					context, 
+					selectedEnvironmentId, 
+					selectedApp.domain, 
+					'CH2',
+					selectedApp.deploymentId,
+					selectedApp.specificationId
+				);
+			} else {
+				await showRealTimeLogs(
+					context, 
+					selectedEnvironmentId, 
+					selectedApp.domain, 
+					'CH1'
+				);
+			}
+		} catch (error: any) {
+			vscode.window.showErrorMessage(`Error starting real-time logs: ${error.message}`);
+		}
+	});
+
 	context.subscriptions.push(userInfo);
 	context.subscriptions.push(getApplications);
 	context.subscriptions.push(revokeAccessCommand);
@@ -266,6 +566,7 @@ export function activate(context: vscode.ExtensionContext) {
 	context.subscriptions.push(communityEventsCmd);
 	context.subscriptions.push(provideFeedbackCmd);
 	context.subscriptions.push(auditAPIsCmd);
+	context.subscriptions.push(realTimeLogsCmd);
 }
 
 // This method is called when your extension is deactivated

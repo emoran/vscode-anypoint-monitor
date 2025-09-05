@@ -104,6 +104,10 @@
       {
         "command": "anypoint-monitor.auditAPIs",
         "title": "AM: Audit APIs"
+      },
+      {
+        "command": "anypoint-monitor.realTimeLogs",
+        "title": "AM: Real-Time Logs"
       }
     ]
   },
