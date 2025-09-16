@@ -9,6 +9,7 @@ import { getUserInfoWebviewContent } from '../anypoint/userInfoContent';
 import { getOrgInfoWebviewContent } from '../anypoint/organizationInfo';
 import { showEnvironmentAndOrgPanel } from '../anypoint/DeveloperInfo';
 import { showAPIManagerWebview } from '../anypoint/apiMananagerAPIs';
+import { showEnvironmentComparisonWebview } from '../anypoint/environmentComparison';
 
 export async function retrieveApplications(context: vscode.ExtensionContext, selectedEnvironmentId: string) {
     let accessToken = await context.secrets.get('anypoint.accessToken');
@@ -546,5 +547,262 @@ export async function retrieveAPIManagerAPIs(context: vscode.ExtensionContext) {
     } catch (error: any) {
         vscode.window.showErrorMessage(`Error: ${error.message || error}`);
     }
+}
+
+export async function getEnvironmentComparison(context: vscode.ExtensionContext) {
+    let accessToken = await context.secrets.get('anypoint.accessToken');
+    const userInfo = await context.secrets.get('anypoint.userInfo');
+    const storedEnvironments = await context.secrets.get('anypoint.environments');
+
+    if (!accessToken || !userInfo || !storedEnvironments) {
+        vscode.window.showErrorMessage('Missing authentication or environment data. Please log in first.');
+        return;
+    }
+
+    const userInfoData = JSON.parse(userInfo);
+    const organizationID = userInfoData.organization.id;
+    const environments = JSON.parse(storedEnvironments);
+
+    if (!environments.data || environments.data.length === 0) {
+        vscode.window.showErrorMessage('No environments available.');
+        return;
+    }
+
+    const comparisonData: any = {
+        environments: environments.data,
+        applications: {}
+    };
+
+    for (const env of environments.data) {
+        try {
+            // Fetch CloudHub 1.0 applications
+            const ch1Response = await axios.get(BASE_URL + '/cloudhub/api/applications', {
+                headers: {
+                    Authorization: `Bearer ${accessToken}`,
+                    'X-ANYPNT-ENV-ID': env.id,
+                    'X-ANYPNT-ORG-ID': organizationID,
+                },
+            });
+
+            if (ch1Response.status === 200) {
+                const ch1Apps = Array.isArray(ch1Response.data) ? ch1Response.data : [];
+                ch1Apps.forEach((app: any) => {
+                    if (!comparisonData.applications[app.domain]) {
+                        comparisonData.applications[app.domain] = {
+                            name: app.domain,
+                            type: 'CH1',
+                            environments: {}
+                        };
+                    }
+                    comparisonData.applications[app.domain].environments[env.id] = {
+                        environmentName: env.name,
+                        status: app.status,
+                        version: app.versionId || app.filename || 'N/A',
+                        runtime: app.muleVersion || app.runtime || 'N/A',
+                        region: app.region || 'N/A',
+                        workers: app.workers || 'N/A',
+                        workerType: app.workerType || 'N/A',
+                        lastUpdateTime: app.lastUpdateTime || 'N/A',
+                        filename: app.filename || 'N/A',
+                        // Advanced CloudHub 1.0 fields
+                        fullDomain: app.fullDomain || 'N/A',
+                        monitoringEnabled: app.monitoringEnabled !== undefined ? app.monitoringEnabled : 'N/A',
+                        objectStoreV1: app.objectStoreV1 !== undefined ? app.objectStoreV1 : 'N/A',
+                        persistentQueues: app.persistentQueues !== undefined ? app.persistentQueues : 'N/A',
+                        multipleWorkers: app.multipleWorkers !== undefined ? app.multipleWorkers : 'N/A',
+                        autoRestart: app.autoRestart !== undefined ? app.autoRestart : 'N/A',
+                        staticIPsEnabled: app.staticIPsEnabled !== undefined ? app.staticIPsEnabled : 'N/A',
+                        secureDataGateway: app.secureDataGateway !== undefined ? app.secureDataGateway : 'N/A',
+                        hasFile: app.hasFile !== undefined ? app.hasFile : 'N/A',
+                        trackingSettings: app.trackingSettings || 'N/A',
+                        propertiesCount: app.properties ? Object.keys(app.properties).length : 0,
+                        applicationSize: app.applicationSize || 'N/A',
+                        vpn: app.vpn !== undefined ? app.vpn : 'N/A'
+                    };
+                });
+            }
+        } catch (error: any) {
+            if (error.response?.status === 401) {
+                const didRefresh = await refreshAccessToken(context);
+                if (didRefresh) {
+                    accessToken = await context.secrets.get('anypoint.accessToken');
+                    try {
+                        const ch1Response = await axios.get(BASE_URL + '/cloudhub/api/applications', {
+                            headers: {
+                                Authorization: `Bearer ${accessToken}`,
+                                'X-ANYPNT-ENV-ID': env.id,
+                                'X-ANYPNT-ORG-ID': organizationID,
+                            },
+                        });
+                        if (ch1Response.status === 200) {
+                            const ch1Apps = Array.isArray(ch1Response.data) ? ch1Response.data : [];
+                            ch1Apps.forEach((app: any) => {
+                                if (!comparisonData.applications[app.domain]) {
+                                    comparisonData.applications[app.domain] = {
+                                        name: app.domain,
+                                        type: 'CH1',
+                                        environments: {}
+                                    };
+                                }
+                                comparisonData.applications[app.domain].environments[env.id] = {
+                                    environmentName: env.name,
+                                    status: app.status,
+                                    version: app.versionId || app.filename || 'N/A',
+                                    runtime: app.muleVersion || app.runtime || 'N/A',
+                                    region: app.region || 'N/A',
+                                    workers: app.workers || 'N/A',
+                                    workerType: app.workerType || 'N/A',
+                                    lastUpdateTime: app.lastUpdateTime || 'N/A',
+                                    filename: app.filename || 'N/A',
+                                    // Advanced CloudHub 1.0 fields
+                                    fullDomain: app.fullDomain || 'N/A',
+                                    monitoringEnabled: app.monitoringEnabled !== undefined ? app.monitoringEnabled : 'N/A',
+                                    objectStoreV1: app.objectStoreV1 !== undefined ? app.objectStoreV1 : 'N/A',
+                                    persistentQueues: app.persistentQueues !== undefined ? app.persistentQueues : 'N/A',
+                                    multipleWorkers: app.multipleWorkers !== undefined ? app.multipleWorkers : 'N/A',
+                                    autoRestart: app.autoRestart !== undefined ? app.autoRestart : 'N/A',
+                                    staticIPsEnabled: app.staticIPsEnabled !== undefined ? app.staticIPsEnabled : 'N/A',
+                                    secureDataGateway: app.secureDataGateway !== undefined ? app.secureDataGateway : 'N/A',
+                                    hasFile: app.hasFile !== undefined ? app.hasFile : 'N/A',
+                                    trackingSettings: app.trackingSettings || 'N/A',
+                                    propertiesCount: app.properties ? Object.keys(app.properties).length : 0,
+                                    applicationSize: app.applicationSize || 'N/A',
+                                    vpn: app.vpn !== undefined ? app.vpn : 'N/A'
+                                };
+                            });
+                        }
+                    } catch (retryError) {
+                        console.error(`Failed to fetch CH1 apps for environment ${env.name} after retry:`, retryError);
+                    }
+                }
+            } else {
+                console.error(`Failed to fetch CH1 apps for environment ${env.name}:`, error.message);
+            }
+        }
+
+        try {
+            // Fetch CloudHub 2.0 applications
+            const ch2Response = await axios.get(BASE_URL + '/amc/application-manager/api/v2/organizations/' + organizationID + '/environments/' + env.id + '/deployments', {
+                headers: { Authorization: `Bearer ${accessToken}` },
+            });
+
+            if (ch2Response.status === 200) {
+                let ch2Apps = ch2Response.data;
+                if (Array.isArray(ch2Apps)) {
+                    // Already an array
+                } else if (ch2Apps && typeof ch2Apps === 'object') {
+                    ch2Apps = ch2Apps.data || ch2Apps.applications || ch2Apps.items || [];
+                }
+
+                if (!Array.isArray(ch2Apps)) {
+                    ch2Apps = [];
+                }
+
+                ch2Apps.forEach((app: any) => {
+                    if (!comparisonData.applications[app.name]) {
+                        comparisonData.applications[app.name] = {
+                            name: app.name,
+                            type: 'CH2',
+                            environments: {}
+                        };
+                    }
+                    comparisonData.applications[app.name].environments[env.id] = {
+                        environmentName: env.name,
+                        status: app.status,
+                        version: app.version || app.artifact?.name || 'N/A',
+                        runtime: app.currentRuntimeVersion || app.lastSuccessfulRuntimeVersion || app.runtime?.version || 'N/A',
+                        replicas: app.replicas || 'N/A',
+                        cpuReserved: app.cpuReserved || 'N/A',
+                        memoryReserved: app.memoryReserved || 'N/A',
+                        lastUpdateTime: app.lastUpdateTime || app.lastModifiedDate || 'N/A',
+                        // Advanced CloudHub 2.0 fields
+                        creationDate: app.creationDate || 'N/A',
+                        lastModifiedDate: app.lastModifiedDate || 'N/A',
+                        deploymentId: app.id || 'N/A',
+                        applicationId: app.applicationId || 'N/A',
+                        minReplicas: app.autoScaling?.minReplicas || app.minReplicas || 'N/A',
+                        maxReplicas: app.autoScaling?.maxReplicas || app.maxReplicas || 'N/A',
+                        autoScalingEnabled: app.autoScaling?.enabled !== undefined ? app.autoScaling.enabled : 'N/A',
+                        cpuLimit: app.cpuLimit || 'N/A',
+                        memoryLimit: app.memoryLimit || 'N/A',
+                        networkType: app.network?.type || 'N/A',
+                        publicEndpoints: app.network?.publicEndpoints !== undefined ? app.network.publicEndpoints : 'N/A',
+                        javaVersion: app.javaVersion || 'N/A',
+                        updateStrategy: app.updateStrategy || 'N/A',
+                        persistentStorage: app.persistentStorage !== undefined ? app.persistentStorage : 'N/A',
+                        clustered: app.clustered !== undefined ? app.clustered : 'N/A',
+                        monitoring: app.monitoring !== undefined ? app.monitoring : 'N/A'
+                    };
+                });
+            }
+        } catch (error: any) {
+            if (error.response?.status === 401) {
+                const didRefresh = await refreshAccessToken(context);
+                if (didRefresh) {
+                    accessToken = await context.secrets.get('anypoint.accessToken');
+                    try {
+                        const ch2Response = await axios.get(BASE_URL + '/amc/application-manager/api/v2/organizations/' + organizationID + '/environments/' + env.id + '/deployments', {
+                            headers: { Authorization: `Bearer ${accessToken}` },
+                        });
+                        if (ch2Response.status === 200) {
+                            let ch2Apps = ch2Response.data;
+                            if (Array.isArray(ch2Apps)) {
+                                // Already an array
+                            } else if (ch2Apps && typeof ch2Apps === 'object') {
+                                ch2Apps = ch2Apps.data || ch2Apps.applications || ch2Apps.items || [];
+                            }
+
+                            if (!Array.isArray(ch2Apps)) {
+                                ch2Apps = [];
+                            }
+
+                            ch2Apps.forEach((app: any) => {
+                                if (!comparisonData.applications[app.name]) {
+                                    comparisonData.applications[app.name] = {
+                                        name: app.name,
+                                        type: 'CH2',
+                                        environments: {}
+                                    };
+                                }
+                                comparisonData.applications[app.name].environments[env.id] = {
+                                    environmentName: env.name,
+                                    status: app.status,
+                                    version: app.version || app.artifact?.name || 'N/A',
+                                    runtime: app.currentRuntimeVersion || app.lastSuccessfulRuntimeVersion || app.runtime?.version || 'N/A',
+                                    replicas: app.replicas || 'N/A',
+                                    cpuReserved: app.cpuReserved || 'N/A',
+                                    memoryReserved: app.memoryReserved || 'N/A',
+                                    lastUpdateTime: app.lastUpdateTime || app.lastModifiedDate || 'N/A',
+                                    // Advanced CloudHub 2.0 fields
+                                    creationDate: app.creationDate || 'N/A',
+                                    lastModifiedDate: app.lastModifiedDate || 'N/A',
+                                    deploymentId: app.id || 'N/A',
+                                    applicationId: app.applicationId || 'N/A',
+                                    minReplicas: app.autoScaling?.minReplicas || app.minReplicas || 'N/A',
+                                    maxReplicas: app.autoScaling?.maxReplicas || app.maxReplicas || 'N/A',
+                                    autoScalingEnabled: app.autoScaling?.enabled !== undefined ? app.autoScaling.enabled : 'N/A',
+                                    cpuLimit: app.cpuLimit || 'N/A',
+                                    memoryLimit: app.memoryLimit || 'N/A',
+                                    networkType: app.network?.type || 'N/A',
+                                    publicEndpoints: app.network?.publicEndpoints !== undefined ? app.network.publicEndpoints : 'N/A',
+                                    javaVersion: app.javaVersion || 'N/A',
+                                    updateStrategy: app.updateStrategy || 'N/A',
+                                    persistentStorage: app.persistentStorage !== undefined ? app.persistentStorage : 'N/A',
+                                    clustered: app.clustered !== undefined ? app.clustered : 'N/A',
+                                    monitoring: app.monitoring !== undefined ? app.monitoring : 'N/A'
+                                };
+                            });
+                        }
+                    } catch (retryError) {
+                        console.error(`Failed to fetch CH2 apps for environment ${env.name} after retry:`, retryError);
+                    }
+                }
+            } else {
+                console.error(`Failed to fetch CH2 apps for environment ${env.name}:`, error.message);
+            }
+        }
+    }
+
+    showEnvironmentComparisonWebview(context, comparisonData);
 }
 

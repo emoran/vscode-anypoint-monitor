@@ -8,7 +8,9 @@
       "Bash(find:*)",
       "Bash(mkdir:*)",
       "Bash(ls:*)",
-      "Bash(cat:*)"
+      "Bash(cat:*)",
+      "WebFetch(domain:medium.com)",
+      "WebSearch"
     ],
     "deny": []
   }

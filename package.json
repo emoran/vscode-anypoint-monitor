@@ -108,6 +108,10 @@
       {
         "command": "anypoint-monitor.realTimeLogs",
         "title": "AM: Real-Time Logs"
+      },
+      {
+        "command": "anypoint-monitor.environmentComparison",
+        "title": "AM: Environment Comparison Table"
       }
     ]
   },

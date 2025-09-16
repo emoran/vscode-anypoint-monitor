@@ -15,7 +15,8 @@ import {
     getEnvironments,
     getCH2Applications,
     getCH1Applications,
-    retrieveAPIManagerAPIs
+    retrieveAPIManagerAPIs,
+    getEnvironmentComparison
 } from "./controllers/anypointService";
 import { auditAPIs } from "./anypoint/apiAudit";
 import { showCommunityEvents } from "./anypoint/communityEvents";
@@ -552,6 +553,14 @@ export function activate(context: vscode.ExtensionContext) {
 		}
 	});
 
+	const environmentComparisonCmd = vscode.commands.registerCommand('anypoint-monitor.environmentComparison', async () => {
+		try {
+			await getEnvironmentComparison(context);
+		} catch (error: any) {
+			vscode.window.showErrorMessage(`Error loading environment comparison: ${error.message}`);
+		}
+	});
+
 	context.subscriptions.push(userInfo);
 	context.subscriptions.push(getApplications);
 	context.subscriptions.push(revokeAccessCommand);
@@ -567,6 +576,7 @@ export function activate(context: vscode.ExtensionContext) {
 	context.subscriptions.push(provideFeedbackCmd);
 	context.subscriptions.push(auditAPIsCmd);
 	context.subscriptions.push(realTimeLogsCmd);
+	context.subscriptions.push(environmentComparisonCmd);
 }
 
 // This method is called when your extension is deactivated
