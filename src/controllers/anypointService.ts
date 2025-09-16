@@ -549,6 +549,82 @@ export async function retrieveAPIManagerAPIs(context: vscode.ExtensionContext) {
     }
 }
 
+// Smart application name matching algorithm
+function normalizeApplicationName(appName: string, environmentName: string): string {
+    if (!appName || !environmentName) return appName || '';
+    
+    const name = appName.toLowerCase();
+    const env = environmentName.toLowerCase();
+    
+    // Common environment suffixes and prefixes to remove
+    const environmentPatterns = [
+        // Exact environment name matches
+        new RegExp(`-${env}$`, 'i'),           // myapp-prod
+        new RegExp(`^${env}-`, 'i'),           // prod-myapp
+        new RegExp(`-${env}-`, 'i'),           // prefix-prod-suffix
+        
+        // Common environment variations
+        '-prod$', '-production$', '-prd$',
+        '-dev$', '-develop$', '-development$', '-devel$',
+        '-test$', '-testing$', '-tst$',
+        '-stage$', '-staging$', '-stg$',
+        '-uat$', '-useracceptance$',
+        '-qa$', '-quality$', '-qua$',
+        '-sandbox$', '-sbx$', '-sb$',
+        '-demo$', '-preview$', '-pre$',
+        '-int$', '-integration$', '-integ$',
+        '-sit$', '-systemintegration$',
+        '-perf$', '-performance$',
+        '-load$', '-stress$',
+        
+        // Prefix patterns
+        '^prod-', '^production-', '^prd-',
+        '^dev-', '^develop-', '^development-', '^devel-',
+        '^test-', '^testing-', '^tst-',
+        '^stage-', '^staging-', '^stg-',
+        '^uat-', '^useracceptance-',
+        '^qa-', '^quality-', '^qua-',
+        '^sandbox-', '^sbx-', '^sb-',
+        '^demo-', '^preview-', '^pre-',
+        '^int-', '^integration-', '^integ-',
+        '^sit-', '^systemintegration-',
+        '^perf-', '^performance-',
+        '^load-', '^stress-'
+    ];
+    
+    let normalizedName = name;
+    
+    // Remove environment patterns
+    for (const pattern of environmentPatterns) {
+        normalizedName = normalizedName.replace(new RegExp(pattern, 'i'), '');
+    }
+    
+    // Clean up any resulting double hyphens
+    normalizedName = normalizedName.replace(/--+/g, '-');
+    
+    // Remove leading/trailing hyphens
+    normalizedName = normalizedName.replace(/^-+|-+$/g, '');
+    
+    return normalizedName || appName; // Fallback to original if normalization results in empty string
+}
+
+// Function to find the best application group name
+function getBestApplicationGroupName(apps: any[]): string {
+    if (!apps || apps.length === 0) return '';
+    
+    // Find the longest common name (likely the most descriptive)
+    const names = apps.map(app => app.originalName || app.name);
+    let bestName = names[0];
+    
+    for (const name of names) {
+        if (name.length > bestName.length) {
+            bestName = name;
+        }
+    }
+    
+    return bestName;
+}
+
 export async function getEnvironmentComparison(context: vscode.ExtensionContext) {
     let accessToken = await context.secrets.get('anypoint.accessToken');
     const userInfo = await context.secrets.get('anypoint.userInfo');
@@ -568,12 +644,26 @@ export async function getEnvironmentComparison(context: vscode.ExtensionContext)
         return;
     }
 
+    // Filter out Design environment as it's typically used for API design, not deployments
+    const filteredEnvironments = environments.data.filter((env: any) => 
+        env.name.toLowerCase() !== 'design' && 
+        env.type?.toLowerCase() !== 'design'
+    );
+
+    if (filteredEnvironments.length === 0) {
+        vscode.window.showErrorMessage('No deployment environments available (Design environment excluded).');
+        return;
+    }
+
     const comparisonData: any = {
-        environments: environments.data,
+        environments: filteredEnvironments,
         applications: {}
     };
+    
+    // Temporary storage for grouping applications by normalized names
+    const applicationGroups: { [normalizedName: string]: any[] } = {};
 
-    for (const env of environments.data) {
+    for (const env of filteredEnvironments) {
         try {
             // Fetch CloudHub 1.0 applications
             const ch1Response = await axios.get(BASE_URL + '/cloudhub/api/applications', {
@@ -587,38 +677,57 @@ export async function getEnvironmentComparison(context: vscode.ExtensionContext)
             if (ch1Response.status === 200) {
                 const ch1Apps = Array.isArray(ch1Response.data) ? ch1Response.data : [];
                 ch1Apps.forEach((app: any) => {
-                    if (!comparisonData.applications[app.domain]) {
-                        comparisonData.applications[app.domain] = {
-                            name: app.domain,
-                            type: 'CH1',
-                            environments: {}
-                        };
+                    // Debug: Log filename-related fields
+                    console.log(`CH1 App ${app.domain} filename fields:`, {
+                        filename: app.filename,
+                        file: app.file,
+                        muleArtifact: app.muleArtifact,
+                        artifact: app.artifact,
+                        deploymentFile: app.deploymentFile,
+                        applicationFile: app.applicationFile
+                    });
+                    
+                    const normalizedName = normalizeApplicationName(app.domain, env.name);
+                    
+                    // Group applications by normalized name
+                    if (!applicationGroups[normalizedName]) {
+                        applicationGroups[normalizedName] = [];
                     }
-                    comparisonData.applications[app.domain].environments[env.id] = {
+                    
+                    const appInfo = {
+                        originalName: app.domain,
+                        normalizedName: normalizedName,
+                        environmentId: env.id,
                         environmentName: env.name,
-                        status: app.status,
-                        version: app.versionId || app.filename || 'N/A',
-                        runtime: app.muleVersion || app.runtime || 'N/A',
-                        region: app.region || 'N/A',
-                        workers: app.workers || 'N/A',
-                        workerType: app.workerType || 'N/A',
-                        lastUpdateTime: app.lastUpdateTime || 'N/A',
-                        filename: app.filename || 'N/A',
-                        // Advanced CloudHub 1.0 fields
-                        fullDomain: app.fullDomain || 'N/A',
-                        monitoringEnabled: app.monitoringEnabled !== undefined ? app.monitoringEnabled : 'N/A',
-                        objectStoreV1: app.objectStoreV1 !== undefined ? app.objectStoreV1 : 'N/A',
-                        persistentQueues: app.persistentQueues !== undefined ? app.persistentQueues : 'N/A',
-                        multipleWorkers: app.multipleWorkers !== undefined ? app.multipleWorkers : 'N/A',
-                        autoRestart: app.autoRestart !== undefined ? app.autoRestart : 'N/A',
-                        staticIPsEnabled: app.staticIPsEnabled !== undefined ? app.staticIPsEnabled : 'N/A',
-                        secureDataGateway: app.secureDataGateway !== undefined ? app.secureDataGateway : 'N/A',
-                        hasFile: app.hasFile !== undefined ? app.hasFile : 'N/A',
-                        trackingSettings: app.trackingSettings || 'N/A',
-                        propertiesCount: app.properties ? Object.keys(app.properties).length : 0,
-                        applicationSize: app.applicationSize || 'N/A',
-                        vpn: app.vpn !== undefined ? app.vpn : 'N/A'
+                        type: 'CH1',
+                        deploymentData: {
+                            environmentName: env.name,
+                            status: app.status,
+                            version: app.muleVersion || app.filename || app.versionId || 'N/A',
+                            runtime: app.muleVersion || app.runtime || 'N/A',
+                            region: app.region || 'N/A',
+                            workers: app.workers || 'N/A',
+                            workerType: app.workerType || 'N/A',
+                            lastUpdateTime: app.lastUpdateTime || 'N/A',
+                            filename: app.filename || app.file || app.muleArtifact || app.deploymentFile || 'N/A',
+                            // Advanced CloudHub 1.0 fields
+                            fullDomain: app.fullDomain || 'N/A',
+                            monitoringEnabled: app.monitoringEnabled !== undefined ? app.monitoringEnabled : 'N/A',
+                            objectStoreV1: app.objectStoreV1 !== undefined ? app.objectStoreV1 : 'N/A',
+                            persistentQueues: app.persistentQueues !== undefined ? app.persistentQueues : 'N/A',
+                            multipleWorkers: app.multipleWorkers !== undefined ? app.multipleWorkers : 'N/A',
+                            autoRestart: app.autoRestart !== undefined ? app.autoRestart : 'N/A',
+                            staticIPsEnabled: app.staticIPsEnabled !== undefined ? app.staticIPsEnabled : 'N/A',
+                            secureDataGateway: app.secureDataGateway !== undefined ? app.secureDataGateway : 'N/A',
+                            hasFile: app.hasFile !== undefined ? app.hasFile : 'N/A',
+                            trackingSettings: app.trackingSettings || 'N/A',
+                            propertiesCount: app.properties ? Object.keys(app.properties).length : 0,
+                            applicationSize: app.applicationSize || 'N/A',
+                            vpn: app.vpn !== undefined ? app.vpn : 'N/A'
+                        }
                     };
+                    
+                    applicationGroups[normalizedName].push(appInfo);
                 });
             }
         } catch (error: any) {
@@ -637,23 +746,29 @@ export async function getEnvironmentComparison(context: vscode.ExtensionContext)
                         if (ch1Response.status === 200) {
                             const ch1Apps = Array.isArray(ch1Response.data) ? ch1Response.data : [];
                             ch1Apps.forEach((app: any) => {
-                                if (!comparisonData.applications[app.domain]) {
-                                    comparisonData.applications[app.domain] = {
-                                        name: app.domain,
-                                        type: 'CH1',
-                                        environments: {}
-                                    };
+                                const normalizedName = normalizeApplicationName(app.domain, env.name);
+                                
+                                // Group applications by normalized name
+                                if (!applicationGroups[normalizedName]) {
+                                    applicationGroups[normalizedName] = [];
                                 }
-                                comparisonData.applications[app.domain].environments[env.id] = {
+                                
+                                const appInfo = {
+                                    originalName: app.domain,
+                                    normalizedName: normalizedName,
+                                    environmentId: env.id,
+                                    environmentName: env.name,
+                                    type: 'CH1',
+                                    deploymentData: {
                                     environmentName: env.name,
                                     status: app.status,
-                                    version: app.versionId || app.filename || 'N/A',
+                                    version: app.muleVersion || app.filename || app.versionId || 'N/A',
                                     runtime: app.muleVersion || app.runtime || 'N/A',
                                     region: app.region || 'N/A',
                                     workers: app.workers || 'N/A',
                                     workerType: app.workerType || 'N/A',
                                     lastUpdateTime: app.lastUpdateTime || 'N/A',
-                                    filename: app.filename || 'N/A',
+                                    filename: app.filename || app.file || app.muleArtifact || app.deploymentFile || 'N/A',
                                     // Advanced CloudHub 1.0 fields
                                     fullDomain: app.fullDomain || 'N/A',
                                     monitoringEnabled: app.monitoringEnabled !== undefined ? app.monitoringEnabled : 'N/A',
@@ -668,8 +783,11 @@ export async function getEnvironmentComparison(context: vscode.ExtensionContext)
                                     propertiesCount: app.properties ? Object.keys(app.properties).length : 0,
                                     applicationSize: app.applicationSize || 'N/A',
                                     vpn: app.vpn !== undefined ? app.vpn : 'N/A'
-                                };
-                            });
+                                }
+                            };
+                            
+                            applicationGroups[normalizedName].push(appInfo);
+                        });
                         }
                     } catch (retryError) {
                         console.error(`Failed to fetch CH1 apps for environment ${env.name} after retry:`, retryError);
@@ -699,22 +817,51 @@ export async function getEnvironmentComparison(context: vscode.ExtensionContext)
                 }
 
                 ch2Apps.forEach((app: any) => {
-                    if (!comparisonData.applications[app.name]) {
-                        comparisonData.applications[app.name] = {
-                            name: app.name,
-                            type: 'CH2',
-                            environments: {}
-                        };
+                    // Debug: Log filename-related fields
+                    console.log(`CH2 App ${app.name} filename fields:`, {
+                        artifact: app.artifact,
+                        filename: app.filename,
+                        file: app.file,
+                        application: app.application,
+                        deploymentArtifact: app.deploymentArtifact
+                    });
+                    
+                    // Debug: Deep dive into application object
+                    if (app.application) {
+                        console.log(`CH2 App ${app.name} application object:`, JSON.stringify(app.application, null, 2));
                     }
-                    comparisonData.applications[app.name].environments[env.id] = {
+                    
+                    // Debug: Show all top-level keys in app object
+                    console.log(`CH2 App ${app.name} all keys:`, Object.keys(app));
+                    
+                    // Debug: Check target field for artifact info
+                    if (app.target) {
+                        console.log(`CH2 App ${app.name} target field:`, JSON.stringify(app.target, null, 2));
+                    }
+                    
+                    const normalizedName = normalizeApplicationName(app.name, env.name);
+                    
+                    // Group applications by normalized name
+                    if (!applicationGroups[normalizedName]) {
+                        applicationGroups[normalizedName] = [];
+                    }
+                    
+                    const appInfo = {
+                        originalName: app.name,
+                        normalizedName: normalizedName,
+                        environmentId: env.id,
+                        environmentName: env.name,
+                        type: 'CH2',
+                        deploymentData: {
                         environmentName: env.name,
                         status: app.status,
-                        version: app.version || app.artifact?.name || 'N/A',
+                        version: app.currentRuntimeVersion || app.lastSuccessfulRuntimeVersion || app.version || app.artifact?.name || 'N/A',
                         runtime: app.currentRuntimeVersion || app.lastSuccessfulRuntimeVersion || app.runtime?.version || 'N/A',
                         replicas: app.replicas || 'N/A',
                         cpuReserved: app.cpuReserved || 'N/A',
                         memoryReserved: app.memoryReserved || 'N/A',
                         lastUpdateTime: app.lastUpdateTime || app.lastModifiedDate || 'N/A',
+                        filename: app.artifact?.name || app.artifact?.fileName || app.filename || app.file || app.application?.artifact?.name || 'N/A',
                         // Advanced CloudHub 2.0 fields
                         creationDate: app.creationDate || 'N/A',
                         lastModifiedDate: app.lastModifiedDate || 'N/A',
@@ -732,7 +879,10 @@ export async function getEnvironmentComparison(context: vscode.ExtensionContext)
                         persistentStorage: app.persistentStorage !== undefined ? app.persistentStorage : 'N/A',
                         clustered: app.clustered !== undefined ? app.clustered : 'N/A',
                         monitoring: app.monitoring !== undefined ? app.monitoring : 'N/A'
+                        }
                     };
+                    
+                    applicationGroups[normalizedName].push(appInfo);
                 });
             }
         } catch (error: any) {
@@ -757,22 +907,29 @@ export async function getEnvironmentComparison(context: vscode.ExtensionContext)
                             }
 
                             ch2Apps.forEach((app: any) => {
-                                if (!comparisonData.applications[app.name]) {
-                                    comparisonData.applications[app.name] = {
-                                        name: app.name,
-                                        type: 'CH2',
-                                        environments: {}
-                                    };
+                                const normalizedName = normalizeApplicationName(app.name, env.name);
+                                
+                                // Group applications by normalized name
+                                if (!applicationGroups[normalizedName]) {
+                                    applicationGroups[normalizedName] = [];
                                 }
-                                comparisonData.applications[app.name].environments[env.id] = {
+                                
+                                const appInfo = {
+                                    originalName: app.name,
+                                    normalizedName: normalizedName,
+                                    environmentId: env.id,
+                                    environmentName: env.name,
+                                    type: 'CH2',
+                                    deploymentData: {
                                     environmentName: env.name,
                                     status: app.status,
-                                    version: app.version || app.artifact?.name || 'N/A',
+                                    version: app.currentRuntimeVersion || app.lastSuccessfulRuntimeVersion || app.version || app.artifact?.name || 'N/A',
                                     runtime: app.currentRuntimeVersion || app.lastSuccessfulRuntimeVersion || app.runtime?.version || 'N/A',
                                     replicas: app.replicas || 'N/A',
                                     cpuReserved: app.cpuReserved || 'N/A',
                                     memoryReserved: app.memoryReserved || 'N/A',
                                     lastUpdateTime: app.lastUpdateTime || app.lastModifiedDate || 'N/A',
+                                    filename: app.artifact?.name || app.artifact?.fileName || app.filename || app.file || app.application?.artifact?.name || 'N/A',
                                     // Advanced CloudHub 2.0 fields
                                     creationDate: app.creationDate || 'N/A',
                                     lastModifiedDate: app.lastModifiedDate || 'N/A',
@@ -790,7 +947,10 @@ export async function getEnvironmentComparison(context: vscode.ExtensionContext)
                                     persistentStorage: app.persistentStorage !== undefined ? app.persistentStorage : 'N/A',
                                     clustered: app.clustered !== undefined ? app.clustered : 'N/A',
                                     monitoring: app.monitoring !== undefined ? app.monitoring : 'N/A'
+                                    }
                                 };
+                                
+                                applicationGroups[normalizedName].push(appInfo);
                             });
                         }
                     } catch (retryError) {
@@ -800,6 +960,25 @@ export async function getEnvironmentComparison(context: vscode.ExtensionContext)
             } else {
                 console.error(`Failed to fetch CH2 apps for environment ${env.name}:`, error.message);
             }
+        }
+    }
+
+    // Process applicationGroups to create the final comparison structure
+    for (const [normalizedName, apps] of Object.entries(applicationGroups)) {
+        const groupName = getBestApplicationGroupName(apps);
+        const appType = apps[0]?.type || 'Unknown';
+        
+        comparisonData.applications[normalizedName] = {
+            name: groupName,
+            normalizedName: normalizedName,
+            type: appType,
+            environments: {},
+            originalNames: [...new Set(apps.map(app => app.originalName))] // Track all original names
+        };
+        
+        // Populate environment data
+        for (const app of apps) {
+            comparisonData.applications[normalizedName].environments[app.environmentId] = app.deploymentData;
         }
     }
 

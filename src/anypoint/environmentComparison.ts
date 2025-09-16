@@ -26,8 +26,7 @@ export async function showEnvironmentComparisonWebview(
       
       switch (message.command) {
         case 'exportData':
-          // Handle export functionality if needed
-          vscode.window.showInformationMessage('Export functionality can be implemented here');
+          await exportEnvironmentComparisonData(comparisonData);
           break;
         case 'refreshData':
           // Refresh the comparison data
@@ -455,6 +454,18 @@ function getEnvironmentComparisonHtml(
         .filter-checkbox {
             margin-left: 4px;
         }
+        
+        .original-names {
+            margin-top: 4px;
+            color: var(--vscode-descriptionForeground);
+            font-size: 10px;
+            font-style: italic;
+            word-break: break-all;
+        }
+        
+        .original-names small {
+            opacity: 0.8;
+        }
     </style>
 </head>
 <body>
@@ -485,6 +496,9 @@ function getEnvironmentComparisonHtml(
                 <div class="stat-label">CloudHub 2.0 Apps</div>
                 <div class="stat-value">${applications.filter(app => app.type === 'CH2').length}</div>
             </div>
+        </div>
+        <div style="margin-top: 10px; font-size: 12px; color: var(--vscode-descriptionForeground); font-style: italic;">
+            📝 Note: Design environment excluded from comparison (used for API design, not deployments)
         </div>
     </div>
     
@@ -519,6 +533,9 @@ function getEnvironmentComparisonHtml(
                 Highlight Differences
             </label>
         </div>
+        <div class="filter-group">
+            <button class="btn" onclick="showNameMatchingHelp()">📋 Name Matching Help</button>
+        </div>
     </div>
     
     <div class="comparison-table-container">
@@ -543,6 +560,13 @@ function getEnvironmentComparisonHtml(
                                         ${badges.map(badge => `<span class="comparison-badge badge-${badge}">${badge.replace('-', ' ').toUpperCase()}</span>`).join('')}
                                     </div>
                                     <div class="app-type">${app.type}</div>
+                                    ${app.originalNames && app.originalNames.length > 1 ? `
+                                        <div class="original-names">
+                                            <small title="Original application names across environments">
+                                                📝 ${app.originalNames.join(', ')}
+                                            </small>
+                                        </div>
+                                    ` : ''}
                                 </div>
                             </td>
                             ${environments.map((env: any) => {
@@ -623,6 +647,12 @@ function getEnvironmentComparisonHtml(
                                                     <span class="detail-label">Resources:</span>
                                                     <span class="detail-value">${deployment.cpuReserved} CPU, ${deployment.memoryReserved} MB</span>
                                                 </div>
+                                                ${deployment.filename !== 'N/A' ? `
+                                                    <div class="detail-row">
+                                                        <span class="detail-label">Artifact:</span>
+                                                        <span class="detail-value">${deployment.filename}</span>
+                                                    </div>
+                                                ` : ''}
                                                 ${deployment.creationDate !== 'N/A' ? `
                                                     <div class="detail-row">
                                                         <span class="detail-label">Created:</span>
@@ -705,18 +735,25 @@ function getEnvironmentComparisonHtml(
         }
         
         function toggleAdvanced(button) {
-            const content = button.nextElementSibling;
-            const isVisible = content.style.display !== 'none';
-            content.style.display = isVisible ? 'none' : 'block';
-            button.textContent = isVisible ? '▶ Advanced Settings' : '▼ Advanced Settings';
+            try {
+                const content = button.nextElementSibling;
+                if (!content) {
+                    console.error('Advanced content element not found');
+                    return;
+                }
+                
+                const isVisible = content.style.display !== 'none';
+                content.style.display = isVisible ? 'none' : 'block';
+                button.textContent = isVisible ? '▶ Advanced Settings' : '▼ Advanced Settings';
+                
+                console.log('Advanced settings toggled:', isVisible ? 'hidden' : 'shown');
+            } catch (error) {
+                console.error('Error toggling advanced settings:', error);
+            }
         }
         
         
-        // Filter functionality
-        document.getElementById('statusFilter').addEventListener('change', applyFilters);
-        document.getElementById('platformFilter').addEventListener('change', applyFilters);
-        document.getElementById('showAdvanced').addEventListener('change', toggleAdvancedDisplay);
-        document.getElementById('highlightDifferences').addEventListener('change', toggleHighlightDifferences);
+        // Filter functionality - will be attached in DOMContentLoaded
         
         function applyFilters() {
             const statusFilter = document.getElementById('statusFilter').value;
@@ -762,11 +799,24 @@ function getEnvironmentComparisonHtml(
         }
         
         function toggleAdvancedDisplay() {
-            const showAdvanced = document.getElementById('showAdvanced').checked;
-            const advancedSections = document.querySelectorAll('.advanced-details');
-            advancedSections.forEach(section => {
-                section.style.display = showAdvanced ? 'block' : 'none';
-            });
+            try {
+                const checkbox = document.getElementById('showAdvanced');
+                if (!checkbox) {
+                    console.error('Show advanced checkbox not found');
+                    return;
+                }
+                
+                const showAdvanced = checkbox.checked;
+                const advancedSections = document.querySelectorAll('.advanced-details');
+                
+                console.log('Toggle advanced display:', showAdvanced, 'Found sections:', advancedSections.length);
+                
+                advancedSections.forEach(section => {
+                    section.style.display = showAdvanced ? 'block' : 'none';
+                });
+            } catch (error) {
+                console.error('Error toggling advanced display:', error);
+            }
         }
         
         function toggleHighlightDifferences() {
@@ -777,13 +827,247 @@ function getEnvironmentComparisonHtml(
             });
         }
         
+        function showNameMatchingHelp() {
+            const helpContent = \`
+            <h3>📋 Intelligent Application Name Matching</h3>
+            <p>This feature automatically groups applications with similar names across environments:</p>
+            
+            <h4>✅ Supported Patterns:</h4>
+            <ul>
+                <li><strong>Environment Suffixes:</strong> myapp-dev, myapp-qa, myapp-prod</li>
+                <li><strong>Environment Prefixes:</strong> dev-myapp, qa-myapp, prod-myapp</li>
+                <li><strong>Complex Names:</strong> fabe-loyalty-program-exapi-sandbox → fabe-loyalty-program-exapi-prod</li>
+                <li><strong>Abbreviations:</strong> myapp-stg, myapp-prd, myapp-sbx</li>
+            </ul>
+            
+            <h4>🔍 Recognized Environment Keywords:</h4>
+            <p><code>dev, develop, development, test, testing, qa, quality, uat, stage, staging, 
+            prod, production, sandbox, demo, preview, integration, sit, perf, performance</code></p>
+            
+            <h4>📝 How It Works:</h4>
+            <p>The system normalizes application names by removing environment-specific prefixes and suffixes, 
+            then groups applications with the same normalized name together.</p>
+            
+            <h4>💡 Examples:</h4>
+            <table style="margin-top: 10px; border-collapse: collapse; width: 100%;">
+                <tr style="background: var(--vscode-panel-background);">
+                    <td style="padding: 8px; border: 1px solid var(--vscode-panel-border);"><strong>Original Names</strong></td>
+                    <td style="padding: 8px; border: 1px solid var(--vscode-panel-border);"><strong>Grouped As</strong></td>
+                </tr>
+                <tr>
+                    <td style="padding: 8px; border: 1px solid var(--vscode-panel-border);">customer-api-dev, customer-api-prod</td>
+                    <td style="padding: 8px; border: 1px solid var(--vscode-panel-border);">customer-api</td>
+                </tr>
+                <tr>
+                    <td style="padding: 8px; border: 1px solid var(--vscode-panel-border);">fabe-loyalty-exapi-sandbox, fabe-loyalty-exapi-staging</td>
+                    <td style="padding: 8px; border: 1px solid var(--vscode-panel-border);">fabe-loyalty-exapi</td>
+                </tr>
+            </table>
+            \`;
+            
+            // Create modal overlay
+            const modal = document.createElement('div');
+            modal.style.cssText = \`
+                position: fixed; top: 0; left: 0; right: 0; bottom: 0; 
+                background: rgba(0,0,0,0.5); z-index: 1000; 
+                display: flex; align-items: center; justify-content: center;
+            \`;
+            
+            const content = document.createElement('div');
+            content.style.cssText = \`
+                background: var(--vscode-panel-background); 
+                padding: 20px; border-radius: 8px; max-width: 600px; 
+                max-height: 80vh; overflow-y: auto;
+                border: 1px solid var(--vscode-panel-border);
+                color: var(--vscode-foreground);
+            \`;
+            content.innerHTML = helpContent + \`
+                <div style="text-align: right; margin-top: 20px;">
+                    <button onclick="this.closest('.modal-overlay').remove()" 
+                            style="padding: 8px 16px; background: var(--vscode-button-background); 
+                                   color: var(--vscode-button-foreground); border: none; border-radius: 4px;">
+                        Close
+                    </button>
+                </div>
+            \`;
+            
+            modal.className = 'modal-overlay';
+            modal.appendChild(content);
+            document.body.appendChild(modal);
+            
+            // Close on outside click
+            modal.addEventListener('click', (e) => {
+                if (e.target === modal) modal.remove();
+            });
+        }
+        
         // Initialize
         document.addEventListener('DOMContentLoaded', function() {
-            // Apply initial filters
-            applyFilters();
+            console.log('Environment Comparison Table initializing...');
+            
+            // Attach event listeners
+            try {
+                document.getElementById('statusFilter').addEventListener('change', applyFilters);
+                document.getElementById('platformFilter').addEventListener('change', applyFilters);
+                document.getElementById('showAdvanced').addEventListener('change', toggleAdvancedDisplay);
+                document.getElementById('highlightDifferences').addEventListener('change', toggleHighlightDifferences);
+                
+                console.log('Event listeners attached successfully');
+                
+                // Check how many advanced sections exist
+                const advancedSections = document.querySelectorAll('.advanced-details');
+                console.log('Found advanced sections:', advancedSections.length);
+                
+                // Apply initial filters
+                applyFilters();
+                
+                console.log('Environment Comparison Table initialized successfully');
+            } catch (error) {
+                console.error('Error during initialization:', error);
+            }
         });
     </script>
 </body>
 </html>
   `;
+}
+
+/**
+ * Export environment comparison data to CSV
+ */
+async function exportEnvironmentComparisonData(comparisonData: any) {
+  try {
+    const csvContent = generateEnvironmentComparisonCSV(comparisonData);
+    
+    // Prompt for save location
+    const uri = await vscode.window.showSaveDialog({
+      filters: { 'CSV Files': ['csv'] },
+      saveLabel: 'Save Environment Comparison as CSV',
+      defaultUri: vscode.Uri.file('environment-comparison.csv')
+    });
+
+    if (uri) {
+      await vscode.workspace.fs.writeFile(uri, Buffer.from(csvContent, 'utf-8'));
+      vscode.window.showInformationMessage(`Environment comparison exported to ${uri.fsPath}`);
+    }
+  } catch (error: any) {
+    vscode.window.showErrorMessage(`Failed to export environment comparison: ${error.message}`);
+  }
+}
+
+/**
+ * Generate CSV content from environment comparison data
+ */
+function generateEnvironmentComparisonCSV(comparisonData: any): string {
+  if (!comparisonData || !comparisonData.applications) {
+    return 'No data available to export';
+  }
+
+  const environments = comparisonData.environments || [];
+  const applications = comparisonData.applications || {};
+
+  // Create headers
+  const baseHeaders = [
+    'Application Name',
+    'Normalized Name',
+    'Platform Type',
+    'Total Environments',
+    'Deployed Environments'
+  ];
+
+  // Add environment-specific headers
+  const envHeaders: string[] = [];
+  environments.forEach((env: any) => {
+    envHeaders.push(
+      `${env.name} - Status`,
+      `${env.name} - Version`,
+      `${env.name} - Runtime`,
+      `${env.name} - Filename`,
+      `${env.name} - Region`,
+      `${env.name} - Workers/Replicas`,
+      `${env.name} - Worker Type/Resources`,
+      `${env.name} - Last Update`,
+      `${env.name} - Created Date`
+    );
+  });
+
+  const allHeaders = [...baseHeaders, ...envHeaders];
+
+  // Generate rows
+  const rows: string[][] = [];
+  
+  Object.entries(applications).forEach(([normalizedName, deployments]: [string, any]) => {
+    if (!Array.isArray(deployments) || deployments.length === 0) return;
+
+    // Group deployments by original application name
+    const appGroups: { [originalName: string]: any[] } = {};
+    deployments.forEach((deployment: any) => {
+      const originalName = deployment.originalName || deployment.name || normalizedName;
+      if (!appGroups[originalName]) {
+        appGroups[originalName] = [];
+      }
+      appGroups[originalName].push(deployment);
+    });
+
+    // Create a row for each unique original application name
+    Object.entries(appGroups).forEach(([originalName, appDeployments]) => {
+      const row: string[] = [];
+      
+      // Base information
+      row.push(
+        `"${originalName}"`,
+        `"${normalizedName}"`,
+        appDeployments.map(d => d.type).join(', '),
+        environments.length.toString(),
+        appDeployments.length.toString()
+      );
+
+      // Environment-specific data
+      environments.forEach((env: any) => {
+        const deployment = appDeployments.find(d => d.environmentId === env.id);
+        
+        if (deployment && deployment.deploymentData) {
+          const data = deployment.deploymentData;
+          row.push(
+            `"${data.status || 'N/A'}"`,
+            `"${data.version || 'N/A'}"`,
+            `"${data.runtime || 'N/A'}"`,
+            `"${data.filename || 'N/A'}"`,
+            `"${data.region || 'N/A'}"`,
+            `"${data.workers || data.replicas || 'N/A'}"`,
+            `"${data.workerType || (data.cpuReserved && data.memoryReserved ? `${data.cpuReserved} CPU, ${data.memoryReserved} MB` : 'N/A')}"`,
+            `"${data.lastUpdateTime ? formatDateForCSV(data.lastUpdateTime) : 'N/A'}"`,
+            `"${data.creationDate ? formatDateForCSV(data.creationDate) : 'N/A'}"`
+          );
+        } else {
+          // No deployment in this environment
+          row.push('', '', '', '', '', '', '', '', '');
+        }
+      });
+
+      rows.push(row);
+    });
+  });
+
+  // Combine headers and rows
+  const csvLines = [
+    allHeaders.join(','),
+    ...rows.map(row => row.join(','))
+  ];
+
+  return csvLines.join('\n');
+}
+
+/**
+ * Format date for CSV export
+ */
+function formatDateForCSV(dateString: string): string {
+  if (!dateString || dateString === 'N/A') return 'N/A';
+  
+  try {
+    const date = new Date(dateString);
+    return date.toISOString().replace('T', ' ').substring(0, 19);
+  } catch {
+    return dateString;
+  }
 }
