@@ -24,9 +24,9 @@
    // Example redirect URL (must match your MuleSoft OAuth app settings)
    const LOCAL_REDIRECT_URI = 'http://localhost:8082/callback';
    
-   // Hardcoded for demonstration. In production, store these securely or prompt user.
-   const CLIENT_ID = '05ce4abd0fc047b4bcd512f15b3445c9';
-   const CLIENT_SECRET = 'b5d7dBEe693c4C3fa50C183A3f6570D2';
+   // Use the same credentials as the main extension
+   const CLIENT_ID = 'a7db79120339458da2d7ba979ee94a42';
+   const CLIENT_SECRET = '339A336DA32446dFb8B2945400E607B8';
    
    // ------------------------------------------------------------------
    // INTERFACES
