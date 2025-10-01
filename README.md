@@ -45,9 +45,10 @@
 
 ### 🗺️ Application Flow Diagrams
 
-- **Visualize Mule Flows**: Fetch a CloudHub 2.0 deployment and render flow/sub-flow relationships with `AM: Application Diagram`.
+- **Visualize Mule Flows**: Fetch a CloudHub 2.0 deployment or select a local JAR file to render flow/sub-flow relationships with `AM: Application Diagram`.
+- **Local & Remote Support**: Choose from CloudHub deployments or browse for local Mule application JAR files on your computer.
 - **Instant Graphs**: Inspect the generated Mermaid diagram directly inside VSCode and reuse it in architecture docs.
-- **In-Artifact Parsing**: The command downloads the deployment JAR in-memory, scans Mule XML, and highlights cross-file dependencies for faster onboarding.
+- **In-Artifact Parsing**: Downloads deployment JARs in-memory or reads local files, scans Mule XML, and highlights cross-file dependencies for faster onboarding.
 
 ### 🔌 API Management
 
@@ -82,7 +83,7 @@ Access all commands through the Command Palette (`Ctrl+Shift+P` / `Cmd+Shift+P`)
 | `AM: Show CloudHub 1.0 Applications` | List all CloudHub 1.0 applications            | Application names, status, environment, workers, and runtime versions |
 | `AM: Show CloudHub 2.0 Applications` | Display CloudHub 2.0 applications             | Modern CH2 apps with scaling info, replicas, and deployment status    |
 | `AM: Application Details`            | Get detailed view of specific CH1 application | Full configuration, logs access, properties, and monitoring data      |
-| `AM: Application Diagram`            | Visualize CloudHub 2.0 flow topology          | Interactive Mermaid diagram outlining flow and sub-flow connections   |
+| `AM: Application Diagram`            | Visualize CloudHub 2.0 or local JAR flows     | Interactive Mermaid diagram outlining flow and sub-flow connections   |
 | `AM: Real-Time Logs`                 | **Premium** Live log streaming for CH1 & CH2  | Real-time log tailing with filtering, search, and multi-format export |
 
 ### API & Subscription Commands

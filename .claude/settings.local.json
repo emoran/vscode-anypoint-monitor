@@ -18,7 +18,8 @@
       "Bash(npm test)",
       "Bash(node:*)",
       "WebFetch(domain:mermaid-js.github.io)",
-      "WebFetch(domain:mermaid.live)"
+      "WebFetch(domain:mermaid.live)",
+      "Bash(git checkout:*)"
     ],
     "deny": []
   }

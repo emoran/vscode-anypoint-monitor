@@ -8,7 +8,9 @@ import { refreshAccessToken } from '../controllers/oauthService';
 import { getCH2Deployments } from './cloudhub2Applications';
 import {
     buildMermaidDefinition,
+    buildMermaidDefinitionWithMode,
     buildMuleFlowGraph,
+    countComponents,
     MuleFlowGraph,
     MuleFlowNode,
     selectRelevantXmlEntries
@@ -52,6 +54,57 @@ export async function showApplicationDiagram(context: vscode.ExtensionContext, e
     }
 
     outputChannel.appendLine(`✅ Selected deployment: ${deploymentChoice.label} (ID: ${deploymentChoice.deploymentId})`);
+
+    // Check if user selected local JAR file option
+    if (deploymentChoice.deploymentId === '__LOCAL_JAR__') {
+        outputChannel.appendLine('\n--- Local JAR File Selected ---');
+        outputChannel.appendLine('💡 User chose to select a local JAR file...');
+        
+        // Prompt for local JAR file selection
+        const localJarZip = await promptForLocalJarFile(outputChannel);
+        if (!localJarZip) {
+            outputChannel.appendLine('❌ No local JAR file selected, cannot generate diagram');
+            return;
+        }
+        
+        outputChannel.appendLine('✅ Using local JAR file for diagram generation');
+        
+        await vscode.window.withProgress({
+            cancellable: false,
+            location: vscode.ProgressLocation.Notification,
+            title: `Generating diagram for Local JAR File`,
+        }, async (progress) => {
+            progress.report({ message: 'Parsing Mule configuration...' });
+            const xmlFiles = await collectXmlFiles(localJarZip);
+            if (Object.keys(xmlFiles).length === 0) {
+                vscode.window.showWarningMessage('No Mule XML files found in the selected JAR file.');
+                return;
+            }
+
+            const graph = buildMuleFlowGraph(xmlFiles);
+            if (graph.nodes.length === 0) {
+                vscode.window.showWarningMessage('No Mule flows detected in the selected JAR file.');
+                return;
+            }
+
+            // Let user choose rendering mode
+            outputChannel.appendLine(`🔍 Graph contains ${graph.nodes.length} nodes and ${graph.edges.length} edges`);
+            const totalComponents = graph.nodes.reduce((sum, node) => sum + countComponents(node.components), 0);
+            outputChannel.appendLine(`📊 Total components: ${totalComponents}`);
+            
+            await chooseRenderingMode(
+                context,
+                '📁 Local JAR File',
+                graph,
+                {
+                    artifactName: 'Local JAR File',
+                    fileCount: Object.keys(xmlFiles).length,
+                },
+                outputChannel
+            );
+        });
+        return;
+    }
 
     await vscode.window.withProgress({
         cancellable: false,
@@ -173,8 +226,17 @@ async function pickDeployment(
             };
         }).sort((a, b) => a.label.localeCompare(b.label));
 
+        // Add local JAR file option
+        items.unshift({
+            label: '📁 Select Local JAR File',
+            description: 'Choose a Mule application JAR file from your computer',
+            detail: 'Generate diagram from a local JAR file',
+            deploymentId: '__LOCAL_JAR__',
+            raw: null,
+        });
+
         const pick = await vscode.window.showQuickPick(items, {
-            placeHolder: 'Select a CloudHub 2.0 application',
+            placeHolder: 'Select a CloudHub 2.0 application or local JAR file',
             matchOnDetail: true,
             matchOnDescription: true,
         });
@@ -2541,6 +2603,162 @@ async function downloadArtifactFromExchange(
 
     outputChannel?.appendLine('❌ All Exchange download attempts failed');
     return undefined;
+}
+
+async function chooseRenderingMode(
+    context: vscode.ExtensionContext,
+    label: string,
+    graph: MuleFlowGraph,
+    metadata: { artifactName?: string; fileCount: number },
+    outputChannel: vscode.OutputChannel
+): Promise<void> {
+    const totalNodes = graph.nodes.length;
+    const totalComponents = graph.nodes.reduce((sum, node) => sum + countComponents(node.components), 0);
+    
+    const options: vscode.QuickPickItem[] = [
+        {
+            label: '🎯 Auto (Recommended)',
+            description: 'Automatically choose the best format for diagram size',
+            detail: `Will choose detailed view for small diagrams, simplified for large ones (${totalNodes} flows, ${totalComponents} components)`
+        },
+        {
+            label: '📊 Detailed View (Limited Components)',
+            description: 'Show up to 10 components per flow with details',
+            detail: 'Shows limited components with detailed information - good for medium flows'
+        },
+        {
+            label: '🔍 Full Detailed View (ALL Components)',
+            description: 'Show ALL nested components including children',
+            detail: 'Shows every single component recursively - best for small flows only'
+        },
+        {
+            label: '🗂️ Simplified View (Flow Overview)',
+            description: 'Show only flows with component counts',
+            detail: 'Simplified view showing flow relationships - best for large applications'
+        },
+        {
+            label: '🔀 Individual Flow View',
+            description: 'Render each flow separately for detailed analysis',
+            detail: 'Create separate diagrams for each flow - best for complex applications'
+        }
+    ];
+
+    const modeChoice = await vscode.window.showQuickPick(options, {
+        placeHolder: 'Choose diagram rendering mode',
+        matchOnDetail: true,
+        ignoreFocusOut: true
+    });
+
+    if (!modeChoice) {
+        outputChannel.appendLine('❌ No rendering mode selected');
+        return;
+    }
+
+    outputChannel.appendLine(`✅ Selected mode: ${modeChoice.label}`);
+
+    switch (modeChoice.label) {
+        case '🎯 Auto (Recommended)':
+            await renderSingleDiagram(context, label, graph, metadata, 'auto', outputChannel);
+            break;
+        case '📊 Detailed View (Limited Components)':
+            await renderSingleDiagram(context, label, graph, metadata, 'detailed', outputChannel);
+            break;
+        case '🔍 Full Detailed View (ALL Components)':
+            await renderSingleDiagram(context, label, graph, metadata, 'full-detailed', outputChannel);
+            break;
+        case '🗂️ Simplified View (Flow Overview)':
+            await renderSingleDiagram(context, label, graph, metadata, 'simplified', outputChannel);
+            break;
+        case '🔀 Individual Flow View':
+            await renderIndividualFlows(context, label, graph, metadata, outputChannel);
+            break;
+    }
+}
+
+async function renderSingleDiagram(
+    context: vscode.ExtensionContext,
+    label: string,
+    graph: MuleFlowGraph,
+    metadata: { artifactName?: string; fileCount: number },
+    mode: string,
+    outputChannel: vscode.OutputChannel
+): Promise<void> {
+    const mermaid = buildMermaidDefinitionWithMode(graph, mode);
+    outputChannel.appendLine(`📊 Generated ${mode} Mermaid definition with ${mermaid.split('\n').length} lines`);
+    
+    const modeLabel = mode === 'auto' ? ' (Auto)' 
+        : mode === 'detailed' ? ' (Detailed)' 
+        : mode === 'full-detailed' ? ' (Full Detailed)'
+        : ' (Simplified)';
+    
+    renderDiagramWebview(
+        context,
+        `${label}${modeLabel}`,
+        graph,
+        mermaid,
+        metadata
+    );
+}
+
+async function renderIndividualFlows(
+    context: vscode.ExtensionContext,
+    label: string,
+    graph: MuleFlowGraph,
+    metadata: { artifactName?: string; fileCount: number },
+    outputChannel: vscode.OutputChannel
+): Promise<void> {
+    const flowOptions = graph.nodes.map(node => ({
+        label: `${node.name}`,
+        description: `${node.type} • ${countComponents(node.components)} components`,
+        detail: `File: ${node.filePath}`,
+        flow: node
+    }));
+
+    flowOptions.unshift({
+        label: '📊 All Flows (Detailed View)',
+        description: 'Render all flows together with detailed components',
+        detail: 'Single diagram showing all flows with nested components',
+        flow: null as any
+    });
+
+    const flowChoice = await vscode.window.showQuickPick(flowOptions, {
+        placeHolder: 'Select a flow to render individually, or choose "All Flows"',
+        matchOnDetail: true,
+        ignoreFocusOut: true
+    });
+
+    if (!flowChoice) {
+        outputChannel.appendLine('❌ No flow selected');
+        return;
+    }
+
+    if (flowChoice.flow === null) {
+        // Render all flows with detailed view
+        await renderSingleDiagram(context, label, graph, metadata, 'detailed', outputChannel);
+        return;
+    }
+
+    // Create a new graph with just this flow
+    const singleFlowGraph: MuleFlowGraph = {
+        nodes: [flowChoice.flow],
+        edges: graph.edges.filter(edge => 
+            edge.from === flowChoice.flow.id || edge.to === flowChoice.flow.id
+        )
+    };
+
+    const mermaid = buildMermaidDefinitionWithMode(singleFlowGraph, 'detailed');
+    outputChannel.appendLine(`📊 Generated individual flow diagram for "${flowChoice.flow.name}"`);
+    
+    renderDiagramWebview(
+        context,
+        `${flowChoice.flow.name} (Individual)`,
+        singleFlowGraph,
+        mermaid,
+        {
+            ...metadata,
+            artifactName: `${metadata.artifactName} - ${flowChoice.flow.name}`
+        }
+    );
 }
 
 async function promptForLocalJarFile(outputChannel: vscode.OutputChannel): Promise<JSZip | undefined> {
