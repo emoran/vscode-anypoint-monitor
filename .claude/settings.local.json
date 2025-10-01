@@ -13,7 +13,12 @@
       "WebSearch",
       "WebFetch(domain:anypoint.mulesoft.com)",
       "WebFetch(domain:help.salesforce.com)",
-      "Bash(code:*)"
+      "Bash(code:*)",
+      "Read(//Users/emoran/Downloads/**)",
+      "Bash(npm test)",
+      "Bash(node:*)",
+      "WebFetch(domain:mermaid-js.github.io)",
+      "WebFetch(domain:mermaid.live)"
     ],
     "deny": []
   }
