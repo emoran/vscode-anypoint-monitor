@@ -25,7 +25,7 @@
   ],
   "keywords": [
     "anypoint",
-    "mulesoft", 
+    "mulesoft",
     "cloudhub",
     "api management",
     "monitoring",
@@ -42,7 +42,25 @@
     "Snippets",
     "Debuggers"
   ],
-  "activationEvents": [],
+  "activationEvents": [
+    "onCommand:anypoint-monitor.userInfo",
+    "onCommand:anypoint-monitor.applicationDetails",
+    "onCommand:anypoint-monitor.organizationInfo",
+    "onCommand:anypoint-monitor.login",
+    "onCommand:anypoint-monitor.cloudhub2Apps",
+    "onCommand:anypoint-monitor.cloudhub1Apps",
+    "onCommand:anypoint-monitor.subscriptionExpiration",
+    "onCommand:anypoint-monitor.developerUtilities",
+    "onCommand:anypoint-monitor.retrieveAccessToken",
+    "onCommand:anypoint-monitor.retrieveAPIManagerAPIs",
+    "onCommand:anypoint-monitor.communityEvents",
+    "onCommand:anypoint-monitor.provideFeedback",
+    "onCommand:anypoint-monitor.logout",
+    "onCommand:anypoint-monitor.auditAPIs",
+    "onCommand:anypoint-monitor.realTimeLogs",
+    "onCommand:anypoint-monitor.environmentComparison",
+    "onCommand:anypoint-monitor.applicationDiagram"
+  ],
   "main": "./out/extension.js",
   "files": [
     "resources/**/*"
@@ -57,7 +75,7 @@
         "command": "anypoint-monitor.applicationDetails",
         "title": "AM: Application Details"
       },
-       {
+      {
         "command": "anypoint-monitor.organizationInfo",
         "title": "AM: Organization Details"
       },
@@ -112,6 +130,10 @@
       {
         "command": "anypoint-monitor.environmentComparison",
         "title": "AM: Environment Comparison Table"
+      },
+      {
+        "command": "anypoint-monitor.applicationDiagram",
+        "title": "AM: Application Diagram"
       }
     ]
   },
@@ -133,10 +155,12 @@
     "@vscode/test-cli": "^0.0.10",
     "@vscode/test-electron": "^2.4.1",
     "eslint": "^9.16.0",
-    "typescript": "^5.7.2"
+    "typescript": "^5.7.2",
+    "@types/jszip": "^3.4.0"
   },
   "dependencies": {
     "axios": "^1.7.9",
+    "jszip": "^3.10.1",
     "open": "^10.1.0"
   }
 }

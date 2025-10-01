@@ -22,6 +22,7 @@ import { auditAPIs } from "./anypoint/apiAudit";
 import { showCommunityEvents } from "./anypoint/communityEvents";
 import { showRealTimeLogs } from "./anypoint/realTimeLogs";
 import { BASE_URL } from "./constants";
+import { showApplicationDiagram } from "./anypoint/applicationDiagram";
 
 interface EnvironmentOption {
 	label: string;
@@ -112,6 +113,19 @@ export function activate(context: vscode.ExtensionContext) {
 		} 
 		catch (error: any) {
 			vscode.window.showErrorMessage(`Error: ${error.message || error}`);
+		}
+	});
+
+	const applicationDiagramCmd = vscode.commands.registerCommand('anypoint-monitor.applicationDiagram', async () => {
+		try {
+			const selectedEnvironmentId = await selectEnvironment(context);
+			if (!selectedEnvironmentId) {
+				return;
+			}
+			await showApplicationDiagram(context, selectedEnvironmentId);
+		}
+		catch (error: any) {
+			vscode.window.showErrorMessage(`Failed to build application diagram: ${error.message || error}`);
 		}
 	});
 
@@ -569,6 +583,7 @@ export function activate(context: vscode.ExtensionContext) {
 	context.subscriptions.push(getCH1Apps);
 	context.subscriptions.push(organizationInformation);
 	context.subscriptions.push(applicationDetails);
+	context.subscriptions.push(applicationDiagramCmd);
 	context.subscriptions.push(subcriptionExpiration);
 	context.subscriptions.push(retrieveAccessToken);
 	context.subscriptions.push(retrieveAPIManagerAPIsCmd);

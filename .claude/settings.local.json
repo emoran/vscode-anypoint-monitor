@@ -10,7 +10,10 @@
       "Bash(ls:*)",
       "Bash(cat:*)",
       "WebFetch(domain:medium.com)",
-      "WebSearch"
+      "WebSearch",
+      "WebFetch(domain:anypoint.mulesoft.com)",
+      "WebFetch(domain:help.salesforce.com)",
+      "Bash(code:*)"
     ],
     "deny": []
   }

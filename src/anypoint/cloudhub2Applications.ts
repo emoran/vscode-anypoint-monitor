@@ -2,6 +2,7 @@
 import * as vscode from 'vscode';
 import * as fs from 'fs';
 import { showApplicationDetailsCH2Webview } from './/applicationDetailsCH2';
+import { refreshAccessToken } from '../controllers/oauthService';
 
 // ==================== MAIN ENTRY POINTS ====================
 
@@ -581,22 +582,40 @@ export async function getCH2Deployments(
   envId: string
 ): Promise<any[]> {
   try {
-    const accessToken = await context.secrets.get('anypoint.accessToken');
+    const url = `https://anypoint.mulesoft.com/amc/application-manager/api/v2/organizations/${orgId}/environments/${envId}/deployments`;
+    let accessToken = await context.secrets.get('anypoint.accessToken');
+
     if (!accessToken) {
       throw new Error('No access token found. Please log in first.');
     }
 
-    const url = `https://anypoint.mulesoft.com/amc/application-manager/api/v2/organizations/${orgId}/environments/${envId}/deployments`;
-    
-    console.log('Fetching CH2 deployments from:', url);
+    const executeRequest = async (token: string) => {
+      console.log('Fetching CH2 deployments from:', url);
+      return fetch(url, {
+        method: 'GET',
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json'
+        }
+      });
+    };
 
-    const response = await fetch(url, {
-      method: 'GET',
-      headers: {
-        'Authorization': `Bearer ${accessToken}`,
-        'Content-Type': 'application/json'
+    let response = await executeRequest(accessToken);
+
+    if (response.status === 401) {
+      console.warn('CH2 deployments request returned 401. Attempting to refresh access token.');
+      const refreshed = await refreshAccessToken(context);
+      if (!refreshed) {
+        throw new Error('Failed to refresh access token while fetching deployments.');
       }
-    });
+
+      accessToken = await context.secrets.get('anypoint.accessToken');
+      if (!accessToken) {
+        throw new Error('No access token available after refresh. Please log in again.');
+      }
+
+      response = await executeRequest(accessToken);
+    }
 
     if (!response.ok) {
       const errorText = await response.text();
@@ -824,4 +843,3 @@ function generateCH2ApplicationsCsv(applications: any[]): string {
   
   return csvContent;
 }
-
