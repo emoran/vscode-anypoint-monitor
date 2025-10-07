@@ -1,12 +1,25 @@
 {
   "name": "anypoint-monitor",
   "displayName": "Anypoint Monitor",
-  "description": "Complete Anypoint Platform management toolkit for VS Code. Monitor CloudHub apps, manage APIs, view org details, and streamline MuleSoft development workflows - all from your IDE.",
+  "description": "Professional Anypoint Platform management extension for Visual Studio Code. Provides comprehensive monitoring and management capabilities for CloudHub applications, API portfolio oversight, organizational analytics, and development workflow optimization within your IDE environment.",
   "publisher": "EdgarMoran",
-  "version": "0.0.28",
+  "version": "0.0.29",
   "engines": {
     "vscode": "^1.96.0"
   },
+  "license": "MIT",
+  "author": {
+    "name": "Edgar Moran",
+    "email": "emoran@salesforce.com"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/emoran/vscode-anypoint-monitor.git"
+  },
+  "bugs": {
+    "url": "https://github.com/emoran/vscode-anypoint-monitor/issues"
+  },
+  "homepage": "https://github.com/emoran/vscode-anypoint-monitor#readme",
   "icon": "logo.png",
   "screenshots": [
     {

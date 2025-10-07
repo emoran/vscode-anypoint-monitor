@@ -19,7 +19,8 @@
       "Bash(node:*)",
       "WebFetch(domain:mermaid-js.github.io)",
       "WebFetch(domain:mermaid.live)",
-      "Bash(git checkout:*)"
+      "Bash(git checkout:*)",
+      "WebFetch(domain:marketplace.visualstudio.com)"
     ],
     "deny": []
   }
