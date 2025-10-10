@@ -177,7 +177,11 @@ function getCloudHub2ApplicationsHtml(
   const logoPath = vscode.Uri.joinPath(extensionUri, 'logo.png');
   const logoSrc = webview.asWebviewUri(logoPath);
 
-  const applicationsTableHtml = buildCloudHub2ApplicationsTable(applications);
+  // Calculate statistics
+  const totalApps = applications.length;
+  const runningApps = applications.filter(app => (app.application?.status || app.status) === 'RUNNING' || (app.application?.status || app.status) === 'STARTED').length;
+  const stoppedApps = applications.filter(app => ['STOPPED', 'UNDEPLOYED', 'FAILED'].includes(app.application?.status || app.status)).length;
+  const totalVCores = applications.reduce((sum, app) => sum + (app.target?.resources?.cpu?.reserved || 0), 0);
 
   return /* html */ `
     <!DOCTYPE html>
@@ -185,169 +189,474 @@ function getCloudHub2ApplicationsHtml(
       <head>
         <meta charset="UTF-8" />
         <title>CloudHub 2.0 Applications - ${environment || 'Unknown Environment'}</title>
-        <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Fira+Code:wght@400;600&display=swap" />
         <style>
+          /* Code Time inspired theme */
           :root {
-            --background-color: #0D1117;
-            --card-color: #161B22;
-            --text-color: #C9D1D9;
-            --accent-color: #58A6FF;
-            --navbar-color: #141A22;
-            --navbar-text-color: #F0F6FC;
-            --button-hover-color: #3186D1;
-            --table-hover-color: #21262D;
+            --background-primary: #1e2328;
+            --background-secondary: #161b22;
+            --surface-primary: #21262d;
+            --surface-secondary: #30363d;
+            --surface-accent: #0d1117;
+            --text-primary: #f0f6fc;
+            --text-secondary: #7d8590;
+            --text-muted: #656d76;
+            --accent-blue: #58a6ff;
+            --accent-light: #79c0ff;
+            --border-primary: #30363d;
+            --border-muted: #21262d;
+            --success: #3fb950;
+            --warning: #d29922;
+            --error: #f85149;
+          }
+
+          * {
+            box-sizing: border-box;
           }
 
           body {
             margin: 0;
             padding: 0;
-            background-color: var(--background-color);
-            color: var(--text-color);
-            font-family: 'Fira Code', monospace, sans-serif;
-            font-size: 12px;
+            background-color: var(--background-primary);
+            color: var(--text-primary);
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Noto Sans', Helvetica, Arial, sans-serif;
+            font-size: 14px;
+            line-height: 1.5;
           }
 
-          .navbar {
+          /* Header Section */
+          .header {
+            background-color: var(--background-secondary);
+            border-bottom: 1px solid var(--border-primary);
+            padding: 24px 32px;
+          }
+
+          .header-content {
+            max-width: 1200px;
+            margin: 0 auto;
+          }
+
+          .header h1 {
+            font-size: 28px;
+            font-weight: 600;
+            margin: 0 0 8px 0;
+            color: var(--text-primary);
+          }
+
+          .header p {
+            font-size: 16px;
+            color: var(--text-secondary);
+            margin: 0;
+          }
+
+          /* Environment Info */
+          .environment-badge {
+            display: inline-flex;
+            align-items: center;
+            background-color: var(--surface-primary);
+            border: 1px solid var(--border-primary);
+            border-radius: 8px;
+            padding: 8px 12px;
+            margin-top: 12px;
+            color: var(--accent-blue);
+            font-weight: 500;
+          }
+
+          /* Main Content */
+          .container {
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 32px;
+          }
+
+          /* Statistics Grid */
+          .stats-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+            gap: 20px;
+            margin-bottom: 32px;
+          }
+
+          .stat-card {
+            background-color: var(--surface-primary);
+            border: 1px solid var(--border-primary);
+            border-radius: 12px;
+            padding: 24px;
+            transition: all 0.2s;
+          }
+
+          .stat-card:hover {
+            border-color: var(--border-muted);
+            transform: translateY(-1px);
+          }
+
+          .stat-header {
             display: flex;
             align-items: center;
             justify-content: space-between;
-            background-color: var(--navbar-color);
-            padding: 0.5rem 1rem;
+            margin-bottom: 16px;
           }
-          .navbar-left {
-            display: flex;
-            align-items: center;
-            gap: 0.5rem;
-          }
-          .navbar-left img {
-            height: 28px;
-            width: auto;
-          }
-          .navbar-left h1 {
-            color: var(--navbar-text-color);
-            font-size: 1rem;
+
+          .stat-title {
+            font-size: 14px;
+            font-weight: 500;
+            color: var(--text-secondary);
             margin: 0;
           }
-          .navbar-right {
-            display: flex;
-            gap: 0.75rem;
-          }
-          .navbar-right a {
-            color: var(--navbar-text-color);
-            text-decoration: none;
-            font-weight: 500;
-            font-size: 0.75rem;
-          }
-          .navbar-right a:hover {
-            text-decoration: underline;
+
+          .stat-value {
+            font-size: 32px;
+            font-weight: 600;
+            color: var(--text-primary);
+            margin: 0 0 8px 0;
+            line-height: 1.2;
           }
 
-          .container {
-            width: 90%;
-            max-width: 1400px;
-            margin: 0.5rem auto;
+          .stat-subtitle {
+            font-size: 13px;
+            color: var(--text-muted);
+            margin: 0;
           }
 
-          .card {
-            background-color: var(--card-color);
-            border: 1px solid #30363D;
-            border-radius: 6px;
-            padding: 0.5rem;
-            margin-bottom: 1rem;
+          /* Applications Table Card */
+          .applications-card {
+            background-color: var(--surface-primary);
+            border: 1px solid var(--border-primary);
+            border-radius: 12px;
+            padding: 24px;
           }
+
           .card-header {
             display: flex;
             align-items: center;
             justify-content: space-between;
-            margin-bottom: 0.5rem;
+            margin-bottom: 20px;
           }
-          .card-header h2 {
+
+          .card-title {
+            font-size: 18px;
+            font-weight: 600;
+            color: var(--text-primary);
             margin: 0;
-            font-size: 0.9rem;
-            color: var(--accent-color);
           }
 
           .button-group {
             display: flex;
-            gap: 0.25rem;
+            gap: 8px;
           }
+
           .button {
-            padding: 4px 8px;
-            font-size: 0.75rem;
-            color: #fff;
-            background-color: var(--accent-color);
+            background-color: var(--accent-blue);
+            color: var(--text-primary);
             border: none;
-            border-radius: 4px;
+            border-radius: 8px;
+            padding: 12px 16px;
+            font-size: 14px;
+            font-weight: 500;
             cursor: pointer;
-            font-weight: 600;
+            transition: all 0.2s;
           }
+
           .button:hover {
-            background-color: var(--button-hover-color);
+            background-color: var(--accent-light);
           }
+
           .button:disabled {
-            background-color: #6c757d;
+            background-color: var(--text-muted);
             cursor: not-allowed;
           }
 
-          .table-container {
-            width: 100%;
-            overflow-x: auto;
-          }
-          table {
-            border-collapse: collapse;
-            width: 100%;
-          }
-          th, td {
-            padding: 4px;
-            border-bottom: 1px solid #30363D;
-            text-align: left;
-            vertical-align: top;
-          }
-          th {
-            color: var(--accent-color);
-            white-space: nowrap;
-          }
-          tr:hover {
-            background-color: var(--table-hover-color);
-          }
-          .app-table {
-            font-size: 0.75rem;
+          /* Table Controls */
+          .table-controls {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 16px;
+            flex-wrap: wrap;
+            gap: 16px;
           }
 
+          .entries-control {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            font-size: 14px;
+            color: var(--text-secondary);
+          }
+
+          .entries-control select {
+            background-color: var(--surface-secondary);
+            color: var(--text-primary);
+            border: 1px solid var(--border-primary);
+            border-radius: 6px;
+            padding: 6px 8px;
+            font-size: 14px;
+          }
+
+          .search-control {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+          }
+
+          .search-input {
+            background-color: var(--surface-secondary);
+            color: var(--text-primary);
+            border: 1px solid var(--border-primary);
+            border-radius: 6px;
+            padding: 8px 12px;
+            font-size: 14px;
+            width: 250px;
+          }
+
+          .search-input:focus {
+            outline: none;
+            border-color: var(--accent-blue);
+          }
+
+          /* Table Styles */
+          .table-wrapper {
+            overflow-x: auto;
+            border-radius: 8px;
+            border: 1px solid var(--border-primary);
+          }
+
+          table {
+            width: 100%;
+            border-collapse: collapse;
+            background-color: var(--surface-secondary);
+          }
+
+          th {
+            background-color: var(--background-secondary);
+            color: var(--text-primary);
+            font-weight: 600;
+            padding: 16px 12px;
+            text-align: left;
+            border-bottom: 1px solid var(--border-primary);
+            font-size: 13px;
+          }
+
+          td {
+            padding: 16px 12px;
+            border-bottom: 1px solid var(--border-muted);
+            color: var(--text-primary);
+            font-size: 14px;
+          }
+
+          tr:last-child td {
+            border-bottom: none;
+          }
+
+          tr:hover {
+            background-color: var(--border-muted);
+          }
+
+          /* App Name Links */
           .app-name-link {
-            color: var(--accent-color);
+            color: var(--accent-blue);
             text-decoration: none;
             cursor: pointer;
-          }
-          .app-name-link:hover {
-            text-decoration: underline;
+            font-weight: 500;
           }
 
-          .environment-info {
-            background-color: var(--card-color);
-            border: 1px solid #30363D;
-            border-radius: 4px;
-            padding: 0.5rem;
-            margin-bottom: 1rem;
-            font-size: 0.8rem;
+          .app-name-link:hover {
+            text-decoration: underline;
+            color: var(--accent-light);
+          }
+
+          /* Status Badges */
+          .status-badge {
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            padding: 4px 8px;
+            border-radius: 6px;
+            font-size: 12px;
+            font-weight: 500;
+          }
+
+          .status-running {
+            background-color: rgba(63, 185, 80, 0.15);
+            color: var(--success);
+          }
+
+          .status-stopped {
+            background-color: rgba(248, 81, 73, 0.15);
+            color: var(--error);
+          }
+
+          .status-default {
+            background-color: rgba(125, 133, 144, 0.15);
+            color: var(--text-secondary);
+          }
+
+          .status-dot {
+            width: 6px;
+            height: 6px;
+            border-radius: 50%;
+            background-color: currentColor;
+          }
+
+          /* Pagination */
+          .pagination {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-top: 16px;
+            font-size: 14px;
+            color: var(--text-secondary);
+          }
+
+          .pagination-controls {
+            display: flex;
+            gap: 8px;
+          }
+
+          .pagination-btn {
+            background-color: var(--surface-secondary);
+            color: var(--text-primary);
+            border: 1px solid var(--border-primary);
+            border-radius: 6px;
+            padding: 8px 12px;
+            font-size: 14px;
+            cursor: pointer;
+            transition: all 0.2s;
+          }
+
+          .pagination-btn:hover:not(:disabled) {
+            background-color: var(--accent-blue);
+          }
+
+          .pagination-btn:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+          }
+
+          /* Responsive Design */
+          @media (max-width: 768px) {
+            .container {
+              padding: 16px;
+            }
+            
+            .header {
+              padding: 16px;
+            }
+            
+            .stats-grid {
+              grid-template-columns: 1fr;
+            }
+
+            .table-controls {
+              flex-direction: column;
+              align-items: stretch;
+            }
+
+            .search-input {
+              width: 100%;
+            }
           }
         </style>
       </head>
       <body>
-        <nav class="navbar">
-          <div class="navbar-left">
-            <img src="${logoSrc}" alt="Logo"/>
-            <h1>Anypoint Monitor Extension</h1>
+        <!-- Header -->
+        <div class="header">
+          <div class="header-content">
+            <h1>CloudHub 2.0 Applications</h1>
+            <p>Next-generation application monitoring and management</p>
+            ${environment ? `<div class="environment-badge">Environment: ${environment}</div>` : ''}
           </div>
-          <div class="navbar-right">
-            <a href="https://marketplace.visualstudio.com/items?itemName=EdgarMoran.anypoint-monitor">About</a>
-            <a href="https://www.buymeacoffee.com/yucelmoran">Buy Me a Coffee</a>
-          </div>
-        </nav>
+        </div>
 
+        <!-- Main Content -->
         <div class="container">
-          ${environment ? `<div class="environment-info">Environment: <strong>${environment}</strong></div>` : ''}
-          ${applicationsTableHtml}
+          <!-- Statistics Grid -->
+          <div class="stats-grid">
+            <div class="stat-card">
+              <div class="stat-header">
+                <h3 class="stat-title">Total Applications</h3>
+              </div>
+              <div class="stat-value">${totalApps}</div>
+              <p class="stat-subtitle">All applications</p>
+            </div>
+
+            <div class="stat-card">
+              <div class="stat-header">
+                <h3 class="stat-title">Running Applications</h3>
+              </div>
+              <div class="stat-value">${runningApps}</div>
+              <p class="stat-subtitle">Currently active</p>
+            </div>
+
+            <div class="stat-card">
+              <div class="stat-header">
+                <h3 class="stat-title">Stopped Applications</h3>
+              </div>
+              <div class="stat-value">${stoppedApps}</div>
+              <p class="stat-subtitle">Currently inactive</p>
+            </div>
+
+            <div class="stat-card">
+              <div class="stat-header">
+                <h3 class="stat-title">Total vCores</h3>
+              </div>
+              <div class="stat-value">${totalVCores}</div>
+              <p class="stat-subtitle">Allocated vCores</p>
+            </div>
+          </div>
+
+          <!-- Applications Table -->
+          <div class="applications-card">
+            <div class="card-header">
+              <h2 class="card-title">Applications</h2>
+              <div class="button-group">
+                <button id="btnRefreshApps" class="button">Refresh</button>
+                <button id="btnDownloadCH2Csv" class="button">Download as CSV</button>
+              </div>
+            </div>
+
+            <div class="table-controls">
+              <div class="entries-control">
+                <label>Show</label>
+                <select id="entriesPerPage">
+                  <option value="10">10</option>
+                  <option value="25">25</option>
+                  <option value="50">50</option>
+                  <option value="100">100</option>
+                </select>
+                <label>entries</label>
+              </div>
+              <div class="search-control">
+                <label>Search:</label>
+                <input type="text" id="appSearch" class="search-input" placeholder="Search applications...">
+              </div>
+            </div>
+
+            <div class="table-wrapper">
+              <table id="appTable">
+                <thead>
+                  <tr>
+                    <th>Status</th>
+                    <th>Name</th>
+                    <th>Creation Date</th>
+                    <th>Current Runtime Version</th>
+                    <th>Last Modified Date</th>
+                    <th>Last Successful Runtime Version</th>
+                  </tr>
+                </thead>
+                <tbody id="ch2AppsTbody">
+                  <!-- Table content will be populated by JavaScript -->
+                </tbody>
+              </table>
+            </div>
+
+            <div class="pagination">
+              <div id="ch2AppsInfo">Showing 0 to 0 of 0 entries</div>
+              <div class="pagination-controls">
+                <button id="ch2AppsPrev" class="pagination-btn">Previous</button>
+                <button id="ch2AppsNext" class="pagination-btn">Next</button>
+              </div>
+            </div>
+          </div>
         </div>
 
         <script>
@@ -358,6 +667,75 @@ function getCloudHub2ApplicationsHtml(
           let filteredApplications = [...applicationsData];
           let currentPage = 1;
           let entriesPerPage = 10;
+
+          // Render status badge
+          function renderStatus(status) {
+            const statusClass = 
+              (status === 'RUNNING' || status === 'STARTED') ? 'status-running' :
+              ['STOPPED', 'UNDEPLOYED', 'FAILED'].includes(status) ? 'status-stopped' :
+              'status-default';
+            
+            return \`<span class="status-badge \${statusClass}">
+              <span class="status-dot"></span>
+              \${status || 'Unknown'}
+            </span>\`;
+          }
+
+          // Format date safely
+          function formatDateSafe(dateStr) {
+            if (!dateStr) return 'N/A';
+            try {
+              return new Date(dateStr).toLocaleDateString();
+            } catch {
+              return dateStr;
+            }
+          }
+
+          // Render table
+          function renderTable() {
+            const startIndex = (currentPage - 1) * entriesPerPage;
+            const endIndex = startIndex + entriesPerPage;
+            const pageApplications = filteredApplications.slice(startIndex, endIndex);
+            
+            const tbody = document.getElementById('ch2AppsTbody');
+            if (!tbody) return;
+
+            const rowsHtml = pageApplications.map((app, pageIndex) => {
+              if (!app || typeof app !== 'object') return '';
+              
+              const actualIndex = applicationsData.indexOf(app);
+              const status = (app.application && app.application.status) || app.status || '';
+
+              return \`
+                <tr data-app-index="\${actualIndex}">
+                  <td>\${renderStatus(status)}</td>
+                  <td><a href="#" class="app-name-link" data-app-name="\${app.name || ''}" data-app-index="\${actualIndex}">\${app.name || 'Unknown'}</a></td>
+                  <td>\${formatDateSafe(app.creationDate)}</td>
+                  <td>\${app.currentRuntimeVersion || 'N/A'}</td>
+                  <td>\${formatDateSafe(app.lastModifiedDate)}</td>
+                  <td>\${app.lastSuccessfulRuntimeVersion || 'N/A'}</td>
+                </tr>
+              \`;
+            }).filter(row => row !== '').join('');
+
+            tbody.innerHTML = rowsHtml;
+            updatePagination();
+          }
+
+          // Update pagination
+          function updatePagination() {
+            const totalItems = filteredApplications.length;
+            const totalPages = Math.ceil(totalItems / entriesPerPage);
+            const startIndex = (currentPage - 1) * entriesPerPage + 1;
+            const endIndex = Math.min(currentPage * entriesPerPage, totalItems);
+
+            document.getElementById('ch2AppsInfo').textContent = 
+              totalItems === 0 ? 'Showing 0 to 0 of 0 entries' :
+              \`Showing \${startIndex} to \${endIndex} of \${totalItems} entries\`;
+
+            document.getElementById('ch2AppsPrev').disabled = currentPage <= 1;
+            document.getElementById('ch2AppsNext').disabled = currentPage >= totalPages;
+          }
 
           // Handle app name clicks
           document.addEventListener('click', (e) => {
@@ -426,72 +804,6 @@ function getCloudHub2ApplicationsHtml(
               renderTable();
             }
           });
-
-          function renderTable() {
-            const startIndex = (currentPage - 1) * entriesPerPage;
-            const endIndex = startIndex + entriesPerPage;
-            const pageApplications = filteredApplications.slice(startIndex, endIndex);
-            
-            const tbody = document.getElementById('ch2AppsTbody');
-            if (!tbody) return;
-
-            const rowsHtml = pageApplications.map((app, pageIndex) => {
-              if (!app || typeof app !== 'object') return '';
-              
-              const actualIndex = applicationsData.indexOf(app);
-              const status = (app.application && app.application.status) || app.status || '';
-              const statusHtml = status === 'RUNNING' || status === 'STARTED' 
-                ? \`<span style="color: #00ff00;">● \${status}</span>\`
-                : ['STOPPED', 'UNDEPLOYED'].includes(status)
-                ? \`<span style="color: #ff0000;">● \${status}</span>\`
-                : status;
-
-              const formatDateSafe = (dateStr) => {
-                if (!dateStr) return '';
-                try {
-                  return new Date(dateStr).toISOString().split('T')[0];
-                } catch {
-                  return dateStr;
-                }
-              };
-
-              return \`
-                <tr data-app-index="\${actualIndex}">
-                  <td>\${statusHtml}</td>
-                  <td><a href="#" class="app-name-link" data-app-name="\${app.name || ''}" data-app-index="\${actualIndex}">\${app.name || 'Unknown'}</a></td>
-                  <td>\${formatDateSafe(app.creationDate)}</td>
-                  <td>\${app.currentRuntimeVersion || ''}</td>
-                  <td>\${formatDateSafe(app.lastModifiedDate)}</td>
-                  <td>\${app.lastSuccessfulRuntimeVersion || ''}</td>
-                </tr>
-              \`;
-            }).filter(row => row !== '').join('');
-
-            tbody.innerHTML = rowsHtml;
-
-            // Update pagination info
-            const totalPages = Math.ceil(filteredApplications.length / entriesPerPage);
-            const showingStart = filteredApplications.length === 0 ? 0 : startIndex + 1;
-            const showingEnd = Math.min(endIndex, filteredApplications.length);
-            
-            const infoElement = document.getElementById('ch2AppsInfo');
-            const pageNumElement = document.getElementById('ch2AppsPageNum');
-            const prevButton = document.getElementById('ch2AppsPrev');
-            const nextButton = document.getElementById('ch2AppsNext');
-            
-            if (infoElement) {
-              infoElement.textContent = \`Showing \${showingStart} to \${showingEnd} of \${filteredApplications.length} entries\`;
-            }
-            if (pageNumElement) {
-              pageNumElement.textContent = currentPage.toString();
-            }
-            if (prevButton) {
-              prevButton.disabled = currentPage <= 1;
-            }
-            if (nextButton) {
-              nextButton.disabled = currentPage >= totalPages;
-            }
-          }
 
           // Initial render
           renderTable();

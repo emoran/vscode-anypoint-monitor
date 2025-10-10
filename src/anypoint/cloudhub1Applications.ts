@@ -53,204 +53,422 @@ function getApplicationsHtml(
   const logoPath = vscode.Uri.joinPath(extensionUri, 'logo.png');
   const logoSrc = webview.asWebviewUri(logoPath);
 
-  // DataTables + jQuery
-  const dataTableJs = 'https://cdn.datatables.net/1.13.4/js/jquery.dataTables.min.js';
-  const jqueryJs = 'https://code.jquery.com/jquery-3.6.0.min.js';
-  const dataTableCss = 'https://cdn.datatables.net/1.13.4/css/jquery.dataTables.min.css';
-
-  // Google Fonts (Fira Code for a tech vibe)
-  const googleFontLink = 'https://fonts.googleapis.com/css2?family=Fira+Code:wght@400;600&display=swap';
+  // Calculate statistics
+  const totalApps = apps.length;
+  const runningApps = apps.filter(app => app.status === 'STARTED' || app.status === 'RUNNING').length;
+  const stoppedApps = apps.filter(app => app.status === 'STOPPED' || app.status === 'UNDEPLOYED').length;
+  const totalWorkers = apps.reduce((sum, app) => sum + (app.workers || 0), 0);
 
   return /* html */ `
     <!DOCTYPE html>
     <html lang="en">
       <head>
         <meta charset="UTF-8" />
-        <title>CloudHub Applications</title>
-        <!-- DataTables + Google Font -->
-        <link rel="stylesheet" href="${dataTableCss}" />
-        <link rel="stylesheet" href="${googleFontLink}" />
+        <title>CloudHub 1.0 Applications</title>
         <style>
-          /* Dark Theme + Tech Vibe */
+          /* Code Time inspired theme */
           :root {
-            --background-color: #0D1117;
-            --card-color: #161B22;
-            --text-color: #C9D1D9;
-            --accent-color: #58A6FF;
-            --navbar-color: #141A22;
-            --navbar-text-color: #F0F6FC;
-            --button-hover-color: #3186D1;
-            --table-hover-color: #21262D;
+            --background-primary: #1e2328;
+            --background-secondary: #161b22;
+            --surface-primary: #21262d;
+            --surface-secondary: #30363d;
+            --surface-accent: #0d1117;
+            --text-primary: #f0f6fc;
+            --text-secondary: #7d8590;
+            --text-muted: #656d76;
+            --accent-blue: #58a6ff;
+            --accent-light: #79c0ff;
+            --border-primary: #30363d;
+            --border-muted: #21262d;
+            --success: #3fb950;
+            --warning: #d29922;
+            --error: #f85149;
+          }
+
+          * {
+            box-sizing: border-box;
           }
 
           body {
             margin: 0;
             padding: 0;
-            background-color: var(--background-color);
-            color: var(--text-color);
-            font-family: 'Fira Code', monospace, sans-serif;
+            background-color: var(--background-primary);
+            color: var(--text-primary);
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Noto Sans', Helvetica, Arial, sans-serif;
             font-size: 14px;
+            line-height: 1.5;
           }
 
-          /* Navbar */
-          .navbar {
+          /* Header Section */
+          .header {
+            background-color: var(--background-secondary);
+            border-bottom: 1px solid var(--border-primary);
+            padding: 24px 32px;
+          }
+
+          .header-content {
+            max-width: 1200px;
+            margin: 0 auto;
+          }
+
+          .header h1 {
+            font-size: 28px;
+            font-weight: 600;
+            margin: 0 0 8px 0;
+            color: var(--text-primary);
+          }
+
+          .header p {
+            font-size: 16px;
+            color: var(--text-secondary);
+            margin: 0;
+          }
+
+          /* Main Content */
+          .container {
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 32px;
+          }
+
+          /* Statistics Grid */
+          .stats-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+            gap: 20px;
+            margin-bottom: 32px;
+          }
+
+          .stat-card {
+            background-color: var(--surface-primary);
+            border: 1px solid var(--border-primary);
+            border-radius: 12px;
+            padding: 24px;
+            transition: all 0.2s;
+          }
+
+          .stat-card:hover {
+            border-color: var(--border-muted);
+            transform: translateY(-1px);
+          }
+
+          .stat-header {
             display: flex;
             align-items: center;
             justify-content: space-between;
-            background-color: var(--navbar-color);
-            padding: 0.75rem 1rem;
+            margin-bottom: 16px;
           }
-          .navbar-left {
-            display: flex;
-            align-items: center;
-            gap: 1rem;
-          }
-          .navbar-left img {
-            height: 32px;
-            width: auto;
-          }
-          .navbar-left h1 {
-            color: var(--navbar-text-color);
-            font-size: 1.25rem;
+
+          .stat-title {
+            font-size: 14px;
+            font-weight: 500;
+            color: var(--text-secondary);
             margin: 0;
           }
-          .navbar-right {
-            display: flex;
-            gap: 1.5rem;
-          }
-          .navbar-right a {
-            color: var(--navbar-text-color);
-            text-decoration: none;
-            font-weight: 500;
-            font-size: 0.9rem;
-          }
-          .navbar-right a:hover {
-            text-decoration: underline;
+
+          .stat-value {
+            font-size: 32px;
+            font-weight: 600;
+            color: var(--text-primary);
+            margin: 0 0 8px 0;
+            line-height: 1.2;
           }
 
-          /* Main Container */
-          .container {
-            width: 90%;
-            max-width: 1200px;
-            margin: 1rem auto;
+          .stat-subtitle {
+            font-size: 13px;
+            color: var(--text-muted);
+            margin: 0;
           }
 
-          /* Card */
-          .card {
-            background-color: var(--card-color);
-            border: 1px solid #30363D;
-            border-radius: 6px;
-            padding: 1rem;
+          /* Applications Table Card */
+          .applications-card {
+            background-color: var(--surface-primary);
+            border: 1px solid var(--border-primary);
+            border-radius: 12px;
+            padding: 24px;
           }
+
           .card-header {
             display: flex;
             align-items: center;
             justify-content: space-between;
-            margin-bottom: 1rem;
-          }
-          .card-header h2 {
-            margin: 0;
-            font-size: 1.25rem;
-            color: var(--accent-color);
+            margin-bottom: 20px;
           }
 
-          /* Button */
-          .button {
-            padding: 6px 12px;
-            font-size: 0.85rem;
-            color: #ffffff;
-            background-color: var(--accent-color);
-            border: none;
-            border-radius: 4px;
-            cursor: pointer;
+          .card-title {
+            font-size: 18px;
             font-weight: 600;
+            color: var(--text-primary);
+            margin: 0;
           }
+
+          .button {
+            background-color: var(--accent-blue);
+            color: var(--text-primary);
+            border: none;
+            border-radius: 8px;
+            padding: 12px 16px;
+            font-size: 14px;
+            font-weight: 500;
+            cursor: pointer;
+            transition: all 0.2s;
+          }
+
           .button:hover {
-            background-color: var(--button-hover-color);
+            background-color: var(--accent-light);
           }
 
-          /* DataTable Overwrites */
-          #appTable_wrapper .dataTables_length,
-          #appTable_wrapper .dataTables_filter,
-          #appTable_wrapper .dataTables_info,
-          #appTable_wrapper .dataTables_paginate {
-            margin: 0.5rem 0;
-            font-size: 0.85rem;
-            color: var(--text-color);
+          /* Table Controls */
+          .table-controls {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 16px;
+            flex-wrap: wrap;
+            gap: 16px;
           }
 
-          /* Style the "Show X entries" label and dropdown */
-          #appTable_length label {
-            color: var(--text-color);
-            font-weight: normal;
+          .entries-control {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            font-size: 14px;
+            color: var(--text-secondary);
           }
-          #appTable_length select {
-            background-color: #121212;
-            color: var(--text-color);
-            border: 1px solid #30363D;
-            border-radius: 4px;
-            padding: 2px 8px;
+
+          .entries-control select {
+            background-color: var(--surface-secondary);
+            color: var(--text-primary);
+            border: 1px solid var(--border-primary);
+            border-radius: 6px;
+            padding: 6px 8px;
+            font-size: 14px;
+          }
+
+          .search-control {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+          }
+
+          .search-input {
+            background-color: var(--surface-secondary);
+            color: var(--text-primary);
+            border: 1px solid var(--border-primary);
+            border-radius: 6px;
+            padding: 8px 12px;
+            font-size: 14px;
+            width: 250px;
+          }
+
+          .search-input:focus {
             outline: none;
+            border-color: var(--accent-blue);
           }
 
-          #appTable_wrapper input[type="search"] {
-            background-color: #121212;
-            color: var(--text-color);
-            border: 1px solid #30363D;
+          /* Table Styles */
+          .table-wrapper {
+            overflow-x: auto;
+            border-radius: 8px;
+            border: 1px solid var(--border-primary);
           }
-          #appTable thead {
-            background-color: #21262D;
+
+          table {
+            width: 100%;
+            border-collapse: collapse;
+            background-color: var(--surface-secondary);
           }
-          #appTable thead th {
-            color: var(--accent-color);
-            border-bottom: 1px solid #30363D;
+
+          th {
+            background-color: var(--background-secondary);
+            color: var(--text-primary);
+            font-weight: 600;
+            padding: 16px 12px;
+            text-align: left;
+            border-bottom: 1px solid var(--border-primary);
+            font-size: 13px;
           }
-          #appTable tbody tr {
-            background-color: var(--card-color);
-            border-bottom: 1px solid #30363D;
+
+          td {
+            padding: 16px 12px;
+            border-bottom: 1px solid var(--border-muted);
+            color: var(--text-primary);
+            font-size: 14px;
           }
-          #appTable tbody tr:hover {
-            background-color: var(--table-hover-color);
+
+          tr:last-child td {
+            border-bottom: none;
           }
-          #appTable tbody td {
-            color: var(--text-color);
-            white-space: nowrap;
+
+          tr:hover {
+            background-color: var(--border-muted);
           }
-          .dataTables_paginate .paginate_button {
-            color: var(--accent-color) !important;
+
+          /* Status Badges */
+          .status-badge {
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            padding: 4px 8px;
+            border-radius: 6px;
+            font-size: 12px;
+            font-weight: 500;
           }
-          .dataTables_paginate .paginate_button.current {
-            background: var(--accent-color) !important;
-            color: #fff !important;
+
+          .status-running {
+            background-color: rgba(63, 185, 80, 0.15);
+            color: var(--success);
+          }
+
+          .status-stopped {
+            background-color: rgba(248, 81, 73, 0.15);
+            color: var(--error);
+          }
+
+          .status-default {
+            background-color: rgba(125, 133, 144, 0.15);
+            color: var(--text-secondary);
+          }
+
+          .status-dot {
+            width: 6px;
+            height: 6px;
+            border-radius: 50%;
+            background-color: currentColor;
+          }
+
+          /* Pagination */
+          .pagination {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-top: 16px;
+            font-size: 14px;
+            color: var(--text-secondary);
+          }
+
+          .pagination-controls {
+            display: flex;
+            gap: 8px;
+          }
+
+          .pagination-btn {
+            background-color: var(--surface-secondary);
+            color: var(--text-primary);
+            border: 1px solid var(--border-primary);
+            border-radius: 6px;
+            padding: 8px 12px;
+            font-size: 14px;
+            cursor: pointer;
+            transition: all 0.2s;
+          }
+
+          .pagination-btn:hover:not(:disabled) {
+            background-color: var(--accent-blue);
+          }
+
+          .pagination-btn:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+          }
+
+          /* Responsive Design */
+          @media (max-width: 768px) {
+            .container {
+              padding: 16px;
+            }
+            
+            .header {
+              padding: 16px;
+            }
+            
+            .stats-grid {
+              grid-template-columns: 1fr;
+            }
+
+            .table-controls {
+              flex-direction: column;
+              align-items: stretch;
+            }
+
+            .search-input {
+              width: 100%;
+            }
           }
         </style>
       </head>
       <body>
-        <!-- Top Navbar -->
-        <nav class="navbar">
-          <div class="navbar-left">
-            <img src="${logoSrc}" />
-            <h1>Anypoint Monitor Extension</h1>
+        <!-- Header -->
+        <div class="header">
+          <div class="header-content">
+            <h1>CloudHub 1.0 Applications</h1>
+            <p>Application monitoring and management</p>
           </div>
-          <div class="navbar-right">
-            <a href="https://marketplace.visualstudio.com/items?itemName=EdgarMoran.anypoint-monitor">About the Extension</a>
-            <a href="https://www.buymeacoffee.com/yucelmoran">Buy Me a Coffee</a>
-          </div>
-        </nav>
+        </div>
 
         <!-- Main Content -->
         <div class="container">
-          <div class="card">
+          <!-- Statistics Grid -->
+          <div class="stats-grid">
+            <div class="stat-card">
+              <div class="stat-header">
+                <h3 class="stat-title">Total Applications</h3>
+              </div>
+              <div class="stat-value">${totalApps}</div>
+              <p class="stat-subtitle">All applications</p>
+            </div>
+
+            <div class="stat-card">
+              <div class="stat-header">
+                <h3 class="stat-title">Running Applications</h3>
+              </div>
+              <div class="stat-value">${runningApps}</div>
+              <p class="stat-subtitle">Currently active</p>
+            </div>
+
+            <div class="stat-card">
+              <div class="stat-header">
+                <h3 class="stat-title">Stopped Applications</h3>
+              </div>
+              <div class="stat-value">${stoppedApps}</div>
+              <p class="stat-subtitle">Currently inactive</p>
+            </div>
+
+            <div class="stat-card">
+              <div class="stat-header">
+                <h3 class="stat-title">Total Workers</h3>
+              </div>
+              <div class="stat-value">${totalWorkers}</div>
+              <p class="stat-subtitle">Allocated workers</p>
+            </div>
+          </div>
+
+          <!-- Applications Table -->
+          <div class="applications-card">
             <div class="card-header">
-              <h2>CloudHub 1.0</h2>
+              <h2 class="card-title">Applications</h2>
               <button id="downloadAllCsv" class="button">Download as CSV</button>
             </div>
-            <div style="overflow-x:auto;">
-              <table
-                id="appTable"
-                class="display"
-                style="width: 100%;"
-              >
+
+            <div class="table-controls">
+              <div class="entries-control">
+                <label>Show</label>
+                <select id="entriesPerPage">
+                  <option value="10">10</option>
+                  <option value="25">25</option>
+                  <option value="50">50</option>
+                  <option value="100">100</option>
+                </select>
+                <label>entries</label>
+              </div>
+              <div class="search-control">
+                <label>Search:</label>
+                <input type="text" id="searchInput" class="search-input" placeholder="Search applications...">
+              </div>
+            </div>
+
+            <div class="table-wrapper">
+              <table id="appTable">
                 <thead>
                   <tr>
                     <th>Domain</th>
@@ -262,57 +480,121 @@ function getApplicationsHtml(
                     <th>Last Update</th>
                   </tr>
                 </thead>
-                <tbody>
-                  ${
-                    apps
-                      .map(
-                        (app) => `
-                          <tr>
-                            <td>${app.domain ?? 'N/A'}</td>
-                            <td>${app.fullDomain ?? 'N/A'}</td>
-                            <td>${app.status ?? 'N/A'}</td>
-                            <td>${app.workers ?? 'N/A'}</td>
-                            <td>${app.workerType ?? 'N/A'}</td>
-                            <td>${app.region ?? 'N/A'}</td>
-                            <td>${
-                              app.lastUpdateTime
-                                ? new Date(app.lastUpdateTime).toLocaleString()
-                                : 'N/A'
-                            }</td>
-                          </tr>
-                        `
-                      )
-                      .join('')
-                  }
+                <tbody id="appTableBody">
+                  <!-- Table content will be populated by JavaScript -->
                 </tbody>
               </table>
+            </div>
+
+            <div class="pagination">
+              <div id="paginationInfo">Showing 0 to 0 of 0 entries</div>
+              <div class="pagination-controls">
+                <button id="prevBtn" class="pagination-btn">Previous</button>
+                <button id="nextBtn" class="pagination-btn">Next</button>
+              </div>
             </div>
           </div>
         </div>
 
-        <!-- Scripts -->
-        <script src="${jqueryJs}"></script>
-        <script src="${dataTableJs}"></script>
         <script>
           const vscode = acquireVsCodeApi();
+          const appsData = ${JSON.stringify(apps)};
+          let filteredData = [...appsData];
+          let currentPage = 1;
+          let entriesPerPage = 10;
 
-          // CSV download handler
+          // Render status badge
+          function renderStatus(status) {
+            const statusClass = 
+              (status === 'STARTED' || status === 'RUNNING') ? 'status-running' :
+              (status === 'STOPPED' || status === 'UNDEPLOYED') ? 'status-stopped' :
+              'status-default';
+            
+            return \`<span class="status-badge \${statusClass}">
+              <span class="status-dot"></span>
+              \${status || 'Unknown'}
+            </span>\`;
+          }
+
+          // Render table
+          function renderTable() {
+            const startIndex = (currentPage - 1) * entriesPerPage;
+            const endIndex = startIndex + entriesPerPage;
+            const pageData = filteredData.slice(startIndex, endIndex);
+
+            const tbody = document.getElementById('appTableBody');
+            tbody.innerHTML = pageData.map(app => \`
+              <tr>
+                <td>\${app.domain || 'N/A'}</td>
+                <td>\${app.fullDomain || 'N/A'}</td>
+                <td>\${renderStatus(app.status)}</td>
+                <td>\${app.workers || 'N/A'}</td>
+                <td>\${app.workerType || 'N/A'}</td>
+                <td>\${app.region || 'N/A'}</td>
+                <td>\${app.lastUpdateTime ? new Date(app.lastUpdateTime).toLocaleString() : 'N/A'}</td>
+              </tr>
+            \`).join('');
+
+            updatePagination();
+          }
+
+          // Update pagination
+          function updatePagination() {
+            const totalItems = filteredData.length;
+            const totalPages = Math.ceil(totalItems / entriesPerPage);
+            const startIndex = (currentPage - 1) * entriesPerPage + 1;
+            const endIndex = Math.min(currentPage * entriesPerPage, totalItems);
+
+            document.getElementById('paginationInfo').textContent = 
+              totalItems === 0 ? 'Showing 0 to 0 of 0 entries' :
+              \`Showing \${startIndex} to \${endIndex} of \${totalItems} entries\`;
+
+            document.getElementById('prevBtn').disabled = currentPage <= 1;
+            document.getElementById('nextBtn').disabled = currentPage >= totalPages;
+          }
+
+          // Apply search filter
+          function applyFilter() {
+            const searchTerm = document.getElementById('searchInput').value.toLowerCase();
+            filteredData = appsData.filter(app => 
+              Object.values(app).some(value => 
+                value && value.toString().toLowerCase().includes(searchTerm)
+              )
+            );
+            currentPage = 1;
+            renderTable();
+          }
+
+          // Event listeners
+          document.getElementById('searchInput').addEventListener('input', applyFilter);
+
+          document.getElementById('entriesPerPage').addEventListener('change', (e) => {
+            entriesPerPage = parseInt(e.target.value);
+            currentPage = 1;
+            renderTable();
+          });
+
+          document.getElementById('prevBtn').addEventListener('click', () => {
+            if (currentPage > 1) {
+              currentPage--;
+              renderTable();
+            }
+          });
+
+          document.getElementById('nextBtn').addEventListener('click', () => {
+            const totalPages = Math.ceil(filteredData.length / entriesPerPage);
+            if (currentPage < totalPages) {
+              currentPage++;
+              renderTable();
+            }
+          });
+
           document.getElementById('downloadAllCsv').addEventListener('click', () => {
             vscode.postMessage({ command: 'downloadAllCsv' });
           });
 
-          // Initialize DataTables
-          $(document).ready(function () {
-            $('#appTable').DataTable({
-              pageLength: 10,
-              responsive: true,
-              autoWidth: false,
-              language: {
-                search: "Search:",
-                lengthMenu: "Show _MENU_ entries"
-              }
-            });
-          });
+          // Initial render
+          renderTable();
         </script>
       </body>
     </html>

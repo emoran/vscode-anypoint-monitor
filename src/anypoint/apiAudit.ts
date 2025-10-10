@@ -254,136 +254,293 @@ function getAPIAuditWebviewContent(policyStatus: PolicyStatus, environmentName: 
     <head>
         <meta charset="UTF-8">
         <meta name="viewport" content="width=device-width, initial-scale=1.0">
-        <title>API Audit Results</title>
+        <title>API Audit Dashboard</title>
         <style>
+            /* Code Time inspired theme */
+            :root {
+                --background-primary: #1e2328;
+                --background-secondary: #161b22;
+                --surface-primary: #21262d;
+                --surface-secondary: #30363d;
+                --surface-accent: #0d1117;
+                --text-primary: #f0f6fc;
+                --text-secondary: #7d8590;
+                --text-muted: #656d76;
+                --accent-blue: #58a6ff;
+                --accent-light: #79c0ff;
+                --border-primary: #30363d;
+                --border-muted: #21262d;
+                --success: #3fb950;
+                --warning: #d29922;
+                --error: #f85149;
+            }
+
+            * {
+                box-sizing: border-box;
+            }
+
             body {
-                font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', 'Oxygen', 'Ubuntu', 'Cantarell', 'Open Sans', 'Helvetica Neue', sans-serif;
-                padding: 20px;
-                background-color: var(--vscode-editor-background);
-                color: var(--vscode-editor-foreground);
+                margin: 0;
+                padding: 0;
+                background-color: var(--background-primary);
+                color: var(--text-primary);
+                font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Noto Sans', Helvetica, Arial, sans-serif;
+                font-size: 14px;
+                line-height: 1.5;
             }
+
+            /* Header Section */
             .header {
-                border-bottom: 1px solid var(--vscode-panel-border);
-                padding-bottom: 20px;
-                margin-bottom: 30px;
+                background-color: var(--background-secondary);
+                border-bottom: 1px solid var(--border-primary);
+                padding: 24px 32px;
             }
+
+            .header-content {
+                max-width: 1200px;
+                margin: 0 auto;
+            }
+
             .header h1 {
-                margin: 0 0 10px 0;
-                color: var(--vscode-foreground);
+                font-size: 28px;
+                font-weight: 600;
+                margin: 0 0 8px 0;
+                color: var(--text-primary);
             }
-            .header .subtitle {
-                color: var(--vscode-descriptionForeground);
-                font-size: 14px;
+
+            .header p {
+                font-size: 16px;
+                color: var(--text-secondary);
+                margin: 0;
             }
-            .summary {
-                background: var(--vscode-editor-inactiveSelectionBackground);
-                border: 1px solid var(--vscode-panel-border);
-                border-radius: 6px;
-                padding: 20px;
-                margin-bottom: 30px;
+
+            /* Main Content */
+            .container {
+                max-width: 1200px;
+                margin: 0 auto;
+                padding: 32px;
             }
-            .summary-grid {
+
+            /* Statistics Grid */
+            .stats-grid {
                 display: grid;
-                grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
-                gap: 15px;
+                grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+                gap: 20px;
+                margin-bottom: 32px;
             }
-            .summary-item {
-                text-align: center;
+
+            .stat-card {
+                background-color: var(--surface-primary);
+                border: 1px solid var(--border-primary);
+                border-radius: 12px;
+                padding: 24px;
+                transition: all 0.2s;
             }
-            .summary-item .number {
-                font-size: 32px;
-                font-weight: bold;
-                color: var(--vscode-textLink-foreground);
+
+            .stat-card:hover {
+                border-color: var(--border-muted);
+                transform: translateY(-1px);
             }
-            .summary-item .label {
-                color: var(--vscode-descriptionForeground);
-                font-size: 14px;
-            }
-            .section {
-                margin-bottom: 40px;
-            }
-            .section h2 {
-                margin: 0 0 15px 0;
-                color: var(--vscode-foreground);
+
+            .stat-header {
                 display: flex;
                 align-items: center;
-                gap: 10px;
+                justify-content: space-between;
+                margin-bottom: 16px;
             }
+
+            .stat-title {
+                font-size: 14px;
+                font-weight: 500;
+                color: var(--text-secondary);
+                margin: 0;
+            }
+
+            .stat-value {
+                font-size: 32px;
+                font-weight: 600;
+                color: var(--text-primary);
+                margin: 0 0 8px 0;
+                line-height: 1.2;
+            }
+
+            .stat-subtitle {
+                font-size: 13px;
+                color: var(--text-muted);
+                margin: 0;
+            }
+
+            /* Coverage Indicator */
+            .coverage-high { color: var(--success); }
+            .coverage-medium { color: var(--warning); }
+            .coverage-low { color: var(--error); }
+
+            /* Section Cards */
+            .section-card {
+                background-color: var(--surface-primary);
+                border: 1px solid var(--border-primary);
+                border-radius: 12px;
+                padding: 24px;
+                margin-bottom: 32px;
+            }
+
+            .section-title {
+                font-size: 18px;
+                font-weight: 600;
+                color: var(--text-primary);
+                margin: 0 0 20px 0;
+                display: flex;
+                align-items: center;
+                gap: 8px;
+            }
+
             .section-icon {
                 font-size: 20px;
             }
-            .table-container {
-                border: 1px solid var(--vscode-panel-border);
-                border-radius: 6px;
-                overflow: hidden;
+
+            /* Table Styles */
+            .table-wrapper {
+                overflow-x: auto;
+                border-radius: 8px;
+                border: 1px solid var(--border-primary);
             }
+
             table {
                 width: 100%;
                 border-collapse: collapse;
-                background: var(--vscode-editor-background);
+                background-color: var(--surface-secondary);
             }
+
             th {
-                background: var(--vscode-editor-inactiveSelectionBackground);
-                color: var(--vscode-foreground);
+                background-color: var(--background-secondary);
+                color: var(--text-primary);
                 font-weight: 600;
-                padding: 12px;
+                padding: 16px 12px;
                 text-align: left;
-                border-bottom: 1px solid var(--vscode-panel-border);
+                border-bottom: 1px solid var(--border-primary);
+                font-size: 13px;
             }
+
             td {
-                padding: 12px;
-                border-bottom: 1px solid var(--vscode-panel-border);
-                color: var(--vscode-editor-foreground);
+                padding: 16px 12px;
+                border-bottom: 1px solid var(--border-muted);
+                color: var(--text-primary);
+                font-size: 14px;
             }
+
             tr:last-child td {
                 border-bottom: none;
             }
+
             tr:hover {
-                background: var(--vscode-list-hoverBackground);
+                background-color: var(--border-muted);
             }
-            .status-with-policies {
-                color: #4CAF50;
-                font-weight: 600;
+
+            /* Status Badges */
+            .status-badge {
+                display: inline-flex;
+                align-items: center;
+                gap: 6px;
+                padding: 4px 8px;
+                border-radius: 6px;
+                font-size: 12px;
+                font-weight: 500;
             }
-            .status-without-policies {
-                color: #FF9800;
-                font-weight: 600;
+
+            .status-protected {
+                background-color: rgba(63, 185, 80, 0.15);
+                color: var(--success);
             }
+
+            .status-unprotected {
+                background-color: rgba(217, 153, 34, 0.15);
+                color: var(--warning);
+            }
+
             .status-disabled {
-                color: #F44336;
-                font-weight: 600;
+                background-color: rgba(248, 81, 73, 0.15);
+                color: var(--error);
             }
+
+            .status-dot {
+                width: 6px;
+                height: 6px;
+                border-radius: 50%;
+                background-color: currentColor;
+            }
+
+            /* Policy Count Badge */
             .policy-count {
-                background: var(--vscode-badge-background);
-                color: var(--vscode-badge-foreground);
-                padding: 2px 8px;
+                background-color: var(--accent-blue);
+                color: var(--text-primary);
+                padding: 4px 8px;
                 border-radius: 12px;
                 font-size: 12px;
-                font-weight: bold;
+                font-weight: 600;
             }
-            .no-data {
-                text-align: center;
-                padding: 40px;
-                color: var(--vscode-descriptionForeground);
-                font-style: italic;
-            }
+
+            /* Expandable Details */
             .expandable {
                 cursor: pointer;
                 user-select: none;
+                color: var(--accent-blue);
+                font-size: 13px;
+                padding: 8px 0;
+                transition: color 0.2s;
             }
+
+            .expandable:hover {
+                color: var(--accent-light);
+            }
+
             .policy-details {
                 display: none;
-                background: var(--vscode-editor-inactiveSelectionBackground);
-                padding: 10px;
-                margin-top: 5px;
-                border-radius: 4px;
-                font-size: 12px;
+                background-color: var(--background-secondary);
+                border-radius: 6px;
+                padding: 12px;
+                margin-top: 8px;
             }
+
             .policy-item {
+                background-color: var(--surface-primary);
+                border-radius: 4px;
+                padding: 8px 12px;
                 margin-bottom: 8px;
-                padding: 5px;
-                background: var(--vscode-editor-background);
-                border-radius: 3px;
+                font-size: 12px;
+                color: var(--text-secondary);
+            }
+
+            .policy-item:last-child {
+                margin-bottom: 0;
+            }
+
+            /* No Data State */
+            .no-data {
+                text-align: center;
+                padding: 60px 20px;
+                color: var(--text-muted);
+                font-size: 16px;
+            }
+
+            .no-data-icon {
+                font-size: 48px;
+                margin-bottom: 16px;
+                opacity: 0.5;
+            }
+
+            /* Responsive Design */
+            @media (max-width: 768px) {
+                .container {
+                    padding: 16px;
+                }
+                
+                .header {
+                    padding: 16px;
+                }
+                
+                .stats-grid {
+                    grid-template-columns: 1fr;
+                }
             }
         </style>
         <script>
@@ -400,123 +557,166 @@ function getAPIAuditWebviewContent(policyStatus: PolicyStatus, environmentName: 
         </script>
     </head>
     <body>
+        <!-- Header -->
         <div class="header">
-            <h1>🔍 API Audit Results</h1>
-            <div class="subtitle">Environment: ${environmentName}</div>
-        </div>
-
-        <div class="summary">
-            <div class="summary-grid">
-                <div class="summary-item">
-                    <div class="number">${totalApis}</div>
-                    <div class="label">Total APIs</div>
-                </div>
-                <div class="summary-item">
-                    <div class="number">${policyStatus.apis_with_policies.length}</div>
-                    <div class="label">APIs with Policies</div>
-                </div>
-                <div class="summary-item">
-                    <div class="number">${policyStatus.apis_without_policies.length}</div>
-                    <div class="label">APIs without Active Policies</div>
-                </div>
-                <div class="summary-item">
-                    <div class="number">${policycoverage}%</div>
-                    <div class="label">Policy Coverage</div>
-                </div>
+            <div class="header-content">
+                <h1>API Audit Results</h1>
+                <p>Environment: ${environmentName}</p>
             </div>
         </div>
 
-        ${policyStatus.apis_with_policies.length > 0 ? `
-        <div class="section">
-            <h2><span class="section-icon">✅</span> APIs with Active Policies (${policyStatus.apis_with_policies.length})</h2>
-            <div class="table-container">
-                <table>
-                    <thead>
-                        <tr>
-                            <th>API Name</th>
-                            <th>Version</th>
-                            <th>Active Policies</th>
-                            <th>Total Policies</th>
-                            <th>Status</th>
-                        </tr>
-                    </thead>
-                    <tbody>
-                        ${policyStatus.apis_with_policies.map(api => `
-                            <tr>
-                                <td>${api.api_name}</td>
-                                <td>${api.api_version}</td>
-                                <td><span class="policy-count">${api.active_policies}</span></td>
-                                <td>${api.total_policies}</td>
-                                <td><span class="status-with-policies">Protected</span></td>
-                            </tr>
-                            ${api.policies.length > 0 ? `
-                            <tr>
-                                <td colspan="5">
-                                    <div class="expandable" onclick="togglePolicyDetails(this)">
-                                        <span class="arrow">▶</span> Policy Details
-                                    </div>
-                                    <div class="policy-details">
-                                        ${api.policies.map(policy => {
-                                            const policyName = policy.template?.assetId || policy.policyTemplate?.name || policy.name || 'Unknown Policy';
-                                            const policyVersion = policy.template?.assetVersion || 'Unknown';
-                                            return `<div class="policy-item">${policyName} (v${policyVersion})</div>`;
-                                        }).join('')}
-                                    </div>
-                                </td>
-                            </tr>
-                            ` : ''}
-                        `).join('')}
-                    </tbody>
-                </table>
-            </div>
-        </div>
-        ` : ''}
+        <!-- Main Content -->
+        <div class="container">
+            <!-- Statistics Grid -->
+            <div class="stats-grid">
+                <div class="stat-card">
+                    <div class="stat-header">
+                        <h3 class="stat-title">Total APIs</h3>
+                    </div>
+                    <div class="stat-value">${totalApis}</div>
+                    <p class="stat-subtitle">APIs discovered</p>
+                </div>
 
-        ${policyStatus.apis_without_policies.length > 0 ? `
-        <div class="section">
-            <h2><span class="section-icon">⚠️</span> APIs without Active Policies (${policyStatus.apis_without_policies.length})</h2>
-            <div class="table-container">
-                <table>
-                    <thead>
-                        <tr>
-                            <th>API Name</th>
-                            <th>Version</th>
-                            <th>Total Policies</th>
-                            <th>Status</th>
-                            <th>Issue</th>
-                        </tr>
-                    </thead>
-                    <tbody>
-                        ${policyStatus.apis_without_policies.map(api => `
-                            <tr>
-                                <td>${api.api_name}</td>
-                                <td>${api.api_version}</td>
-                                <td>${api.total_policies}</td>
-                                <td>
-                                    ${api.total_policies > 0 ? 
-                                        '<span class="status-disabled">Policies Disabled</span>' : 
-                                        '<span class="status-without-policies">No Policies</span>'
-                                    }
-                                </td>
-                                <td>
-                                    ${api.total_policies > 0 ? 
-                                        `${api.total_policies} inactive policies found` : 
-                                        'No policies configured'
-                                    }
-                                </td>
-                            </tr>
-                        `).join('')}
-                    </tbody>
-                </table>
-            </div>
-        </div>
-        ` : ''}
+                <div class="stat-card">
+                    <div class="stat-header">
+                        <h3 class="stat-title">Protected APIs</h3>
+                    </div>
+                    <div class="stat-value">${policyStatus.apis_with_policies.length}</div>
+                    <p class="stat-subtitle">With active policies</p>
+                </div>
 
-        ${totalApis === 0 ? `
-        <div class="no-data">
-            No APIs found in this environment.
+                <div class="stat-card">
+                    <div class="stat-header">
+                        <h3 class="stat-title">Unprotected APIs</h3>
+                    </div>
+                    <div class="stat-value">${policyStatus.apis_without_policies.length}</div>
+                    <p class="stat-subtitle">Without active policies</p>
+                </div>
+
+                <div class="stat-card">
+                    <div class="stat-header">
+                        <h3 class="stat-title">Policy Coverage</h3>
+                    </div>
+                    <div class="stat-value ${
+                        parseFloat(policycoverage) >= 80 ? 'coverage-high' : 
+                        parseFloat(policycoverage) >= 50 ? 'coverage-medium' : 'coverage-low'
+                    }">${policycoverage}%</div>
+                    <p class="stat-subtitle">Security coverage</p>
+                </div>
+            </div>
+
+            ${policyStatus.apis_with_policies.length > 0 ? `
+            <!-- Protected APIs Section -->
+            <div class="section-card">
+                <h2 class="section-title">
+                    <span class="section-icon">✅</span>
+                    Protected APIs (${policyStatus.apis_with_policies.length})
+                </h2>
+                <div class="table-wrapper">
+                    <table>
+                        <thead>
+                            <tr>
+                                <th>API Name</th>
+                                <th>Version</th>
+                                <th>Active Policies</th>
+                                <th>Total Policies</th>
+                                <th>Status</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            ${policyStatus.apis_with_policies.map(api => `
+                                <tr>
+                                    <td>${api.api_name}</td>
+                                    <td>${api.api_version}</td>
+                                    <td><span class="policy-count">${api.active_policies}</span></td>
+                                    <td>${api.total_policies}</td>
+                                    <td>
+                                        <span class="status-badge status-protected">
+                                            <span class="status-dot"></span>
+                                            Protected
+                                        </span>
+                                    </td>
+                                </tr>
+                                ${api.policies.length > 0 ? `
+                                <tr>
+                                    <td colspan="5">
+                                        <div class="expandable" onclick="togglePolicyDetails(this)">
+                                            <span class="arrow">▶</span> View Policy Details
+                                        </div>
+                                        <div class="policy-details">
+                                            ${api.policies.map(policy => {
+                                                const policyName = policy.template?.assetId || policy.policyTemplate?.name || policy.name || 'Unknown Policy';
+                                                const policyVersion = policy.template?.assetVersion || 'Unknown';
+                                                return `<div class="policy-item">${policyName} (v${policyVersion})</div>`;
+                                            }).join('')}
+                                        </div>
+                                    </td>
+                                </tr>
+                                ` : ''}
+                            `).join('')}
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+            ` : ''}
+
+            ${policyStatus.apis_without_policies.length > 0 ? `
+            <!-- Unprotected APIs Section -->
+            <div class="section-card">
+                <h2 class="section-title">
+                    <span class="section-icon">⚠️</span>
+                    Unprotected APIs (${policyStatus.apis_without_policies.length})
+                </h2>
+                <div class="table-wrapper">
+                    <table>
+                        <thead>
+                            <tr>
+                                <th>API Name</th>
+                                <th>Version</th>
+                                <th>Total Policies</th>
+                                <th>Status</th>
+                                <th>Issue</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            ${policyStatus.apis_without_policies.map(api => `
+                                <tr>
+                                    <td>${api.api_name}</td>
+                                    <td>${api.api_version}</td>
+                                    <td>${api.total_policies}</td>
+                                    <td>
+                                        ${api.total_policies > 0 ? 
+                                            `<span class="status-badge status-disabled">
+                                                <span class="status-dot"></span>
+                                                Policies Disabled
+                                            </span>` : 
+                                            `<span class="status-badge status-unprotected">
+                                                <span class="status-dot"></span>
+                                                No Policies
+                                            </span>`
+                                        }
+                                    </td>
+                                    <td>
+                                        ${api.total_policies > 0 ? 
+                                            `${api.total_policies} inactive policies found` : 
+                                            'No policies configured'
+                                        }
+                                    </td>
+                                </tr>
+                            `).join('')}
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+            ` : ''}
+
+            ${totalApis === 0 ? `
+            <div class="no-data">
+                <div class="no-data-icon">🔍</div>
+                <div>No APIs found in this environment</div>
+            </div>
+            ` : ''}
         </div>
-        ` : ''}
     </body>
     </html>`;
 }

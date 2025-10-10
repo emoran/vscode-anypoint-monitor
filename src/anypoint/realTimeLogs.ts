@@ -964,20 +964,23 @@ function getRealTimeLogsHtml(
     <title>Real-Time Logs - ${applicationDomain}</title>
     <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Fira+Code:wght@400;600&display=swap" />
     <style>
+        /* Code Time inspired theme */
         :root {
-            --bg-primary: #0D1117;
-            --bg-secondary: #161B22;
-            --bg-tertiary: #21262D;
-            --text-primary: #C9D1D9;
-            --text-secondary: #8B949E;
-            --accent-blue: #58A6FF;
-            --accent-green: #3FB950;
-            --accent-yellow: #D29922;
-            --accent-red: #F85149;
-            --border: #30363D;
-            --success: #2DA44E;
-            --warning: #FB8500;
-            --error: #DA3633;
+            --background-primary: #1e2328;
+            --background-secondary: #161b22;
+            --surface-primary: #21262d;
+            --surface-secondary: #30363d;
+            --surface-accent: #0d1117;
+            --text-primary: #f0f6fc;
+            --text-secondary: #7d8590;
+            --text-muted: #656d76;
+            --accent-blue: #58a6ff;
+            --accent-light: #79c0ff;
+            --border-primary: #30363d;
+            --border-muted: #21262d;
+            --success: #3fb950;
+            --warning: #d29922;
+            --error: #f85149;
         }
 
         * {
@@ -987,17 +990,23 @@ function getRealTimeLogsHtml(
         }
 
         body {
-            font-family: 'Fira Code', monospace;
-            background: var(--bg-primary);
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Noto Sans', Helvetica, Arial, sans-serif;
+            background: var(--background-primary);
             color: var(--text-primary);
-            font-size: 13px;
-            line-height: 1.4;
+            font-size: 14px;
+            line-height: 1.5;
         }
 
+        /* Header Section */
         .header {
-            background: var(--bg-secondary);
-            border-bottom: 1px solid var(--border);
-            padding: 1rem;
+            background-color: var(--background-secondary);
+            border-bottom: 1px solid var(--border-primary);
+            padding: 24px 32px;
+        }
+
+        .header-content {
+            max-width: 1200px;
+            margin: 0 auto;
             display: flex;
             align-items: center;
             justify-content: space-between;
@@ -1006,7 +1015,7 @@ function getRealTimeLogsHtml(
         .header-left {
             display: flex;
             align-items: center;
-            gap: 0.75rem;
+            gap: 12px;
         }
 
         .header-left img {
@@ -1014,162 +1023,28 @@ function getRealTimeLogsHtml(
             width: auto;
         }
 
-        .header-title {
-            font-size: 1.1rem;
+        .header-info h1 {
+            font-size: 28px;
             font-weight: 600;
-            color: var(--accent-blue);
-        }
-
-        .header-subtitle {
-            font-size: 0.85rem;
-            color: var(--text-secondary);
-            margin-left: 0.5rem;
-        }
-
-        .controls {
-            background: var(--bg-secondary);
-            border-bottom: 1px solid var(--border);
-            padding: 1rem;
-            display: flex;
-            flex-wrap: wrap;
-            gap: 1rem;
-            align-items: center;
-        }
-
-        .control-group {
-            display: flex;
-            align-items: center;
-            gap: 0.5rem;
-        }
-
-        .btn {
-            padding: 0.5rem 1rem;
-            border: 1px solid var(--border);
-            background: var(--bg-tertiary);
+            margin: 0 0 4px 0;
             color: var(--text-primary);
-            border-radius: 6px;
-            cursor: pointer;
-            font-size: 0.85rem;
-            font-weight: 500;
-            transition: all 0.2s ease;
         }
 
-        .btn:hover {
-            background: var(--bg-primary);
-            border-color: var(--accent-blue);
-        }
-
-        .btn-primary {
-            background: var(--accent-blue);
-            border-color: var(--accent-blue);
-            color: white;
-        }
-
-        .btn-primary:hover {
-            background: #4A90E2;
-        }
-
-        .btn-success {
-            background: var(--success);
-            border-color: var(--success);
-            color: white;
-        }
-
-        .btn-success:hover {
-            background: #28A745;
-        }
-
-        /* Export Progress Styles */
-        .export-progress {
-            margin: 1rem 0;
-            padding: 1rem;
-            background: var(--bg-secondary);
-            border: 1px solid var(--border);
-            border-radius: 8px;
-            animation: fadeIn 0.3s ease;
-        }
-
-        .progress-content {
-            display: flex;
-            align-items: center;
-            gap: 1rem;
-        }
-
-        .progress-spinner {
-            width: 24px;
-            height: 24px;
-            border: 2px solid var(--border);
-            border-top: 2px solid var(--accent-blue);
-            border-radius: 50%;
-            animation: spin 1s linear infinite;
-        }
-
-        .progress-text {
-            flex: 1;
-        }
-
-        .progress-message {
-            font-weight: 500;
-            color: var(--text-primary);
-            margin-bottom: 0.25rem;
-        }
-
-        .progress-details {
-            font-size: 0.8rem;
+        .header-info p {
+            font-size: 16px;
             color: var(--text-secondary);
-            font-family: 'Consolas', 'Monaco', 'Courier New', monospace;
+            margin: 0;
         }
 
-        @keyframes spin {
-            0% { transform: rotate(0deg); }
-            100% { transform: rotate(360deg); }
-        }
-
-        @keyframes fadeIn {
-            from { opacity: 0; transform: translateY(-10px); }
-            to { opacity: 1; transform: translateY(0); }
-        }
-
-        /* Export Info Styles */
-        .export-info {
-            display: flex;
-            align-items: center;
-            gap: 0.5rem;
-            margin-left: 1rem;
-            padding: 0.25rem 0.5rem;
-            background: var(--bg-tertiary);
-            border: 1px solid var(--border);
-            border-radius: 4px;
-            font-size: 0.75rem;
-        }
-
-        .info-icon {
-            font-size: 0.8rem;
-        }
-
-        .info-text {
-            color: var(--text-secondary);
-            font-weight: 400;
-        }
-
-        .btn-danger {
-            background: var(--error);
-            border-color: var(--error);
-            color: white;
-        }
-
-        .btn-danger:hover {
-            background: #DC2626;
-        }
-
+        /* Status Indicator */
         .status-indicator {
             display: flex;
             align-items: center;
-            gap: 0.5rem;
-            padding: 0.5rem 1rem;
-            background: var(--bg-tertiary);
-            border: 1px solid var(--border);
-            border-radius: 6px;
+            gap: 8px;
+            padding: 8px 16px;
+            background: var(--surface-primary);
+            border: 1px solid var(--border-primary);
+            border-radius: 8px;
         }
 
         .status-dot {
@@ -1190,22 +1065,159 @@ function getRealTimeLogsHtml(
             100% { opacity: 1; }
         }
 
+        /* Statistics Cards */
+        .stats-grid {
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 32px;
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+            gap: 20px;
+            margin-bottom: 24px;
+        }
+
+        .stat-card {
+            background-color: var(--surface-primary);
+            border: 1px solid var(--border-primary);
+            border-radius: 12px;
+            padding: 20px;
+            transition: all 0.2s;
+        }
+
+        .stat-card:hover {
+            border-color: var(--border-muted);
+            transform: translateY(-1px);
+        }
+
+        .stat-header {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            margin-bottom: 12px;
+        }
+
+        .stat-title {
+            font-size: 14px;
+            font-weight: 500;
+            color: var(--text-secondary);
+            margin: 0;
+        }
+
+        .stat-value {
+            font-size: 28px;
+            font-weight: 600;
+            color: var(--text-primary);
+            margin: 0 0 4px 0;
+            line-height: 1.2;
+        }
+
+        .stat-subtitle {
+            font-size: 13px;
+            color: var(--text-muted);
+            margin: 0;
+        }
+
+        /* Controls Section */
+        .controls-card {
+            max-width: 1200px;
+            margin: 0 auto 24px auto;
+            padding: 0 32px;
+        }
+
+        .controls {
+            background: var(--surface-primary);
+            border: 1px solid var(--border-primary);
+            border-radius: 12px;
+            padding: 24px;
+            display: flex;
+            flex-wrap: wrap;
+            gap: 16px;
+            align-items: center;
+        }
+
+        .control-group {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .btn {
+            padding: 8px 16px;
+            border: 1px solid var(--border-primary);
+            background: var(--surface-secondary);
+            color: var(--text-primary);
+            border-radius: 8px;
+            cursor: pointer;
+            font-size: 14px;
+            font-weight: 500;
+            transition: all 0.2s ease;
+            display: flex;
+            align-items: center;
+            gap: 6px;
+        }
+
+        .btn:hover {
+            background: var(--surface-accent);
+            border-color: var(--accent-blue);
+        }
+
+        .btn:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+        }
+
+        .btn:disabled:hover {
+            background: var(--surface-secondary);
+            border-color: var(--border-primary);
+        }
+
+        .btn-primary {
+            background: var(--accent-blue);
+            border-color: var(--accent-blue);
+            color: white;
+        }
+
+        .btn-primary:hover {
+            background: var(--accent-light);
+        }
+
+        .btn-success {
+            background: var(--success);
+            border-color: var(--success);
+            color: white;
+        }
+
+        .btn-success:hover {
+            background: #2ea043;
+        }
+
+        .btn-danger {
+            background: var(--error);
+            border-color: var(--error);
+            color: white;
+        }
+
+        .btn-danger:hover {
+            background: #da3633;
+        }
+
+        /* Search Controls */
         .search-controls {
             display: flex;
-            gap: 0.5rem;
+            gap: 8px;
             align-items: center;
             flex: 1;
-            max-width: 600px;
+            max-width: 400px;
         }
 
         .search-input {
             flex: 1;
-            padding: 0.5rem;
-            background: var(--bg-primary);
-            border: 1px solid var(--border);
-            border-radius: 6px;
+            padding: 8px 12px;
+            background: var(--background-primary);
+            border: 1px solid var(--border-primary);
+            border-radius: 8px;
             color: var(--text-primary);
-            font-size: 0.85rem;
+            font-size: 14px;
         }
 
         .search-input:focus {
@@ -1213,18 +1225,117 @@ function getRealTimeLogsHtml(
             border-color: var(--accent-blue);
         }
 
-        .logs-container {
+        .search-input::placeholder {
+            color: var(--text-muted);
+        }
+
+        /* Export Controls */
+        .export-info {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            padding: 4px 8px;
+            background: rgba(88, 166, 255, 0.1);
+            border: 1px solid rgba(88, 166, 255, 0.3);
+            border-radius: 6px;
+            font-size: 12px;
+            color: var(--accent-blue);
+        }
+
+        /* Export Progress */
+        .export-progress {
+            margin: 16px 0;
+            padding: 16px;
+            background: var(--surface-primary);
+            border: 1px solid var(--border-primary);
+            border-radius: 8px;
+            animation: fadeIn 0.3s ease;
+        }
+
+        .progress-content {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+        }
+
+        .progress-spinner {
+            width: 20px;
+            height: 20px;
+            border: 2px solid var(--border-primary);
+            border-top: 2px solid var(--accent-blue);
+            border-radius: 50%;
+            animation: spin 1s linear infinite;
+        }
+
+        .progress-text {
             flex: 1;
+        }
+
+        .progress-message {
+            font-weight: 500;
+            color: var(--text-primary);
+            margin-bottom: 4px;
+        }
+
+        .progress-details {
+            font-size: 12px;
+            color: var(--text-secondary);
+            font-family: 'Fira Code', monospace;
+        }
+
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+
+        @keyframes fadeIn {
+            from { opacity: 0; transform: translateY(-10px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+
+        /* Form Elements */
+        select {
+            padding: 8px 12px;
+            background: var(--background-primary);
+            border: 1px solid var(--border-primary);
+            border-radius: 8px;
+            color: var(--text-primary);
+            font-size: 14px;
+        }
+
+        select:focus {
+            outline: none;
+            border-color: var(--accent-blue);
+        }
+
+        label {
+            font-size: 14px;
+            font-weight: 500;
+            color: var(--text-secondary);
+        }
+
+        /* Logs Container */
+        .logs-container {
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 0 32px 32px 32px;
+        }
+
+        .logs-card {
+            background: var(--surface-primary);
+            border: 1px solid var(--border-primary);
+            border-radius: 12px;
+            overflow: hidden;
+            height: calc(100vh - 400px);
+            min-height: 500px;
             display: flex;
             flex-direction: column;
-            height: calc(100vh - 140px);
-            background: var(--bg-primary);
         }
 
         .logs-header {
-            background: var(--bg-secondary);
-            border-bottom: 1px solid var(--border);
-            padding: 0.75rem 1rem;
+            background: var(--background-secondary);
+            border-bottom: 1px solid var(--border-primary);
+            padding: 16px 24px;
             display: flex;
             justify-content: space-between;
             align-items: center;
@@ -1232,20 +1343,21 @@ function getRealTimeLogsHtml(
 
         .logs-stats {
             color: var(--text-secondary);
-            font-size: 0.8rem;
+            font-size: 14px;
+            font-family: 'Fira Code', monospace;
         }
         
         .status-message {
-            font-size: 0.85rem;
+            font-size: 14px;
             font-weight: 500;
-            padding: 0.5rem 1rem;
-            border-radius: 4px;
+            padding: 6px 12px;
+            border-radius: 6px;
             transition: all 0.3s ease;
         }
         
         .status-message.success {
             background: rgba(63, 185, 80, 0.15);
-            color: var(--accent-green);
+            color: var(--success);
             border: 1px solid rgba(63, 185, 80, 0.3);
         }
         
@@ -1257,45 +1369,51 @@ function getRealTimeLogsHtml(
         
         .status-message.error {
             background: rgba(248, 81, 73, 0.15);
-            color: var(--accent-red);
+            color: var(--error);
             border: 1px solid rgba(248, 81, 73, 0.3);
         }
 
         .logs-content {
             flex: 1;
             overflow-y: auto;
-            padding: 0;
+            background: var(--background-primary);
         }
 
         .log-entry {
-            padding: 0.5rem 1rem;
-            border-bottom: 1px solid var(--border);
+            padding: 12px 24px;
+            border-bottom: 1px solid var(--border-muted);
             font-family: 'Fira Code', monospace;
-            font-size: 0.8rem;
-            line-height: 1.3;
+            font-size: 13px;
+            line-height: 1.4;
             display: flex;
             align-items: flex-start;
-            gap: 1rem;
+            gap: 16px;
+            transition: background-color 0.1s ease;
         }
 
         .log-entry:hover {
-            background: var(--bg-secondary);
+            background: var(--surface-primary);
         }
 
+        .log-entry:last-child {
+            border-bottom: none;
+        }
 
         .log-timestamp {
             color: var(--text-secondary);
             white-space: nowrap;
             min-width: 180px;
+            font-size: 12px;
         }
 
         .log-level {
             min-width: 60px;
             font-weight: 600;
             text-align: center;
-            padding: 0.2rem 0.5rem;
+            padding: 2px 8px;
             border-radius: 4px;
-            font-size: 0.75rem;
+            font-size: 11px;
+            text-transform: uppercase;
         }
 
         .log-level.ERROR {
@@ -1322,6 +1440,7 @@ function getRealTimeLogsHtml(
             flex: 1;
             word-break: break-word;
             white-space: pre-wrap;
+            color: var(--text-primary);
         }
 
         .empty-state {
@@ -1332,98 +1451,182 @@ function getRealTimeLogsHtml(
             height: 100%;
             color: var(--text-secondary);
             text-align: center;
+            padding: 40px 20px;
         }
 
         .empty-state-icon {
-            font-size: 3rem;
-            margin-bottom: 1rem;
-            opacity: 0.5;
+            font-size: 48px;
+            margin-bottom: 16px;
+            opacity: 0.6;
+        }
+
+        .empty-state p {
+            font-size: 16px;
+            margin: 0;
         }
 
         .error-message {
             background: var(--error);
             color: white;
-            padding: 0.75rem 1rem;
-            margin: 0.5rem 1rem;
-            border-radius: 6px;
-            font-size: 0.85rem;
+            padding: 12px 16px;
+            margin: 8px 16px;
+            border-radius: 8px;
+            font-size: 14px;
         }
 
-        select {
-            padding: 0.5rem;
-            background: var(--bg-primary);
-            border: 1px solid var(--border);
-            border-radius: 6px;
-            color: var(--text-primary);
-            font-size: 0.85rem;
+        /* Responsive Design */
+        @media (max-width: 768px) {
+            .header {
+                padding: 16px;
+            }
+            
+            .stats-grid {
+                padding: 16px;
+                grid-template-columns: 1fr;
+            }
+            
+            .controls-card {
+                padding: 0 16px;
+            }
+            
+            .logs-container {
+                padding: 0 16px 16px 16px;
+            }
+            
+            .controls {
+                flex-direction: column;
+                align-items: stretch;
+            }
+            
+            .control-group {
+                justify-content: center;
+            }
+            
+            .search-controls {
+                max-width: none;
+            }
         }
 
     </style>
 </head>
 <body>
+    <!-- Header -->
     <div class="header">
-        <div class="header-left">
-            <img src="${logoSrc}" alt="Logo"/>
-            <div>
-                <span class="header-title">Real-Time Logs</span>
-                <div class="header-subtitle">${applicationDomain} (${cloudhubVersion === 'CH1' ? 'CloudHub 1.0' : 'CloudHub 2.0'})</div>
+        <div class="header-content">
+            <div class="header-left">
+                <img src="${logoSrc}" alt="Logo"/>
+                <div class="header-info">
+                    <h1>Real-Time Logs</h1>
+                    <p>${applicationDomain} (${cloudhubVersion === 'CH1' ? 'CloudHub 1.0' : 'CloudHub 2.0'})</p>
+                </div>
             </div>
-        </div>
-        <div class="status-indicator">
-            <div class="status-dot" id="statusDot"></div>
-            <span id="statusText">Stopped</span>
+            <div class="status-indicator">
+                <div class="status-dot" id="statusDot"></div>
+                <span id="statusText">Stopped</span>
+            </div>
         </div>
     </div>
 
-    <div class="controls">
-        <div class="control-group">
-            <button class="btn btn-success" id="startBtn">▶ Start Streaming</button>
-            <button class="btn btn-danger" id="stopBtn" disabled>⏸ Stop</button>
-            <button class="btn" id="clearBtn">🗑 Clear</button>
-        </div>
-        
-        <div class="control-group">
-            <label>Refresh Rate:</label>
-            <select id="refreshRate">
-                <option value="1000">1s</option>
-                <option value="2000" selected>2s</option>
-                <option value="5000">5s</option>
-                <option value="10000">10s</option>
-            </select>
-        </div>
-        
-        <div class="search-controls">
-            <input type="text" class="search-input" id="searchInput" placeholder="Filter logs by message, level, or thread name...">
-            <button class="btn" id="searchBtn">🔍</button>
-        </div>
-        
-        <div class="control-group">
-            <button class="btn" id="exportBtn" onclick="console.log('HTML onclick triggered!'); alert('HTML onclick works!');">💾 Export All Logs</button>
-            <div class="export-info">
-                <span class="info-icon">ℹ️</span>
-                <span class="info-text">Export limited to 2,000 most recent logs</span>
+    <!-- Statistics Grid -->
+    <div class="stats-grid">
+        <div class="stat-card">
+            <div class="stat-header">
+                <h3 class="stat-title">Total Logs</h3>
             </div>
+            <div class="stat-value" id="totalCount">0</div>
+            <p class="stat-subtitle">Messages received</p>
         </div>
-        
-        <!-- Export Progress Display -->
-        <div id="exportProgress" class="export-progress" style="display: none;">
-            <!-- Progress content will be dynamically inserted here -->
+
+        <div class="stat-card">
+            <div class="stat-header">
+                <h3 class="stat-title">Filtered Logs</h3>
+            </div>
+            <div class="stat-value" id="filteredCount">0</div>
+            <p class="stat-subtitle">Currently visible</p>
+        </div>
+
+        <div class="stat-card">
+            <div class="stat-header">
+                <h3 class="stat-title">Stream Status</h3>
+            </div>
+            <div class="stat-value" id="streamStatus" style="font-size: 18px;">Stopped</div>
+            <p class="stat-subtitle">Real-time monitoring</p>
+        </div>
+
+        <div class="stat-card">
+            <div class="stat-header">
+                <h3 class="stat-title">Started At</h3>
+            </div>
+            <div class="stat-value" id="startTime" style="font-size: 16px;">-</div>
+            <p class="stat-subtitle">Session start time</p>
         </div>
     </div>
 
+    <!-- Controls Card -->
+    <div class="controls-card">
+        <div class="controls">
+            <div class="control-group">
+                <button class="btn btn-success" id="startBtn">
+                    <span>▶</span> Start Streaming
+                </button>
+                <button class="btn btn-danger" id="stopBtn" disabled>
+                    <span>⏸</span> Stop
+                </button>
+                <button class="btn" id="clearBtn">
+                    <span>🗑</span> Clear
+                </button>
+            </div>
+            
+            <div class="control-group">
+                <label>Refresh Rate:</label>
+                <select id="refreshRate">
+                    <option value="1000">1s</option>
+                    <option value="2000" selected>2s</option>
+                    <option value="5000">5s</option>
+                    <option value="10000">10s</option>
+                </select>
+            </div>
+            
+            <div class="search-controls">
+                <input type="text" class="search-input" id="searchInput" placeholder="Filter logs by message, level, or thread...">
+                <button class="btn" id="searchBtn">
+                    <span>🔍</span>
+                </button>
+            </div>
+            
+            <div class="control-group">
+                <button class="btn" id="exportBtn">
+                    <span>💾</span> Export All Logs
+                </button>
+                <div class="export-info">
+                    <span>ℹ️</span>
+                    Limited to 2,000 recent logs
+                </div>
+            </div>
+            
+            <!-- Export Progress Display -->
+            <div id="exportProgress" class="export-progress" style="display: none;">
+                <!-- Progress content will be dynamically inserted here -->
+            </div>
+        </div>
+    </div>
+
+    <!-- Logs Container -->
     <div class="logs-container">
-        <div class="logs-header">
-            <div class="logs-stats">
-                Total: <span id="totalCount">0</span> | 
-                Filtered: <span id="filteredCount">0</span> |
-                Streaming since: <span id="startTime">-</span>
+        <div class="logs-card">
+            <div class="logs-header">
+                <div class="logs-stats">
+                    Total: <span id="totalCountHeader">0</span> | 
+                    Filtered: <span id="filteredCountHeader">0</span> |
+                    Since: <span id="startTimeHeader">-</span>
+                </div>
+                <div id="statusMessage" class="status-message"></div>
             </div>
-            <div id="statusMessage" class="status-message"></div>
-        </div>
-        <div class="logs-content" id="logsContent">
-            <div class="empty-state">
-                <div class="empty-state-icon">📋</div>
-                <p>Click "Start Streaming" to begin tailing logs in real-time</p>
+            <div class="logs-content" id="logsContent">
+                <div class="empty-state">
+                    <div class="empty-state-icon">📋</div>
+                    <p>Click "Start Streaming" to begin monitoring logs in real-time</p>
+                </div>
             </div>
         </div>
     </div>
@@ -1474,6 +1677,8 @@ function getRealTimeLogsHtml(
                 vscode.postMessage({ command: 'startStreaming' });
                 startTime = new Date();
                 elements.startTimeEl.textContent = startTime.toLocaleTimeString();
+                const startTimeHeader = document.getElementById('startTimeHeader');
+                if (startTimeHeader) startTimeHeader.textContent = startTime.toLocaleTimeString();
             });
             
             elements.stopBtn.addEventListener('click', () => {
@@ -1578,6 +1783,12 @@ function getRealTimeLogsHtml(
             elements.statusText.textContent = streaming ? 'Streaming' : 'Stopped';
             elements.startBtn.disabled = streaming;
             elements.stopBtn.disabled = !streaming;
+            
+            // Update stats card
+            const streamStatusEl = document.getElementById('streamStatus');
+            if (streamStatusEl) {
+                streamStatusEl.textContent = streaming ? 'Active' : 'Stopped';
+            }
             
             // Show status message
             if (streaming) {
@@ -1684,6 +1895,12 @@ function getRealTimeLogsHtml(
         function updateStats() {
             elements.totalCount.textContent = logs.length;
             elements.filteredCount.textContent = filteredLogs.length;
+            
+            // Update header stats as well
+            const totalCountHeader = document.getElementById('totalCountHeader');
+            const filteredCountHeader = document.getElementById('filteredCountHeader');
+            if (totalCountHeader) totalCountHeader.textContent = logs.length;
+            if (filteredCountHeader) filteredCountHeader.textContent = filteredLogs.length;
         }
         
         function showError(message) {

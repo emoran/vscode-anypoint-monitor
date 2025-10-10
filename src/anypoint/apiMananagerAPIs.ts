@@ -208,157 +208,316 @@ function getAPIManagerHtml(
     <link rel="stylesheet" href="${dataTableCss}" />
     <link rel="stylesheet" href="${googleFontLink}" />
     <style>
+      /* Code Time inspired theme */
       :root {
-        --bg-color: #0D1117;
-        --card-color: #161B22;
-        --text-color: #C9D1D9;
-        --accent-color: #58A6FF;
-        --table-head-bg: #21262D;
-        --table-border-color: #30363D;
-        --hover-color: #21262D;
+        --background-primary: #1e2328;
+        --background-secondary: #161b22;
+        --surface-primary: #21262d;
+        --surface-secondary: #30363d;
+        --text-primary: #f0f6fc;
+        --text-secondary: #7d8590;
+        --text-muted: #656d76;
+        --accent-blue: #58a6ff;
+        --accent-light: #79c0ff;
+        --border-primary: #30363d;
+        --border-muted: #21262d;
+        --success: #3fb950;
+        --warning: #d29922;
+        --error: #f85149;
+      }
+
+      * {
+        box-sizing: border-box;
       }
 
       body {
-        background-color: var(--bg-color);
-        color: var(--text-color);
-        font-family: 'Fira Code', monospace;
         margin: 0;
         padding: 0;
+        background-color: var(--background-primary);
+        color: var(--text-primary);
+        font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Noto Sans', Helvetica, Arial, sans-serif;
+        font-size: 14px;
+        line-height: 1.5;
       }
 
-      .container {
-        width: 90%;
+      /* Header Section */
+      .header {
+        background-color: var(--background-secondary);
+        border-bottom: 1px solid var(--border-primary);
+        padding: 24px 32px;
+      }
+
+      .header-content {
         max-width: 1200px;
-        margin: 1rem auto;
+        margin: 0 auto;
       }
 
-      .card {
-        background: var(--card-color);
-        padding: 1rem;
-        border-radius: 6px;
-      }
-
-      h2 {
-        margin: 0 0 1rem 0;
-        font-size: 1.2rem;
-        color: var(--accent-color);
-      }
-
-      .button {
-        background: var(--accent-color);
-        color: #fff;
-        padding: 8px 12px;
-        border: none;
-        border-radius: 4px;
-        cursor: pointer;
+      .header h1 {
+        font-size: 28px;
         font-weight: 600;
+        margin: 0 0 8px 0;
+        color: var(--text-primary);
       }
-      .button:hover {
-        background: #3186D1;
+
+      .header p {
+        font-size: 16px;
+        color: var(--text-secondary);
+        margin: 0;
+      }
+
+      /* Main Content */
+      .container {
+        max-width: 1200px;
+        margin: 0 auto;
+        padding: 32px;
+      }
+
+      /* API Manager Card */
+      .card {
+        background-color: var(--surface-primary);
+        border: 1px solid var(--border-primary);
+        border-radius: 12px;
+        padding: 24px;
+      }
+
+      .card-header {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        margin-bottom: 20px;
+      }
+
+      .card-title {
+        font-size: 18px;
+        font-weight: 600;
+        color: var(--text-primary);
+        margin: 0;
       }
 
       .button-group {
         display: flex;
-        gap: 1rem;
-        margin-bottom: 1rem;
+        gap: 8px;
+      }
+
+      .button {
+        background-color: var(--accent-blue);
+        color: var(--text-primary);
+        border: none;
+        border-radius: 8px;
+        padding: 12px 16px;
+        font-size: 14px;
+        font-weight: 500;
+        cursor: pointer;
+        transition: all 0.2s;
+      }
+
+      .button:hover {
+        background-color: var(--accent-light);
+      }
+
+      /* Table Styles */
+      .table-wrapper {
+        overflow-x: auto;
+        border-radius: 8px;
+        border: 1px solid var(--border-primary);
+        margin-top: 16px;
       }
 
       table {
         width: 100%;
         border-collapse: collapse;
-      }
-      th {
-        background: var(--table-head-bg);
-        color: var(--accent-color);
-        border-bottom: 1px solid var(--table-border-color);
-      }
-      td {
-        border-bottom: 1px solid var(--table-border-color);
-      }
-      tr:hover {
-        background: var(--hover-color);
+        background-color: var(--surface-secondary);
       }
 
-      .status-indicator {
-        display: inline-block;
-        padding: 2px 6px;
-        border-radius: 4px;
-        font-size: 0.85rem;
+      th {
+        background-color: var(--background-secondary);
+        color: var(--text-primary);
         font-weight: 600;
+        padding: 16px 12px;
+        text-align: left;
+        border-bottom: 1px solid var(--border-primary);
+        font-size: 13px;
+      }
+
+      td {
+        padding: 16px 12px;
+        border-bottom: 1px solid var(--border-muted);
+        color: var(--text-primary);
+        font-size: 14px;
+      }
+
+      tr:last-child td {
+        border-bottom: none;
+      }
+
+      tr:hover {
+        background-color: var(--border-muted);
+      }
+
+      /* Status Indicators */
+      .status-indicator {
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+        padding: 4px 8px;
+        border-radius: 6px;
+        font-size: 12px;
+        font-weight: 500;
         text-transform: capitalize;
       }
+
       .status-indicator.active {
-        background-color: #3fb950; /* green */
-        color: #fff;
+        background-color: rgba(63, 185, 80, 0.15);
+        color: var(--success);
       }
+
       .status-indicator.unregistered,
       .status-indicator.inactive {
-        background-color: #f85149; /* red */
-        color: #fff;
+        background-color: rgba(248, 81, 73, 0.15);
+        color: var(--error);
       }
+
       .status-indicator.unknown {
-        background-color: #808080;
-        color: #fff;
+        background-color: rgba(125, 133, 144, 0.15);
+        color: var(--text-secondary);
+      }
+
+      /* API Name Links */
+      .api-name {
+        color: var(--accent-blue);
+        text-decoration: none;
+        font-weight: 500;
+      }
+
+      .api-name:hover {
+        text-decoration: underline;
+        color: var(--accent-light);
+      }
+
+      /* DataTables Styling */
+      .dataTables_wrapper {
+        color: var(--text-primary);
       }
 
       .dataTables_length,
       .dataTables_filter,
       .dataTables_info,
       .dataTables_paginate {
-        font-size: 0.9rem;
-        margin: 0.5rem 0;
-      }
-      .dataTables_length select {
-        background-color: #121212;
-        color: var(--text-color);
-        border: 1px solid var(--table-border-color);
-        border-radius: 4px;
-        padding: 2px 8px;
-        outline: none;
-      }
-      .dataTables_filter input[type='search'] {
-        background-color: #121212;
-        color: var(--text-color);
-        border: 1px solid var(--table-border-color);
-        border-radius: 4px;
-        padding: 2px 8px;
-        outline: none;
+        font-size: 14px;
+        margin: 12px 0;
+        color: var(--text-primary);
       }
 
-      .api-name {
-        color: var(--accent-color);
-        text-decoration: none;
+      .dataTables_length select {
+        background-color: var(--surface-secondary);
+        color: var(--text-primary);
+        border: 1px solid var(--border-primary);
+        border-radius: 6px;
+        padding: 6px 8px;
+        font-size: 14px;
       }
-      .api-name:hover {
-        text-decoration: underline;
+
+      .dataTables_filter input[type='search'] {
+        background-color: var(--surface-secondary);
+        color: var(--text-primary);
+        border: 1px solid var(--border-primary);
+        border-radius: 6px;
+        padding: 8px 12px;
+        font-size: 14px;
+      }
+
+      .dataTables_filter input[type='search']:focus {
+        outline: none;
+        border-color: var(--accent-blue);
+      }
+
+      .dataTables_paginate .paginate_button {
+        background-color: var(--surface-secondary) !important;
+        color: var(--text-primary) !important;
+        border: 1px solid var(--border-primary) !important;
+        border-radius: 6px !important;
+        padding: 8px 12px !important;
+        margin: 0 2px !important;
+      }
+
+      .dataTables_paginate .paginate_button:hover {
+        background-color: var(--accent-blue) !important;
+        color: var(--text-primary) !important;
+      }
+
+      .dataTables_paginate .paginate_button.current {
+        background-color: var(--accent-blue) !important;
+        color: var(--text-primary) !important;
+      }
+
+      /* Responsive Design */
+      @media (max-width: 768px) {
+        .container {
+          padding: 16px;
+        }
+        
+        .header {
+          padding: 16px;
+        }
+
+        .card {
+          padding: 16px;
+        }
+
+        .card-header {
+          flex-direction: column;
+          align-items: stretch;
+          gap: 16px;
+        }
+
+        .button-group {
+          justify-content: stretch;
+        }
+
+        .button {
+          flex: 1;
+        }
       }
     </style>
   </head>
   <body>
+    <!-- Header -->
+    <div class="header">
+      <div class="header-content">
+        <h1>API Manager - APIs</h1>
+        <p>Manage and monitor your APIs across environments</p>
+      </div>
+    </div>
+
+    <!-- Main Content -->
     <div class="container">
       <div class="card">
-        <h2>API Manager - APIs</h2>
-        <div class="button-group">
-          <button id="downloadCSV" class="button">Download as CSV</button>
-          <button id="refreshAPIs" class="button">Refresh</button>
+        <div class="card-header">
+          <h2 class="card-title">APIs</h2>
+          <div class="button-group">
+            <button id="refreshAPIs" class="button">Refresh</button>
+            <button id="downloadCSV" class="button">Download as CSV</button>
+          </div>
         </div>
-        <table id="apiTable" class="display">
-          <thead>
-            <tr>
-              <th>Name</th>
-              <th>Version</th>
-              <th>Stage</th>
-              <th>Technology</th>
-              <th>Status</th>
-              <th>Autodiscovery</th>
-              <th>Created</th>
-              <th>Updated</th>
-            </tr>
-          </thead>
-          <tbody>
-            ${rowsHtml}
-          </tbody>
-        </table>
+        <div class="table-wrapper">
+          <table id="apiTable" class="display">
+            <thead>
+              <tr>
+                <th>Name</th>
+                <th>Version</th>
+                <th>Stage</th>
+                <th>Technology</th>
+                <th>Status</th>
+                <th>Autodiscovery</th>
+                <th>Created</th>
+                <th>Updated</th>
+              </tr>
+            </thead>
+            <tbody>
+              ${rowsHtml}
+            </tbody>
+          </table>
+        </div>
       </div>
     </div>
     <script src="${jqueryJs}"></script>

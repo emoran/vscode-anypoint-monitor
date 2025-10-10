@@ -182,161 +182,272 @@ function getApiDetailHtml(apiDetail: any, policies: any[], contracts: any[]): st
     <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Fira+Code:wght@400;600&display=swap" />
     <link rel="stylesheet" href="https://cdn.datatables.net/1.13.4/css/jquery.dataTables.min.css" />
     <style>
+      /* Code Time inspired theme */
       :root {
-        --bg-color: #0D1117;
-        --card-color: #161B22;
-        --text-color: #C9D1D9;
-        --accent-color: #58A6FF;
-        --table-border: #30363D;
-        --hover-bg: #21262D;
+        --background-primary: #1e2328;
+        --background-secondary: #161b22;
+        --surface-primary: #21262d;
+        --surface-secondary: #30363d;
+        --text-primary: #f0f6fc;
+        --text-secondary: #7d8590;
+        --text-muted: #656d76;
+        --accent-blue: #58a6ff;
+        --accent-light: #79c0ff;
+        --border-primary: #30363d;
+        --border-muted: #21262d;
+        --success: #3fb950;
+        --warning: #d29922;
+        --error: #f85149;
       }
+
+      * {
+        box-sizing: border-box;
+      }
+
       body {
         margin: 0;
         padding: 0;
-        background-color: var(--bg-color);
-        font-family: 'Fira Code', monospace, sans-serif;
-        color: var(--text-color);
+        background-color: var(--background-primary);
+        color: var(--text-primary);
+        font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Noto Sans', Helvetica, Arial, sans-serif;
         font-size: 14px;
-      }
-      /* Navbar */
-      .navbar {
-        display: flex;
-        justify-content: space-between;
-        align-items: center;
-        background-color: #141A22;
-        padding: 0.75rem 1rem;
-      }
-      .navbar-left {
-        display: flex;
-        align-items: center;
-        gap: 1rem;
-      }
-      .navbar-left h1 {
-        margin: 0;
-        font-size: 1.25rem;
-        color: #F0F6FC;
-      }
-      .navbar-right a {
-        color: #F0F6FC;
-        margin-left: 1.5rem;
-        text-decoration: none;
-      }
-      .navbar-right a:hover {
-        text-decoration: underline;
+        line-height: 1.5;
       }
 
-      .container {
-        width: 90%;
+      /* Header Section */
+      .header {
+        background-color: var(--background-secondary);
+        border-bottom: 1px solid var(--border-primary);
+        padding: 24px 32px;
+      }
+
+      .header-content {
         max-width: 1200px;
-        margin: 1rem auto;
+        margin: 0 auto;
       }
+
+      .header h1 {
+        font-size: 28px;
+        font-weight: 600;
+        margin: 0 0 8px 0;
+        color: var(--text-primary);
+      }
+
+      .header p {
+        font-size: 16px;
+        color: var(--text-secondary);
+        margin: 0;
+      }
+
+      /* Main Content */
+      .container {
+        max-width: 1200px;
+        margin: 0 auto;
+        padding: 32px;
+      }
+
+      /* Cards */
       .card {
-        background-color: var(--card-color);
-        border: 1px solid var(--table-border);
-        border-radius: 6px;
-        margin-bottom: 1rem;
-        padding: 1rem;
+        background-color: var(--surface-primary);
+        border: 1px solid var(--border-primary);
+        border-radius: 12px;
+        margin-bottom: 24px;
+        padding: 24px;
       }
+
       .card h2 {
-        margin: 0 0 1rem;
-        font-size: 1.1rem;
-        color: var(--accent-color);
+        margin: 0 0 20px;
+        font-size: 18px;
+        font-weight: 600;
+        color: var(--text-primary);
       }
-      /* 3-column layout for main API info */
+
+      /* API Detail Grid */
       .triple-column {
         display: grid;
-        grid-template-columns: repeat(3, 1fr);
-        gap: 1rem;
-      }
-      .info-item {
-        background-color: #0D1117;
-        padding: 0.5rem;
-        border-radius: 4px;
-      }
-      .info-label {
-        font-weight: 600;
-        color: var(--accent-color);
-      }
-      .info-value {
-        display: block;
-        margin-top: 4px;
-      }
-      .info-item:hover {
-        background-color: var(--hover-bg);
+        grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+        gap: 16px;
       }
 
-      /* Table styling + expand/collapse icons */
+      .info-item {
+        background-color: var(--surface-secondary);
+        padding: 16px;
+        border-radius: 8px;
+        border: 1px solid var(--border-muted);
+        transition: all 0.2s;
+      }
+
+      .info-item:hover {
+        border-color: var(--border-primary);
+        transform: translateY(-1px);
+      }
+
+      .info-label {
+        font-weight: 600;
+        color: var(--accent-blue);
+        font-size: 13px;
+        text-transform: uppercase;
+        letter-spacing: 0.5px;
+        margin-bottom: 8px;
+      }
+
+      .info-value {
+        color: var(--text-primary);
+        font-size: 14px;
+        word-break: break-word;
+      }
+
+      /* Table Styling */
+      .table-wrapper {
+        overflow-x: auto;
+        border-radius: 8px;
+        border: 1px solid var(--border-primary);
+      }
+
       table {
         width: 100%;
         border-collapse: collapse;
-      }
-      thead th {
-        background-color: #21262D;
-        color: var(--accent-color);
-      }
-      td, th {
-        border-bottom: 1px solid var(--table-border);
-        padding: 0.5rem;
-      }
-      tbody tr:hover {
-        background-color: var(--hover-bg);
-      }
-        /* By default, show a right arrow (▶) in accent color */
-      td.details-control::before {
-        content: '▶';
-        color: var(--accent-color);
-        font-weight: 600;
-        margin-right: 5px;
-      }
-      /* When row is shown, show a down arrow (▼) */
-      tr.shown td.details-control::before {
-        content: '▼';
-        color: var(--accent-color);
-      }
-      td.details-control {
-        cursor: pointer;
-        background: url('data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAABQAAAAUCAYAAACNiR0NAAAAhElEQVR42mNkIBIwEqmO4n98wrBmxoAmAtEfQAHkA0RZEUhCwmnaAnIMkCMMcZRYLEFkBdo2BfgNk5uBvExFAzvCZhZBWdw4QOq+YQwfBiGnMzEYSCTJ0ARTDGaBWAmy6FIcCGF60v0gY2Rt2T8CyeACkAm+EHCIJQb65kZ7raIrkm0BJwAhGZzg86dIMm4jEAAAUQzMZtmyWRgAAAABJRU5ErkJggg==') no-repeat center center;
-        background-size: 16px 16px;
-      }
-      tr.shown td.details-control {
-        background: url('data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAABQAAAAUCAYAAACNiR0NAAAAgElEQVR42mNkIBIwEqmO4kMnRhj+MeR8ESKMIZKcFZDRTHAGkZBh/AJ8AZiRoTybQDUPxBphqKCDcQTw1BvTCuUI3KsSyAe/JnAY7AFZAbA8VC+83gXxhRqtul48ANopMFIXCtc9dRQPMgEhN2A5UHcdGeAfM++5j/haWNRQ5AqKQBu7A9dqFAWSIAAAAASUVORK5CYII=') no-repeat center center;
-        background-size: 16px 16px;
+        background-color: var(--surface-secondary);
       }
 
-      /* White background for 'Show entries' dropdown */
-      .dataTables_length select {
-        background-color: #ffffff !important;
-        color: #000000 !important;
-        border: 1px solid var(--table-border);
-        border-radius: 4px;
-        padding: 2px 4px;
-        outline: none;
+      thead th {
+        background-color: var(--background-secondary);
+        color: var(--text-primary);
+        font-weight: 600;
+        padding: 16px 12px;
+        text-align: left;
+        border-bottom: 1px solid var(--border-primary);
+        font-size: 13px;
       }
+
+      td, th {
+        padding: 16px 12px;
+        border-bottom: 1px solid var(--border-muted);
+        color: var(--text-primary);
+        font-size: 14px;
+      }
+
+      tbody tr:hover {
+        background-color: var(--border-muted);
+      }
+
+      tr:last-child td {
+        border-bottom: none;
+      }
+
+      /* Expand/Collapse Controls */
+      td.details-control {
+        cursor: pointer;
+        position: relative;
+        padding-left: 32px;
+      }
+
+      td.details-control::before {
+        content: '▶';
+        color: var(--accent-blue);
+        font-weight: 600;
+        position: absolute;
+        left: 12px;
+        top: 50%;
+        transform: translateY(-50%);
+        transition: transform 0.2s;
+      }
+
+      tr.shown td.details-control::before {
+        content: '▼';
+        transform: translateY(-50%) rotate(0deg);
+      }
+
+      /* DataTables Styling */
+      .dataTables_wrapper {
+        color: var(--text-primary);
+      }
+
+      .dataTables_length,
+      .dataTables_filter,
+      .dataTables_info,
+      .dataTables_paginate {
+        font-size: 14px;
+        margin: 12px 0;
+        color: var(--text-primary);
+      }
+
+      .dataTables_length select {
+        background-color: var(--surface-secondary);
+        color: var(--text-primary);
+        border: 1px solid var(--border-primary);
+        border-radius: 6px;
+        padding: 6px 8px;
+        font-size: 14px;
+      }
+
       .dataTables_filter input[type='search'] {
-        background-color: #121212;
-        color: var(--text-color);
-        border: 1px solid var(--table-border);
-        border-radius: 4px;
-        padding: 2px 8px;
+        background-color: var(--surface-secondary);
+        color: var(--text-primary);
+        border: 1px solid var(--border-primary);
+        border-radius: 6px;
+        padding: 8px 12px;
+        font-size: 14px;
+      }
+
+      .dataTables_filter input[type='search']:focus {
         outline: none;
+        border-color: var(--accent-blue);
+      }
+
+      .dataTables_paginate .paginate_button {
+        background-color: var(--surface-secondary) !important;
+        color: var(--text-primary) !important;
+        border: 1px solid var(--border-primary) !important;
+        border-radius: 6px !important;
+        padding: 8px 12px !important;
+        margin: 0 2px !important;
+      }
+
+      .dataTables_paginate .paginate_button:hover {
+        background-color: var(--accent-blue) !important;
+        color: var(--text-primary) !important;
+      }
+
+      .dataTables_paginate .paginate_button.current {
+        background-color: var(--accent-blue) !important;
+        color: var(--text-primary) !important;
+      }
+
+      /* Responsive Design */
+      @media (max-width: 768px) {
+        .container {
+          padding: 16px;
+        }
+        
+        .header {
+          padding: 16px;
+        }
+
+        .card {
+          padding: 16px;
+        }
+
+        .triple-column {
+          grid-template-columns: 1fr;
+        }
       }
     </style>
   </head>
   <body>
-    <nav class="navbar">
-      <div class="navbar-left">
-        <h1>Anypoint Monitor Extension</h1>
+    <!-- Header -->
+    <div class="header">
+      <div class="header-content">
+        <h1>API Manager - API Detail</h1>
+        <p>Detailed API information, policies, and contracts</p>
       </div>
-      <div class="navbar-right">
-        <a href="https://marketplace.visualstudio.com/items?itemName=EdgarMoran.anypoint-monitor" target="_blank">About</a>
-        <a href="https://www.buymeacoffee.com/yucelmoran" target="_blank">Buy Me a Coffee</a>
-      </div>
-    </nav>
+    </div>
 
+    <!-- Main Content -->
     <div class="container">
       <!-- Main API Detail Card -->
       <div class="card">
-        <h2>API Detail</h2>
+        <h2>API Information</h2>
         <div class="triple-column">
           <div class="info-item">
             <div class="info-label">ID</div>
@@ -412,36 +523,40 @@ function getApiDetailHtml(apiDetail: any, policies: any[], contracts: any[]): st
       <!-- Policies Card -->
       <div class="card">
         <h2>Policies</h2>
-        <table id="policiesTable" class="display">
-          <thead>
-            <tr>
-              <th></th>
-              <th>ID</th>
-              <th>Asset ID</th>
-              <th>Type</th>
-              <th>Order</th>
-              <th>Disabled</th>
-            </tr>
-          </thead>
-          <tbody></tbody>
-        </table>
+        <div class="table-wrapper">
+          <table id="policiesTable" class="display">
+            <thead>
+              <tr>
+                <th></th>
+                <th>ID</th>
+                <th>Asset ID</th>
+                <th>Type</th>
+                <th>Order</th>
+                <th>Disabled</th>
+              </tr>
+            </thead>
+            <tbody></tbody>
+          </table>
+        </div>
       </div>
 
       <!-- Contracts Card -->
       <div class="card">
         <h2>Contracts</h2>
-        <table id="contractsTable" class="display">
-          <thead>
-            <tr>
-              <th></th>
-              <th>ID</th>
-              <th>Status</th>
-              <th>Approved Date</th>
-              <th>Application Name</th>
-            </tr>
-          </thead>
-          <tbody></tbody>
-        </table>
+        <div class="table-wrapper">
+          <table id="contractsTable" class="display">
+            <thead>
+              <tr>
+                <th></th>
+                <th>ID</th>
+                <th>Status</th>
+                <th>Approved Date</th>
+                <th>Application Name</th>
+              </tr>
+            </thead>
+            <tbody></tbody>
+          </table>
+        </div>
       </div>
     </div>
 

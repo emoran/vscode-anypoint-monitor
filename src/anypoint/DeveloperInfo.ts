@@ -512,8 +512,14 @@
          headers: { Authorization: `Bearer ${accessToken}` },
        });
    
-       // 2) Filter for records where name includes '- Env:'
-       const merakiClients: Array<{
+       // 2) Separate clients into environment-specific and general clients
+       const envClients: Array<{
+         client_id: string;
+         client_secret: string;
+         name: string;
+       }> = [];
+       
+       const generalClients: Array<{
          client_id: string;
          client_secret: string;
          name: string;
@@ -523,7 +529,13 @@
        for (const key of Object.keys(allClients)) {
          const c = allClients[key];
          if (c.name && c.name.includes('- Env:')) {
-           merakiClients.push({
+           envClients.push({
+             client_id: c.client_id,
+             client_secret: c.client_secret,
+             name: c.name
+           });
+         } else if (c.name) {
+           generalClients.push({
              client_id: c.client_id,
              client_secret: c.client_secret,
              name: c.name
@@ -543,7 +555,8 @@
          context.extensionUri,
          userInfo,
          environments,
-         merakiClients
+         envClients,
+         generalClients
        );
    
      } catch (error: any) {
@@ -569,7 +582,13 @@
            });
    
            const allClients = retryResp.data;
-           const merakiClients: Array<{
+           const envClients: Array<{
+             client_id: string;
+             client_secret: string;
+             name: string;
+           }> = [];
+           
+           const generalClients: Array<{
              client_id: string;
              client_secret: string;
              name: string;
@@ -578,7 +597,13 @@
            for (const key of Object.keys(allClients)) {
              const c = allClients[key];
              if (c.name && c.name.includes('- Env:')) {
-               merakiClients.push({
+               envClients.push({
+                 client_id: c.client_id,
+                 client_secret: c.client_secret,
+                 name: c.name
+               });
+             } else if (c.name) {
+               generalClients.push({
                  client_id: c.client_id,
                  client_secret: c.client_secret,
                  name: c.name
@@ -597,7 +622,8 @@
              context.extensionUri,
              userInfo,
              environments,
-             merakiClients
+             envClients,
+             generalClients
            );
    
          } catch (retryErr: any) {
@@ -619,8 +645,8 @@ function getEnvironmentOrgHtml(
   extensionUri: vscode.Uri,
   userInfo: { orgName: string; orgId: string },
   environments: Array<{ id: string; name: string }>,
-  merakiClients: Array<{ client_id: string; client_secret: string; name: string }>
-
+  envClients: Array<{ client_id: string; client_secret: string; name: string }>,
+  generalClients: Array<{ client_id: string; client_secret: string; name: string }>
 ): string {
   // Build environment table
   const logoPath = vscode.Uri.joinPath(extensionUri, 'logo.png');
@@ -628,14 +654,26 @@ function getEnvironmentOrgHtml(
   const environmentRows = environments.map(env => {
     return /*html*/`
       <tr>
-        <td>${env.name || '(No Name)'}</td>
-        <td>${env.id || '(No ID)'}</td>
+        <td>
+          <div style="display: flex; align-items: center; gap: 8px;">
+            <span class="status-indicator">
+              <span class="status-dot"></span>
+              Active
+            </span>
+            ${env.name || '(No Name)'}
+          </div>
+        </td>
+        <td>
+          <span class="copyable" data-copy="${env.id || ''}" title="Copy Environment ID">
+            ${env.id || '(No ID)'}
+          </span>
+        </td>
       </tr>
     `;
   }).join('');
 
-  // Build clients table
-  const clientRows = merakiClients.map(client => {
+  // Build environment-specific clients table
+  const envClientRows = envClients.map(client => {
     return /*html*/`
       <tr>
         <td>${client.name}</td>
@@ -645,22 +683,58 @@ function getEnvironmentOrgHtml(
           </span>
         </td>
         <td>
-          <!-- The real secret is stored in data-secret; default hidden -->
-          <span class="client-secret"
-                data-state="hidden"
-                data-secret="${client.client_secret}">
-            *****
+          <div style="display: flex; align-items: center; gap: 8px;">
+            <!-- The real secret is stored in data-secret; default hidden -->
+            <span class="client-secret"
+                  data-state="hidden"
+                  data-secret="${client.client_secret}">
+              *****
+            </span>
+
+            <!-- Toggle button to show/hide secret -->
+            <button class="button toggle-secret">
+              Show
+            </button>
+
+            <!-- Separate button to copy the real secret -->
+            <button class="button copy-secret">
+              Copy
+            </button>
+          </div>
+        </td>
+      </tr>
+    `;
+  }).join('');
+
+  // Build general clients table
+  const generalClientRows = generalClients.map(client => {
+    return /*html*/`
+      <tr>
+        <td>${client.name}</td>
+        <td>
+          <span class="copyable" data-copy="${client.client_id}" title="Copy Client ID">
+            ${client.client_id}
           </span>
+        </td>
+        <td>
+          <div style="display: flex; align-items: center; gap: 8px;">
+            <!-- The real secret is stored in data-secret; default hidden -->
+            <span class="client-secret"
+                  data-state="hidden"
+                  data-secret="${client.client_secret}">
+              *****
+            </span>
 
-          <!-- Toggle button to show/hide secret -->
-          <button class="button toggle-secret" style="margin-left:6px">
-            Show
-          </button>
+            <!-- Toggle button to show/hide secret -->
+            <button class="button toggle-secret">
+              Show
+            </button>
 
-          <!-- Separate button to copy the real secret -->
-          <button class="button copy-secret" style="margin-left:6px">
-            Copy
-          </button>
+            <!-- Separate button to copy the real secret -->
+            <button class="button copy-secret">
+              Copy
+            </button>
+          </div>
         </td>
       </tr>
     `;
@@ -681,163 +755,330 @@ function getEnvironmentOrgHtml(
   />
 
   <style>
-    /* Dark Theme Variables (same as your other webviews) */
+    /* Code Time inspired theme */
     :root {
-      --background-color: #0D1117;
-      --card-color: #161B22;
-      --text-color: #C9D1D9;
-      --accent-color: #58A6FF;
-      --navbar-color: #141A22;
-      --navbar-text-color: #F0F6FC;
-      --button-hover-color: #3186D1;
-      --table-hover-color: #21262D;
+      --background-primary: #1e2328;
+      --background-secondary: #161b22;
+      --surface-primary: #21262d;
+      --surface-secondary: #30363d;
+      --surface-accent: #0d1117;
+      --text-primary: #f0f6fc;
+      --text-secondary: #7d8590;
+      --text-muted: #656d76;
+      --accent-blue: #58a6ff;
+      --accent-light: #79c0ff;
+      --border-primary: #30363d;
+      --border-muted: #21262d;
+      --success: #3fb950;
+      --warning: #d29922;
+      --error: #f85149;
+    }
+
+    * {
+      box-sizing: border-box;
     }
 
     body {
       margin: 0;
       padding: 0;
-      background-color: var(--background-color);
-      color: var(--text-color);
-      font-family: 'Fira Code', monospace, sans-serif;
-      font-size: 12px;
+      background-color: var(--background-primary);
+      color: var(--text-primary);
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Noto Sans', Helvetica, Arial, sans-serif;
+      font-size: 14px;
+      line-height: 1.5;
     }
 
-    /* NAVBAR (same style as your other pages) */
-    .navbar {
+    /* Header Section */
+    .header {
+      background-color: var(--background-secondary);
+      border-bottom: 1px solid var(--border-primary);
+      padding: 24px 32px;
+    }
+
+    .header-content {
+      max-width: 1200px;
+      margin: 0 auto;
+    }
+
+    .header h1 {
+      font-size: 28px;
+      font-weight: 600;
+      margin: 0 0 8px 0;
+      color: var(--text-primary);
+    }
+
+    .header p {
+      font-size: 16px;
+      color: var(--text-secondary);
+      margin: 0;
+    }
+
+    /* Main Content */
+    .container {
+      max-width: 1200px;
+      margin: 0 auto;
+      padding: 32px;
+    }
+
+    /* Statistics Grid */
+    .stats-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+      gap: 20px;
+      margin-bottom: 32px;
+    }
+
+    .stat-card {
+      background-color: var(--surface-primary);
+      border: 1px solid var(--border-primary);
+      border-radius: 12px;
+      padding: 24px;
+      position: relative;
+      transition: all 0.2s;
+    }
+
+    .stat-card:hover {
+      border-color: var(--border-muted);
+      transform: translateY(-1px);
+    }
+
+    .stat-header {
       display: flex;
       align-items: center;
       justify-content: space-between;
-      background-color: var(--navbar-color);
-      padding: 0.5rem 1rem;
+      margin-bottom: 16px;
     }
-    .navbar-left {
-      display: flex;
-      align-items: center;
-      gap: 0.5rem;
-    }
-    .navbar-left img {
-      height: 28px;
-      width: auto;
-    }
-    .navbar-left h1 {
-      color: var(--navbar-text-color);
-      font-size: 1rem;
-      margin: 0;
-    }
-    .navbar-right {
-      display: flex;
-      gap: 0.75rem;
-    }
-    .navbar-right a {
-      color: var(--navbar-text-color);
-      text-decoration: none;
+
+    .stat-title {
+      font-size: 14px;
       font-weight: 500;
-      font-size: 0.75rem;
-    }
-    .navbar-right a:hover {
-      text-decoration: underline;
-    }
-
-    /* CONTAINER */
-    .container {
-      width: 90%;
-      max-width: 1200px;
-      margin: 0.75rem auto;
-    }
-
-    /* CARD */
-    .card {
-      background-color: var(--card-color);
-      border: 1px solid #30363D;
-      border-radius: 6px;
-      padding: 0.75rem;
-      margin-bottom: 1rem;
-    }
-    .card-header {
-      margin-bottom: 0.75rem;
-    }
-    .card-header h2 {
+      color: var(--text-secondary);
       margin: 0;
-      font-size: 0.9rem;
-      color: var(--accent-color);
     }
 
-    /* TABLES */
+    .stat-value {
+      font-size: 32px;
+      font-weight: 600;
+      color: var(--text-primary);
+      margin: 0 0 8px 0;
+      line-height: 1.2;
+    }
+
+    .stat-subtitle {
+      font-size: 13px;
+      color: var(--text-muted);
+      margin: 0;
+    }
+
+    /* Card Styling */
+    .data-card {
+      background-color: var(--surface-primary);
+      border: 1px solid var(--border-primary);
+      border-radius: 12px;
+      padding: 24px;
+      margin-bottom: 32px;
+    }
+
+    .card-header {
+      margin-bottom: 20px;
+    }
+
+    .card-header h2 {
+      font-size: 20px;
+      font-weight: 600;
+      color: var(--text-primary);
+      margin: 0;
+    }
+
+    .card-subtitle {
+      display: block;
+      font-size: 14px;
+      color: var(--text-secondary);
+      margin-top: 4px;
+    }
+
+    /* Tables */
     table {
       width: 100%;
       border-collapse: collapse;
-      font-size: 0.75rem;
+      font-size: 14px;
     }
+
     thead th {
-      background-color: #21262D; /* Slightly darker for table header */
-      color: var(--accent-color);
+      background-color: var(--surface-secondary);
+      color: var(--text-secondary);
       text-align: left;
-      padding: 0.5rem;
-      border-bottom: 1px solid #30363D;
-      white-space: nowrap;
+      padding: 12px;
+      border-bottom: 1px solid var(--border-primary);
+      font-weight: 500;
+      font-size: 13px;
     }
+
     tbody td {
-      border-bottom: 1px solid #30363D;
-      padding: 0.5rem;
+      border-bottom: 1px solid var(--border-muted);
+      padding: 12px;
       vertical-align: middle;
+      color: var(--text-primary);
     }
+
     tbody tr:hover {
-      background-color: var(--table-hover-color);
+      background-color: var(--surface-secondary);
     }
 
-    /* BUTTON */
+    tbody tr:last-child td {
+      border-bottom: none;
+    }
+
+    /* Buttons */
     .button {
-      padding: 4px 8px;
-      font-size: 0.75rem;
-      color: #fff;
-      background-color: var(--accent-color);
+      padding: 6px 12px;
+      font-size: 12px;
+      color: var(--text-primary);
+      background-color: var(--accent-blue);
       border: none;
-      border-radius: 4px;
+      border-radius: 6px;
       cursor: pointer;
-      font-weight: 600;
-    }
-    .button:hover {
-      background-color: var(--button-hover-color);
+      font-weight: 500;
+      transition: all 0.2s;
+      margin-left: 8px;
     }
 
+    .button:hover {
+      background-color: var(--accent-light);
+      transform: translateY(-1px);
+    }
+
+    .button:active {
+      transform: translateY(0);
+    }
+
+    /* Secret and Copyable Elements */
     .client-secret {
-      margin-left: 4px;
+      font-family: 'Courier New', monospace;
+      background-color: var(--surface-secondary);
+      padding: 4px 8px;
+      border-radius: 4px;
+      border: 1px solid var(--border-primary);
+      min-width: 80px;
+      display: inline-block;
     }
+
     .copyable {
-      text-decoration: underline;
-      color: var(--accent-color);
+      color: var(--accent-blue);
       cursor: pointer;
+      font-family: 'Courier New', monospace;
+      background-color: var(--surface-secondary);
+      padding: 4px 8px;
+      border-radius: 4px;
+      border: 1px solid var(--border-primary);
+      transition: all 0.2s;
     }
+
     .copyable:hover {
-      color: #6FB8FF; /* slightly lighter on hover */
+      background-color: var(--surface-accent);
+      border-color: var(--accent-blue);
+      color: var(--accent-light);
     }
+
     .copy-feedback {
       display: none;
-      color: #98EE99; /* light green */
-      font-size: 0.7rem;
-      margin-left: 0.5rem;
+      color: var(--success);
+      font-size: 12px;
+      margin-left: 8px;
+      font-weight: 500;
+    }
+
+    /* Status Indicators */
+    .status-indicator {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      padding: 4px 8px;
+      border-radius: 6px;
+      font-size: 12px;
+      font-weight: 500;
+      background-color: rgba(88, 166, 255, 0.15);
+      color: var(--accent-blue);
+    }
+
+    .status-dot {
+      width: 6px;
+      height: 6px;
+      border-radius: 50%;
+      background-color: currentColor;
+    }
+
+    /* Responsive Design */
+    @media (max-width: 768px) {
+      .container {
+        padding: 16px;
+      }
+      
+      .header {
+        padding: 16px;
+      }
+      
+      .stats-grid {
+        grid-template-columns: 1fr;
+      }
+
+      .button {
+        margin-left: 4px;
+        margin-top: 4px;
+      }
     }
   </style>
 </head>
 <body>
-  <!-- TOP NAVBAR (for consistent look) -->
-  <nav class="navbar">
-    <div class="navbar-left">
-      <img src="${logoSrc}" alt="Logo"/>
-      <h1>Anypoint Monitor Extension</h1>
+  <!-- Header -->
+  <div class="header">
+    <div class="header-content">
+      <h1>Developer Utilities</h1>
+      <p>Environment information and organization client details for development use</p>
     </div>
-    <div class="navbar-right">
-      <a href="https://marketplace.visualstudio.com/items?itemName=EdgarMoran.anypoint-monitor">About</a>
-      <a href="https://www.buymeacoffee.com/yucelmoran">Buy Me a Coffee</a>
-    </div>
-  </nav>
+  </div>
 
-  <!-- MAIN CONTENT -->
+  <!-- Main Content -->
   <div class="container">
-    <!-- Card: Orgs & Envs -->
-    <div class="card">
+    <!-- Statistics Grid -->
+    <div class="stats-grid">
+      <div class="stat-card">
+        <div class="stat-header">
+          <h3 class="stat-title">Environments</h3>
+        </div>
+        <div class="stat-value">${environments.length}</div>
+        <p class="stat-subtitle">Available environments</p>
+      </div>
+
+      <div class="stat-card">
+        <div class="stat-header">
+          <h3 class="stat-title">Client Credentials</h3>
+        </div>
+        <div class="stat-value">${envClients.length}</div>
+        <p class="stat-subtitle">Environment-specific clients</p>
+      </div>
+
+      <div class="stat-card">
+        <div class="stat-header">
+          <h3 class="stat-title">General Clients</h3>
+        </div>
+        <div class="stat-value">${generalClients.length}</div>
+        <p class="stat-subtitle">All other client credentials</p>
+      </div>
+
+      <div class="stat-card">
+        <div class="stat-header">
+          <h3 class="stat-title">Organization</h3>
+        </div>
+        <div class="stat-value" style="font-size: 18px;">${userInfo.orgId}</div>
+        <p class="stat-subtitle">Organization ID</p>
+      </div>
+    </div>
+
+    <!-- Environments Card -->
+    <div class="data-card">
       <div class="card-header">
-        <h2>Organization: ${userInfo.orgName} (ID: ${userInfo.orgId})</h2>
+        <h2>Environments</h2>
       </div>
       <table>
         <thead>
@@ -852,10 +1093,11 @@ function getEnvironmentOrgHtml(
       </table>
     </div>
 
-    <!-- Card: Clients -->
-    <div class="card">
+    <!-- Environment-Specific Client Credentials Card -->
+    <div class="data-card">
       <div class="card-header">
-        <h2>Clients Environments</h2>
+        <h2>Environment-Specific Client Credentials</h2>
+        <span class="card-subtitle">Client credentials with "- Env:" designation</span>
       </div>
       <table>
         <thead>
@@ -866,7 +1108,27 @@ function getEnvironmentOrgHtml(
           </tr>
         </thead>
         <tbody>
-          ${clientRows}
+          ${envClientRows}
+        </tbody>
+      </table>
+    </div>
+
+    <!-- General Client Credentials Card -->
+    <div class="data-card">
+      <div class="card-header">
+        <h2>All Other Client Credentials</h2>
+        <span class="card-subtitle">All other client credentials in the organization</span>
+      </div>
+      <table>
+        <thead>
+          <tr>
+            <th>Client Name</th>
+            <th>Client ID</th>
+            <th>Client Secret</th>
+          </tr>
+        </thead>
+        <tbody>
+          ${generalClientRows}
         </tbody>
       </table>
     </div>

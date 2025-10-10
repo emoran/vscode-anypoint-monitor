@@ -28,9 +28,11 @@ function renderAppInfoCell(key: string, value: any): string {
     }
   }
   if (key === 'status') {
-    if (value === 'RUNNING' || value === 'STARTED') return '🟢 RUNNING';
-    if (['STOPPED', 'UNDEPLOYED', 'STARTED'].includes(value)) {
-      return '🔴 ' + value;
+    if (value === 'RUNNING' || value === 'STARTED') {
+      return `<span class="status-badge status-running"><span class="status-dot"></span>RUNNING</span>`;
+    }
+    if (['STOPPED', 'UNDEPLOYED'].includes(value)) {
+      return `<span class="status-badge status-stopped"><span class="status-dot"></span>${value}</span>`;
     }
   }
   return value ?? '';
@@ -195,7 +197,9 @@ function buildSchedulersTable(schedulers: any[]): string {
 /** Generate CSV for the single application data */
 function generateCsvContent(data: any): string {
   const app = data.application;
-  if (!app || typeof app !== 'object') return '';
+  if (!app || typeof app !== 'object') {
+    return '';
+  }
 
   const flattenedApp = flattenObject(app);
   const allKeys = Object.keys(flattenedApp).sort();
@@ -209,9 +213,11 @@ function generateCsvContent(data: any): string {
           val = new Date(ms).toISOString().split('T')[0];
         }
       }
-      if (k === 'status' && val === 'RUNNING') val = '🟢 RUNNING';
-      if (k === 'status' && ['STOPPED', 'UNDEPLOYED', 'STARTED'].includes(val)) {
-        val = '🔴 ' + val;
+      if (k === 'status' && (val === 'RUNNING' || val === 'STARTED')) {
+        val = 'RUNNING';
+      }
+      if (k === 'status' && ['STOPPED', 'UNDEPLOYED'].includes(val)) {
+        val = val;
       }
       return `"${String(val).replace(/"/g, '""')}"`;
     })
@@ -342,7 +348,9 @@ export async function showDashboardWebview(
         { placeHolder: 'Select log file format' }
       );
 
-      if (!format) return;
+      if (!format) {
+        return;
+      }
 
       const logContent = generateLogContent(logs, format.value as 'json' | 'txt' | 'csv');
       const fileExtension = format.value;
@@ -365,7 +373,9 @@ export async function showDashboardWebview(
     } else if (message.command === 'stopApp') {
       try {
         const accessToken = await context.secrets.get('anypoint.accessToken');
-        if (!accessToken) throw new Error('No access token found. Please log in first.');
+        if (!accessToken) {
+          throw new Error('No access token found. Please log in first.');
+        }
         await updateApplicationStatus(domain, 'stop', envId, accessToken);
         vscode.window.showInformationMessage(`Application ${domain} is being stopped...`);
       } catch (err: any) {
@@ -374,7 +384,9 @@ export async function showDashboardWebview(
     } else if (message.command === 'startApp') {
       try {
         const accessToken = await context.secrets.get('anypoint.accessToken');
-        if (!accessToken) throw new Error('No access token found. Please log in first.');
+        if (!accessToken) {
+          throw new Error('No access token found. Please log in first.');
+        }
         await updateApplicationStatus(domain, 'start', envId, accessToken);
         vscode.window.showInformationMessage(`Application ${domain} is being started...`);
       } catch (err: any) {
@@ -383,7 +395,9 @@ export async function showDashboardWebview(
     } else if (message.command === 'restartApp') {
       try {
         const accessToken = await context.secrets.get('anypoint.accessToken');
-        if (!accessToken) throw new Error('No access token found. Please log in first.');
+        if (!accessToken) {
+          throw new Error('No access token found. Please log in first.');
+        }
         await updateApplicationStatus(domain, 'restart', envId, accessToken);
         vscode.window.showInformationMessage(`Application ${domain} is being restarted...`);
       } catch (err: any) {
@@ -460,91 +474,101 @@ function getDashboardHtml(
         <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Fira+Code:wght@400;600&display=swap" />
 
         <style>
-          /* Dark Theme Variables */
+          /* Code Time inspired theme */
           :root {
-            --background-color: #0D1117;
-            --card-color: #161B22;
-            --text-color: #C9D1D9;
-            --accent-color: #58A6FF;
-            --navbar-color: #141A22;
-            --navbar-text-color: #F0F6FC;
-            --button-hover-color: #3186D1;
-            --table-hover-color: #21262D;
+            --background-primary: #1e2328;
+            --background-secondary: #161b22;
+            --surface-primary: #21262d;
+            --surface-secondary: #30363d;
+            --surface-accent: #0d1117;
+            --text-primary: #f0f6fc;
+            --text-secondary: #7d8590;
+            --text-muted: #656d76;
+            --accent-blue: #58a6ff;
+            --accent-light: #79c0ff;
+            --border-primary: #30363d;
+            --border-muted: #21262d;
+            --success: #3fb950;
+            --warning: #d29922;
+            --error: #f85149;
           }
 
-          /* Smaller base font size */
+          * {
+            box-sizing: border-box;
+          }
+
           body {
             margin: 0;
             padding: 0;
-            background-color: var(--background-color);
-            color: var(--text-color);
-            font-family: 'Fira Code', monospace, sans-serif;
-            font-size: 12px;
+            background-color: var(--background-primary);
+            color: var(--text-primary);
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Noto Sans', Helvetica, Arial, sans-serif;
+            font-size: 14px;
+            line-height: 1.5;
           }
 
-          /* NAVBAR */
-          .navbar {
-            display: flex;
-            align-items: center;
-            justify-content: space-between;
-            background-color: var(--navbar-color);
-            padding: 0.5rem 1rem;
+          /* Header Section */
+          .header {
+            background-color: var(--background-secondary);
+            border-bottom: 1px solid var(--border-primary);
+            padding: 24px 32px;
           }
-          .navbar-left {
-            display: flex;
-            align-items: center;
-            gap: 0.5rem;
+
+          .header-content {
+            max-width: 1200px;
+            margin: 0 auto;
           }
-          .navbar-left img {
-            height: 28px;
-            width: auto;
+
+          .header h1 {
+            font-size: 28px;
+            font-weight: 600;
+            margin: 0 0 8px 0;
+            color: var(--text-primary);
           }
-          .navbar-left h1 {
-            color: var(--navbar-text-color);
-            font-size: 1rem;
+
+          .header p {
+            font-size: 16px;
+            color: var(--text-secondary);
             margin: 0;
           }
-          .navbar-right {
-            display: flex;
-            gap: 0.75rem;
-          }
-          .navbar-right a {
-            color: var(--navbar-text-color);
-            text-decoration: none;
-            font-weight: 500;
-            font-size: 0.75rem;
-          }
-          .navbar-right a:hover {
-            text-decoration: underline;
-          }
 
-          /* CONTAINER */
+          /* Main Content */
           .container {
-            width: 90%;
-            max-width: 1400px;
-            margin: 0.5rem auto;
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 32px;
           }
 
           /* TABS */
           .tabs {
-            margin-top: 1rem;
+            margin-top: 16px;
           }
           .tab-header {
             display: flex;
-            gap: 0.5rem;
-            margin-bottom: 1rem;
+            gap: 8px;
+            margin-bottom: 24px;
+            border-bottom: 1px solid var(--border-primary);
+            padding-bottom: 12px;
           }
           .tab-btn {
-            background-color: var(--card-color);
-            color: var(--text-color);
-            border: 1px solid #30363D;
-            border-radius: 4px;
-            padding: 4px 8px;
+            background-color: transparent;
+            color: var(--text-secondary);
+            border: 1px solid var(--border-primary);
+            border-radius: 6px;
+            padding: 8px 16px;
             cursor: pointer;
-            font-size: 0.75rem;
+            font-size: 14px;
+            font-weight: 500;
+            transition: all 0.2s;
           }
-          .tab-btn.active, .tab-btn:hover {
-            background-color: var(--button-hover-color);
+          .tab-btn.active {
+            background-color: var(--accent-blue);
+            color: white;
+            border-color: var(--accent-blue);
+          }
+          .tab-btn:hover:not(.active) {
+            background-color: var(--surface-secondary);
+            color: var(--text-primary);
           }
           .tab-content {
             display: none;
@@ -555,88 +579,190 @@ function getDashboardHtml(
 
           /* CARD */
           .card {
-            background-color: var(--card-color);
-            border: 1px solid #30363D;
-            border-radius: 6px;
-            padding: 0.5rem;
-            margin-bottom: 1rem;
+            background-color: var(--surface-primary);
+            border: 1px solid var(--border-primary);
+            border-radius: 12px;
+            padding: 24px;
+            margin-bottom: 24px;
+            transition: all 0.2s;
+          }
+          .card:hover {
+            border-color: var(--border-muted);
+            transform: translateY(-1px);
           }
           .card-header {
             display: flex;
             align-items: center;
             justify-content: space-between;
-            margin-bottom: 0.5rem;
+            margin-bottom: 20px;
           }
           .card-header h2 {
             margin: 0;
-            font-size: 0.9rem;
-            color: var(--accent-color);
+            font-size: 18px;
+            font-weight: 600;
+            color: var(--text-primary);
           }
 
           /* BUTTONS */
           .button-group {
             display: flex;
-            gap: 0.25rem;
+            gap: 8px;
           }
           .button {
-            padding: 4px 8px;
-            font-size: 0.75rem;
-            color: #fff;
-            background-color: var(--accent-color);
+            padding: 8px 16px;
+            font-size: 14px;
+            font-weight: 500;
+            color: white;
+            background-color: var(--accent-blue);
             border: none;
-            border-radius: 4px;
+            border-radius: 6px;
             cursor: pointer;
-            font-weight: 600;
+            transition: all 0.2s;
           }
           .button:hover {
-            background-color: var(--button-hover-color);
+            background-color: var(--accent-light);
+            transform: translateY(-1px);
           }
 
           /* TABLES */
           .table-container {
             width: 100%;
             overflow-x: auto;
+            border-radius: 8px;
+            border: 1px solid var(--border-primary);
           }
           table {
             border-collapse: collapse;
             width: 100%;
           }
           th, td {
-            padding: 4px;
-            border-bottom: 1px solid #30363D;
+            padding: 12px 16px;
             text-align: left;
             vertical-align: top;
+            border-bottom: 1px solid var(--border-muted);
           }
           th {
-            color: var(--accent-color);
+            background-color: var(--surface-secondary);
+            color: var(--text-secondary);
+            font-weight: 500;
+            font-size: 13px;
             white-space: nowrap;
           }
+          td {
+            color: var(--text-primary);
+            font-size: 14px;
+          }
           tr:hover {
-            background-color: var(--table-hover-color);
+            background-color: var(--surface-secondary);
           }
           .app-table {
-            font-size: 0.75rem;
+            font-size: 14px;
           }
           .logs-table {
-            font-family: 'Fira Code', monospace;
-            font-size: 0.7rem;
+            font-family: 'Fira Code', 'Courier New', monospace;
+            font-size: 13px;
+          }
+
+          /* Status Badges */
+          .status-badge {
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            padding: 4px 8px;
+            border-radius: 6px;
+            font-size: 12px;
+            font-weight: 500;
+          }
+
+          .status-running {
+            background-color: rgba(63, 185, 80, 0.15);
+            color: var(--success);
+          }
+
+          .status-stopped {
+            background-color: rgba(248, 81, 73, 0.15);
+            color: var(--error);
+          }
+
+          .status-dot {
+            width: 6px;
+            height: 6px;
+            border-radius: 50%;
+            background-color: currentColor;
+          }
+
+          /* Form Controls */
+          input[type="text"] {
+            background-color: var(--surface-secondary);
+            border: 1px solid var(--border-primary);
+            border-radius: 6px;
+            padding: 8px 12px;
+            color: var(--text-primary);
+            font-size: 14px;
+          }
+
+          input[type="text"]:focus {
+            outline: none;
+            border-color: var(--accent-blue);
+            box-shadow: 0 0 0 2px rgba(88, 166, 255, 0.1);
+          }
+
+          /* Details/Summary */
+          details {
+            margin-top: 12px;
+          }
+
+          summary {
+            cursor: pointer;
+            font-weight: 500;
+            color: var(--accent-blue);
+            padding: 8px 0;
+          }
+
+          summary:hover {
+            color: var(--accent-light);
+          }
+
+          /* Responsive Design */
+          @media (max-width: 768px) {
+            .container {
+              padding: 16px;
+            }
+            
+            .header {
+              padding: 16px;
+            }
+            
+            .card {
+              padding: 16px;
+            }
+            
+            .card-header {
+              flex-direction: column;
+              align-items: flex-start;
+              gap: 12px;
+            }
+            
+            .button-group {
+              width: 100%;
+            }
+            
+            .button {
+              flex: 1;
+            }
           }
         </style>
       </head>
       <body>
-        <!-- NAVBAR -->
-        <nav class="navbar">
-          <div class="navbar-left">
-            <img src="${logoSrc}" alt="Logo"/>
-            <h1>Anypoint Monitor Extension</h1>
+        <!-- Header -->
+        <div class="header">
+          <div class="header-content">
+            <h1>${data.application?.domain || 'Application Details'}</h1>
+            <p>CloudHub 1.0 Application Dashboard</p>
           </div>
-          <div class="navbar-right">
-            <a href="https://marketplace.visualstudio.com/items?itemName=EdgarMoran.anypoint-monitor">About</a>
-            <a href="https://www.buymeacoffee.com/yucelmoran">Buy Me a Coffee</a>
-          </div>
-        </nav>
+        </div>
 
-        <!-- MAIN CONTAINER -->
+        <!-- Main Content -->
         <div class="container">
           <div class="tabs">
             <nav class="tab-header">

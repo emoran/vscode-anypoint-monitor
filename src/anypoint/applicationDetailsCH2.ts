@@ -749,7 +749,9 @@ function buildSchedulersTable(schedulers: any[]): string {
 
 return `
     <div class="card">
-      <h2>Schedulers</h2>
+      <div class="card-header">
+        <h2>Schedulers</h2>
+      </div>
       <div class="table-container">
         <table class="app-table">
           <thead>
@@ -762,7 +764,7 @@ return `
           </tbody>
         </table>
       </div>
-      <div style="margin-top: 0.5rem; font-size: 0.8rem; color: #8b949e;">
+      <div style="margin-top: 16px; font-size: 13px; color: var(--text-secondary); padding-top: 16px; border-top: 1px solid var(--border-muted);">
         Total schedulers: ${schedulers.length}
       </div>
     </div>
@@ -958,9 +960,11 @@ function renderCH2AppInfoCell(key: string, value: any): string {
     }
   }
   if (key === 'application.status' || key === 'status') {
-    if (value === 'RUNNING' || value === 'STARTED') return '🟢 RUNNING';
+    if (value === 'RUNNING' || value === 'STARTED') {
+      return `<span class="status-badge status-running"><span class="status-dot"></span>RUNNING</span>`;
+    }
     if (['STOPPED', 'UNDEPLOYED'].includes(value)) {
-      return '🔴 ' + value;
+      return `<span class="status-badge status-stopped"><span class="status-dot"></span>${value}</span>`;
     }
   }
   return value ?? '';
@@ -1154,7 +1158,9 @@ function getApplicationDetailsCH2Html(
   const schedulersHtml = buildSchedulersTable(additionalData.schedulers || []);
   const alertsHtml = `
     <div class="card">
-      <h2>Alerts</h2>
+      <div class="card-header">
+        <h2>Alerts</h2>
+      </div>
       <p>${JSON.stringify(additionalData.alerts || [])}</p>
     </div>
   `;
@@ -1162,7 +1168,7 @@ function getApplicationDetailsCH2Html(
   
 // Updated logs HTML section in getApplicationDetailsCH2Html function
 // Replace the existing logsHtml variable with this:
-// UPDATED LOGS HTML - REMOVED BUTTONS AND COMMENTED DATE FILTERS
+// Updated logs HTML with Code Time styling
   const logsHtml = `
     <div class="card logs">
       <div class="card-header">
@@ -1171,21 +1177,19 @@ function getApplicationDetailsCH2Html(
           <button id="btnDownloadLogs" class="button">Download Logs</button>
         </div>
       </div>
-      <div style="margin-bottom: 0.5rem; display: flex; gap: 0.5rem; align-items: center; flex-wrap: wrap;">
+      <div class="logs-filters">
         <input 
           id="logFilter" 
           type="text" 
-          placeholder="Filter logs by text..." 
-          style="width: 250px; padding: 4px; background-color: var(--card-color); color: var(--text-color); border: 1px solid #30363D;"
+          placeholder="Filter logs by text..."
         />
-        <select id="priorityFilter" style="padding: 4px; background-color: var(--card-color); color: var(--text-color); border: 1px solid #30363D;">
+        <select id="priorityFilter">
           <option value="">All Priorities</option>
           <option value="ERROR">ERROR</option>
           <option value="WARN">WARN</option>
           <option value="INFO">INFO</option>
           <option value="DEBUG">DEBUG</option>
         </select>
-
       </div>
       <div class="table-container" style="max-height: 600px; overflow-y: auto;">
         <table class="logs-table">
@@ -1199,10 +1203,10 @@ function getApplicationDetailsCH2Html(
           <tbody id="logsTbody"></tbody>
         </table>
       </div>
-      <div style="margin-top: 0.5rem; display: flex; align-items: center; gap: 1rem;">
-        <button id="logsPrev" class="button">Prev</button>
+      <div class="logs-pagination">
+        <button id="logsPrev" class="button">Previous</button>
         <button id="logsNext" class="button">Next</button>
-        <span id="logsPageInfo" style="font-size: 0.85rem;"></span>
+        <span id="logsPageInfo" class="logs-info"></span>
       </div>
     </div>
   `;
@@ -1394,176 +1398,340 @@ return /* html */ `
         <title>Application Details - ${appName}</title>
         <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Fira+Code:wght@400;600&display=swap" />
         <style>
+          /* Code Time inspired theme */
           :root {
-            --background-color: #0D1117;
-            --card-color: #161B22;
-            --text-color: #C9D1D9;
-            --accent-color: #58A6FF;
-            --navbar-color: #141A22;
-            --navbar-text-color: #F0F6FC;
-            --button-hover-color: #3186D1;
-            --table-hover-color: #21262D;
+            --background-primary: #1e2328;
+            --background-secondary: #161b22;
+            --surface-primary: #21262d;
+            --surface-secondary: #30363d;
+            --surface-accent: #0d1117;
+            --text-primary: #f0f6fc;
+            --text-secondary: #7d8590;
+            --text-muted: #656d76;
+            --accent-blue: #58a6ff;
+            --accent-light: #79c0ff;
+            --border-primary: #30363d;
+            --border-muted: #21262d;
+            --success: #3fb950;
+            --warning: #d29922;
+            --error: #f85149;
+          }
+
+          * {
+            box-sizing: border-box;
           }
 
           body {
             margin: 0;
             padding: 0;
-            background-color: var(--background-color);
-            color: var(--text-color);
-            font-family: 'Fira Code', monospace, sans-serif;
-            font-size: 12px;
+            background-color: var(--background-primary);
+            color: var(--text-primary);
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Noto Sans', Helvetica, Arial, sans-serif;
+            font-size: 14px;
+            line-height: 1.5;
           }
 
-          .navbar {
-            display: flex;
-            align-items: center;
-            justify-content: space-between;
-            background-color: var(--navbar-color);
-            padding: 0.5rem 1rem;
+          /* Header Section */
+          .header {
+            background-color: var(--background-secondary);
+            border-bottom: 1px solid var(--border-primary);
+            padding: 24px 32px;
           }
-          .navbar-left {
-            display: flex;
-            align-items: center;
-            gap: 0.5rem;
+
+          .header-content {
+            max-width: 1200px;
+            margin: 0 auto;
           }
-          .navbar-left img {
-            height: 28px;
-            width: auto;
+
+          .header h1 {
+            font-size: 28px;
+            font-weight: 600;
+            margin: 0 0 8px 0;
+            color: var(--text-primary);
           }
-          .navbar-left h1 {
-            color: var(--navbar-text-color);
-            font-size: 1rem;
+
+          .header p {
+            font-size: 16px;
+            color: var(--text-secondary);
             margin: 0;
           }
-          .navbar-right {
-            display: flex;
-            gap: 0.75rem;
-          }
-          .navbar-right a {
-            color: var(--navbar-text-color);
-            text-decoration: none;
-            font-weight: 500;
-            font-size: 0.75rem;
-          }
-          .navbar-right a:hover {
-            text-decoration: underline;
-          }
 
+          /* Main Content */
           .container {
-            width: 90%;
-            max-width: 1400px;
-            margin: 0.5rem auto;
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 32px;
           }
 
+          /* Tabs */
           .tabs {
-            margin-top: 1rem;
+            margin-top: 0;
           }
+
           .tab-header {
             display: flex;
-            gap: 0.5rem;
-            margin-bottom: 1rem;
+            gap: 8px;
+            margin-bottom: 24px;
+            border-bottom: 1px solid var(--border-primary);
+            padding-bottom: 0;
           }
+
           .tab-btn {
-            background-color: var(--card-color);
-            color: var(--text-color);
-            border: 1px solid #30363D;
-            border-radius: 4px;
-            padding: 4px 8px;
+            background: none;
+            border: none;
+            color: var(--text-secondary);
+            padding: 12px 16px;
             cursor: pointer;
-            font-size: 0.75rem;
+            font-size: 14px;
+            font-weight: 500;
+            border-bottom: 2px solid transparent;
+            transition: all 0.2s;
           }
-          .tab-btn.active, .tab-btn:hover {
-            background-color: var(--button-hover-color);
+
+          .tab-btn:hover {
+            color: var(--text-primary);
+            background-color: var(--surface-secondary);
           }
+
+          .tab-btn.active {
+            color: var(--accent-blue);
+            border-bottom-color: var(--accent-blue);
+          }
+
           .tab-content {
             display: none;
           }
+
           .tab-content.active {
             display: block;
           }
 
+          /* Cards */
           .card {
-            background-color: var(--card-color);
-            border: 1px solid #30363D;
-            border-radius: 6px;
-            padding: 0.5rem;
-            margin-bottom: 1rem;
+            background-color: var(--surface-primary);
+            border: 1px solid var(--border-primary);
+            border-radius: 12px;
+            padding: 24px;
+            margin-bottom: 24px;
+            transition: all 0.2s;
           }
+
+          .card:hover {
+            border-color: var(--border-muted);
+            transform: translateY(-1px);
+          }
+
           .card-header {
             display: flex;
             align-items: center;
             justify-content: space-between;
-            margin-bottom: 0.5rem;
-          }
-          .card-header h2 {
-            margin: 0;
-            font-size: 0.9rem;
-            color: var(--accent-color);
+            margin-bottom: 20px;
+            padding-bottom: 16px;
+            border-bottom: 1px solid var(--border-muted);
           }
 
+          .card-header h2 {
+            font-size: 18px;
+            font-weight: 600;
+            margin: 0;
+            color: var(--text-primary);
+          }
+
+          /* Buttons */
           .button-group {
             display: flex;
-            gap: 0.25rem;
+            gap: 8px;
           }
+
           .button {
-            padding: 4px 8px;
-            font-size: 0.75rem;
-            color: #fff;
-            background-color: var(--accent-color);
-            border: none;
-            border-radius: 4px;
+            padding: 8px 16px;
+            font-size: 13px;
+            font-weight: 500;
+            color: var(--text-primary);
+            background-color: var(--accent-blue);
+            border: 1px solid var(--accent-blue);
+            border-radius: 6px;
             cursor: pointer;
-            font-weight: 600;
+            transition: all 0.2s;
           }
+
           .button:hover {
-            background-color: var(--button-hover-color);
+            background-color: var(--accent-light);
+            border-color: var(--accent-light);
           }
+
           .button:disabled {
-            background-color: #6c757d;
+            background-color: var(--surface-secondary);
+            border-color: var(--surface-secondary);
+            color: var(--text-muted);
             cursor: not-allowed;
           }
 
+          /* Tables */
           .table-container {
             width: 100%;
             overflow-x: auto;
+            border: 1px solid var(--border-primary);
+            border-radius: 8px;
           }
+
           table {
-            border-collapse: collapse;
             width: 100%;
+            border-collapse: collapse;
+            font-size: 13px;
           }
-          th, td {
-            padding: 4px;
-            border-bottom: 1px solid #30363D;
-            text-align: left;
-            vertical-align: top;
-          }
+
           th {
-            color: var(--accent-color);
-            white-space: nowrap;
+            background-color: var(--surface-secondary);
+            color: var(--text-secondary);
+            font-weight: 500;
+            padding: 12px 16px;
+            text-align: left;
+            border-bottom: 1px solid var(--border-primary);
           }
+
+          td {
+            padding: 12px 16px;
+            border-bottom: 1px solid var(--border-muted);
+            color: var(--text-primary);
+          }
+
           tr:hover {
-            background-color: var(--table-hover-color);
+            background-color: var(--surface-secondary);
           }
-          .app-table {
-            font-size: 0.75rem;
+
+          tr:last-child td {
+            border-bottom: none;
           }
+
+          /* Status Badges */
+          .status-badge {
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            padding: 4px 8px;
+            border-radius: 6px;
+            font-size: 12px;
+            font-weight: 500;
+          }
+
+          .status-running {
+            background-color: rgba(63, 185, 80, 0.15);
+            color: var(--success);
+          }
+
+          .status-stopped {
+            background-color: rgba(248, 81, 73, 0.15);
+            color: var(--error);
+          }
+
+          .status-dot {
+            width: 6px;
+            height: 6px;
+            border-radius: 50%;
+            background-color: currentColor;
+          }
+
+          /* Logs specific styling */
           .logs-table {
             font-family: 'Fira Code', monospace;
-            font-size: 0.7rem;
+            font-size: 12px;
+          }
+
+          .logs-table td {
+            padding: 8px 12px;
+            vertical-align: top;
+          }
+
+          .logs-filters {
+            display: flex;
+            gap: 12px;
+            align-items: center;
+            margin-bottom: 16px;
+            flex-wrap: wrap;
+          }
+
+          .logs-filters input,
+          .logs-filters select {
+            padding: 8px 12px;
+            background-color: var(--surface-secondary);
+            color: var(--text-primary);
+            border: 1px solid var(--border-primary);
+            border-radius: 6px;
+            font-size: 13px;
+          }
+
+          .logs-filters input {
+            min-width: 250px;
+          }
+
+          .logs-pagination {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            margin-top: 16px;
+            padding-top: 16px;
+            border-top: 1px solid var(--border-muted);
+          }
+
+          .logs-pagination .button {
+            padding: 6px 12px;
+            font-size: 12px;
+          }
+
+          .logs-info {
+            font-size: 13px;
+            color: var(--text-secondary);
+          }
+
+          /* Responsive Design */
+          @media (max-width: 768px) {
+            .header {
+              padding: 16px;
+            }
+            
+            .container {
+              padding: 16px;
+            }
+            
+            .card {
+              padding: 16px;
+            }
+            
+            .card-header {
+              flex-direction: column;
+              align-items: flex-start;
+              gap: 12px;
+            }
+            
+            .button-group {
+              width: 100%;
+            }
+            
+            .button {
+              flex: 1;
+            }
+            
+            .logs-filters {
+              flex-direction: column;
+              align-items: stretch;
+            }
+            
+            .logs-filters input {
+              min-width: auto;
+              width: 100%;
+            }
           }
         </style>
       </head>
       <body>
-        <nav class="navbar">
-          <div class="navbar-left">
-            <img src="${logoSrc}" alt="Logo"/>
-            <h1>Anypoint Monitor Extension</h1>
+        <!-- Header Section -->
+        <div class="header">
+          <div class="header-content">
+            <h1>${appName}</h1>
+            <p>CloudHub 2.0 Application Dashboard</p>
           </div>
-          <div class="navbar-right">
-            <a href="https://marketplace.visualstudio.com/items?itemName=EdgarMoran.anypoint-monitor">About</a>
-            <a href="https://www.buymeacoffee.com/yucelmoran">Buy Me a Coffee</a>
-          </div>
-        </nav>
+        </div>
 
         <div class="container">
           <div class="tabs">

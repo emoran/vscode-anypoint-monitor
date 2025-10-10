@@ -116,210 +116,460 @@ export function getOrgInfoWebviewContent(
   <html lang="en">
   <head>
     <meta charset="UTF-8" />
-    <title>Organization Info</title>
-
-    <!-- Fira Code for tech vibe -->
-    <link
-      rel="stylesheet"
-      href="https://fonts.googleapis.com/css2?family=Fira+Code:wght@400;600&display=swap"
-    />
+    <title>Organization Dashboard</title>
 
     <style>
-      /* Dark Theme Variables (same as your other webviews) */
+      /* Code Time inspired theme */
       :root {
-        --background-color: #0D1117;
-        --card-color: #161B22;
-        --text-color: #C9D1D9;
-        --accent-color: #58A6FF;
-        --navbar-color: #141A22;
-        --navbar-text-color: #F0F6FC;
-        --button-hover-color: #3186D1;
-        --table-hover-color: #21262D;
+        --background-primary: #1e2328;
+        --background-secondary: #161b22;
+        --surface-primary: #21262d;
+        --surface-secondary: #30363d;
+        --surface-accent: #0d1117;
+        --text-primary: #f0f6fc;
+        --text-secondary: #7d8590;
+        --text-muted: #656d76;
+        --accent-blue: #58a6ff;
+        --accent-light: #79c0ff;
+        --border-primary: #30363d;
+        --border-muted: #21262d;
+        --success: #3fb950;
+        --warning: #d29922;
+        --error: #f85149;
+      }
+
+      * {
+        box-sizing: border-box;
       }
 
       body {
         margin: 0;
         padding: 0;
-        background-color: var(--background-color);
-        color: var(--text-color);
-        font-family: 'Fira Code', monospace, sans-serif;
-        font-size: 13px;
+        background-color: var(--background-primary);
+        color: var(--text-primary);
+        font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Noto Sans', Helvetica, Arial, sans-serif;
+        font-size: 14px;
+        line-height: 1.5;
       }
 
-      /* NAVBAR */
-      .navbar {
+      /* Header Section */
+      .header {
+        background-color: var(--background-secondary);
+        border-bottom: 1px solid var(--border-primary);
+        padding: 24px 32px;
+      }
+
+      .header-content {
+        max-width: 1200px;
+        margin: 0 auto;
+      }
+
+      .header h1 {
+        font-size: 28px;
+        font-weight: 600;
+        margin: 0 0 8px 0;
+        color: var(--text-primary);
+      }
+
+      .header p {
+        font-size: 16px;
+        color: var(--text-secondary);
+        margin: 0;
+      }
+
+      /* Main Content */
+      .container {
+        max-width: 1200px;
+        margin: 0 auto;
+        padding: 32px;
+      }
+
+
+      /* Statistics Grid */
+      .stats-grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+        gap: 20px;
+        margin-bottom: 32px;
+      }
+
+      .stat-card {
+        background-color: var(--surface-primary);
+        border: 1px solid var(--border-primary);
+        border-radius: 12px;
+        padding: 24px;
+        position: relative;
+        transition: all 0.2s;
+      }
+
+      .stat-card:hover {
+        border-color: var(--border-muted);
+        transform: translateY(-1px);
+      }
+
+      .stat-header {
         display: flex;
         align-items: center;
         justify-content: space-between;
-        background-color: var(--navbar-color);
-        padding: 0.75rem 1rem;
+        margin-bottom: 16px;
       }
-      .navbar-left {
+
+      .stat-title {
+        font-size: 14px;
+        font-weight: 500;
+        color: var(--text-secondary);
+        margin: 0;
+      }
+
+      .stat-icon {
+        width: 16px;
+        height: 16px;
+        opacity: 0.6;
+      }
+
+      .stat-value {
+        font-size: 32px;
+        font-weight: 600;
+        color: var(--text-primary);
+        margin: 0 0 8px 0;
+        line-height: 1.2;
+      }
+
+      .stat-subtitle {
+        font-size: 13px;
+        color: var(--text-muted);
+        margin: 0;
+      }
+
+      .stat-trend {
         display: flex;
         align-items: center;
-        gap: 0.5rem;
+        gap: 4px;
+        font-size: 12px;
+        margin-top: 8px;
       }
-      .navbar-left img {
-        height: 28px;
-        width: auto;
+
+      .trend-up { color: var(--success); }
+      .trend-down { color: var(--error); }
+      .trend-neutral { color: var(--text-muted); }
+
+      /* Usage Progress Bars */
+      .usage-card {
+        background-color: var(--surface-primary);
+        border: 1px solid var(--border-primary);
+        border-radius: 12px;
+        padding: 24px;
       }
-      .navbar-left h1 {
-        color: var(--navbar-text-color);
-        font-size: 1rem;
-        margin: 0;
-      }
-      .navbar-right {
+
+      .usage-header {
         display: flex;
-        gap: 1rem;
-      }
-      .navbar-right a {
-        color: var(--navbar-text-color);
-        text-decoration: none;
-        font-weight: 500;
-        font-size: 0.85rem;
-      }
-      .navbar-right a:hover {
-        text-decoration: underline;
+        justify-content: space-between;
+        align-items: center;
+        margin-bottom: 16px;
       }
 
-      /* HERO SECTION */
-      .hero {
-        background: linear-gradient(180deg, #2c3e50 0%, #4a5965 50%, #67737b 100%);
-        padding: 1rem 2rem;
-        color: #ffffff;
-      }
-      .hero h2 {
-        font-size: 1.25rem;
-        margin: 0 0 0.5rem;
-      }
-      .hero p {
+      .usage-title {
+        font-size: 16px;
+        font-weight: 600;
+        color: var(--text-primary);
         margin: 0;
-        font-size: 0.9rem;
       }
 
-      /* CONTAINER */
-      .container {
-        width: 90%;
-        max-width: 1200px;
-        margin: 1rem auto;
+      .usage-subtitle {
+        font-size: 14px;
+        color: var(--text-secondary);
+        margin: 0 0 20px 0;
       }
 
-      /* SECTION TITLE */
-      .section-title {
-        margin-bottom: 1rem;
-        font-size: 1rem;
-        border-bottom: 1px solid #30363D;
-        padding-bottom: 0.5rem;
-        color: var(--accent-color);
+      .usage-items {
+        display: grid;
+        gap: 20px;
       }
 
-      /* INFO PANEL (Org details) */
-      .info-panel {
-        background-color: var(--card-color);
-        border: 1px solid #30363D;
-        border-radius: 6px;
-        padding: 1rem;
-        margin-bottom: 2rem;
+      .usage-item {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        padding: 16px 0;
+        border-bottom: 1px solid var(--border-muted);
       }
-      .info-table {
+
+      .usage-item:last-child {
+        border-bottom: none;
+      }
+
+      .usage-info {
+        flex: 1;
+      }
+
+      .usage-label {
+        font-size: 14px;
+        font-weight: 500;
+        color: var(--text-primary);
+        margin: 0 0 4px 0;
+      }
+
+      .usage-details {
+        font-size: 13px;
+        color: var(--text-secondary);
+        margin: 0;
+      }
+
+      .usage-progress {
+        width: 120px;
+        margin-left: 16px;
+      }
+
+      .progress-bar {
+        width: 100%;
+        height: 6px;
+        background-color: var(--surface-secondary);
+        border-radius: 3px;
+        overflow: hidden;
+        margin-bottom: 4px;
+      }
+
+      .progress-fill {
+        height: 100%;
+        background-color: var(--accent-blue);
+        transition: width 0.3s ease;
+      }
+
+      .progress-text {
+        font-size: 12px;
+        color: var(--text-muted);
+        text-align: right;
+      }
+
+      /* Organization Details Table */
+      .details-card {
+        background-color: var(--surface-primary);
+        border: 1px solid var(--border-primary);
+        border-radius: 12px;
+        padding: 24px;
+        margin-bottom: 32px;
+      }
+
+      .details-table {
         width: 100%;
         border-collapse: collapse;
       }
-      .info-table th,
-      .info-table td {
+
+      .details-table tr {
+        border-bottom: 1px solid var(--border-muted);
+      }
+
+      .details-table tr:last-child {
+        border-bottom: none;
+      }
+
+      .details-table th,
+      .details-table td {
+        padding: 12px 0;
         text-align: left;
-        padding: 0.5rem;
-        border-bottom: 1px solid #30363D;
-      }
-      .info-table tr:hover {
-        background-color: var(--table-hover-color);
-      }
-      .info-table th {
-        color: var(--accent-color);
-        white-space: nowrap;
       }
 
-      /* USAGE SECTION */
-      .usage-container {
-        display: flex;
-        flex-wrap: wrap;
-        gap: 1rem;
+      .details-table th {
+        font-size: 13px;
+        font-weight: 500;
+        color: var(--text-secondary);
+        width: 200px;
       }
-      .usage-card {
-        background-color: var(--card-color);
-        border: 1px solid #30363D;
+
+      .details-table td {
+        font-size: 14px;
+        color: var(--text-primary);
+      }
+
+      /* Status Badges */
+      .status-badge {
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+        padding: 4px 8px;
         border-radius: 6px;
-        padding: 0.75rem;
-        flex: 1;
-        min-width: 220px;
-      }
-      .usage-card h3 {
-        margin: 0 0 0.5rem;
-        font-size: 0.95rem;
-        color: var(--accent-color);
-      }
-      .usage-card p {
-        font-size: 0.85rem;
+        font-size: 12px;
+        font-weight: 500;
       }
 
-      /* PROGRESS BAR */
-      .bar-container {
-        width: 100%;
-        background-color: #30363D;
-        border-radius: 4px;
-        overflow: hidden;
-        height: 8px;
-        margin-top: 8px;
+      .status-enabled {
+        background-color: rgba(63, 185, 80, 0.15);
+        color: var(--success);
       }
-      .bar {
-        height: 8px;
-        background-color: var(--accent-color);
+
+      .status-disabled {
+        background-color: rgba(248, 81, 73, 0.15);
+        color: var(--error);
+      }
+
+      .status-dot {
+        width: 6px;
+        height: 6px;
+        border-radius: 50%;
+        background-color: currentColor;
+      }
+
+      /* Responsive Design */
+      @media (max-width: 768px) {
+        .container {
+          padding: 16px;
+        }
+        
+        .header {
+          padding: 16px;
+        }
+        
+        .stats-grid {
+          grid-template-columns: 1fr;
+        }
       }
     </style>
   </head>
   <body>
-    <!-- NAVBAR -->
-    <nav class="navbar">
-      <div class="navbar-left">
-        <img src="${logoSrc}" alt="Anypoint Monitor" />
-        <h1>Anypoint Monitor Extension</h1>
+    <!-- Header -->
+    <div class="header">
+      <div class="header-content">
+        <h1>${orgName}</h1>
+        <p>Organization Dashboard</p>
       </div>
-      <div class="navbar-right">
-        <a href="https://marketplace.visualstudio.com/items?itemName=EdgarMoran.anypoint-monitor" target="_blank">About the Extension</a>
-        <a href="https://www.buymeacoffee.com/yucelmoran" target="_blank">Buy Me a Coffee</a>
-      </div>
-    </nav>
-
-    <!-- HERO SECTION -->
-    <div class="hero">
-      <h2>${orgName} Organization</h2>
-      <p>View real-time usage metrics and manage resources all in one place.</p>
     </div>
 
-    <!-- MAIN CONTENT -->
+    <!-- Main Content -->
     <div class="container">
-      <!-- ORG DETAILS -->
-      <h3 class="section-title">Organization Details</h3>
-      <div class="info-panel">
-        <table class="info-table">
-          <tr><th>Name</th><td>${orgName}</td></tr>
-          <tr><th>ID</th><td>${orgId}</td></tr>
-          <tr><th>CS ID</th><td>${orgCsId}</td></tr>
-          <tr><th>Enabled</th><td>${orgEnabled}</td></tr>
-          <tr><th>Default Region</th><td>${defaultRegion}</td></tr>
-          <tr><th>Download Apps Enabled</th><td>${downloadAppsEnabled}</td></tr>
-          <tr><th>Persistent Queues Encryption</th><td>${persistentQueuesEncryptionEnabled}</td></tr>
-          <tr><th>OS V1 Disabled</th><td>${osV1Disabled}</td></tr>
-          <tr><th>Deployment Group Enabled</th><td>${deploymentGroupEnabled}</td></tr>
-          <tr><th>Custom Log4j Enabled</th><td>${loggingCustomLog4jEnabled}</td></tr>
-          <tr><th>Multitenancy Enabled</th><td>${multitenancy}</td></tr>
-        </table>
+
+      <!-- Statistics Grid -->
+      <div class="stats-grid">
+        <div class="stat-card">
+          <div class="stat-header">
+            <h3 class="stat-title">Production Workers</h3>
+          </div>
+          <div class="stat-value">${usage.productionWorkers || 0}</div>
+          <p class="stat-subtitle">of ${plan.maxProductionWorkers || 'unlimited'} available</p>
+        </div>
+
+        <div class="stat-card">
+          <div class="stat-header">
+            <h3 class="stat-title">Sandbox Workers</h3>
+          </div>
+          <div class="stat-value">${usage.sandboxWorkers || 0}</div>
+          <p class="stat-subtitle">of ${plan.maxSandboxWorkers || 'unlimited'} available</p>
+        </div>
+
+        <div class="stat-card">
+          <div class="stat-header">
+            <h3 class="stat-title">Static IPs</h3>
+          </div>
+          <div class="stat-value">${usage.staticIps || 0}</div>
+          <p class="stat-subtitle">of ${plan.maxStaticIps || 'unlimited'} available</p>
+        </div>
+
+        <div class="stat-card">
+          <div class="stat-header">
+            <h3 class="stat-title">Default Region</h3>
+          </div>
+          <div class="stat-value" style="font-size: 18px;">${defaultRegion}</div>
+          <p class="stat-subtitle">Primary deployment region</p>
+        </div>
       </div>
 
-      <!-- USAGE vs PLAN -->
-      <h3 class="section-title">Usage vs Plan</h3>
-      <div class="usage-container">
-        ${usageCardsHtml}
+      <!-- Usage Details -->
+      <div class="usage-card">
+        <div class="usage-header">
+          <h2 class="usage-title">Resource Usage</h2>
+        </div>
+        <p class="usage-subtitle">Current usage across all resource types</p>
+        
+        <div class="usage-items">
+          ${usageItems.map(item => {
+            const used = item.usageVal || 0;
+            const total = item.planVal || 0;
+            const percentage = total > 0 ? Math.min((used / total) * 100, 100) : 0;
+            
+            return `
+              <div class="usage-item">
+                <div class="usage-info">
+                  <h4 class="usage-label">${item.label}</h4>
+                  <p class="usage-details">${used} of ${total > 0 ? total : 'unlimited'} used</p>
+                </div>
+                <div class="usage-progress">
+                  <div class="progress-bar">
+                    <div class="progress-fill" style="width: ${percentage}%"></div>
+                  </div>
+                  <div class="progress-text">${percentage.toFixed(0)}%</div>
+                </div>
+              </div>
+            `;
+          }).join('')}
+        </div>
+      </div>
+
+      <!-- Organization Details -->
+      <div class="details-card">
+        <h2 class="usage-title" style="margin-bottom: 20px;">Organization Details</h2>
+        <table class="details-table">
+          <tr>
+            <th>Organization ID</th>
+            <td>${orgId}</td>
+          </tr>
+          <tr>
+            <th>CS ID</th>
+            <td>${orgCsId}</td>
+          </tr>
+          <tr>
+            <th>Status</th>
+            <td>
+              <span class="status-badge ${orgEnabled ? 'status-enabled' : 'status-disabled'}">
+                <span class="status-dot"></span>
+                ${orgEnabled ? 'Enabled' : 'Disabled'}
+              </span>
+            </td>
+          </tr>
+          <tr>
+            <th>Application Downloads</th>
+            <td>
+              <span class="status-badge ${downloadAppsEnabled ? 'status-enabled' : 'status-disabled'}">
+                <span class="status-dot"></span>
+                ${downloadAppsEnabled ? 'Enabled' : 'Disabled'}
+              </span>
+            </td>
+          </tr>
+          <tr>
+            <th>Queue Encryption</th>
+            <td>
+              <span class="status-badge ${persistentQueuesEncryptionEnabled ? 'status-enabled' : 'status-disabled'}">
+                <span class="status-dot"></span>
+                ${persistentQueuesEncryptionEnabled ? 'Enabled' : 'Disabled'}
+              </span>
+            </td>
+          </tr>
+          <tr>
+            <th>Deployment Groups</th>
+            <td>
+              <span class="status-badge ${deploymentGroupEnabled ? 'status-enabled' : 'status-disabled'}">
+                <span class="status-dot"></span>
+                ${deploymentGroupEnabled ? 'Enabled' : 'Disabled'}
+              </span>
+            </td>
+          </tr>
+          <tr>
+            <th>Custom Log4j</th>
+            <td>
+              <span class="status-badge ${loggingCustomLog4jEnabled ? 'status-enabled' : 'status-disabled'}">
+                <span class="status-dot"></span>
+                ${loggingCustomLog4jEnabled ? 'Enabled' : 'Disabled'}
+              </span>
+            </td>
+          </tr>
+          <tr>
+            <th>Multitenancy</th>
+            <td>
+              <span class="status-badge ${multitenancy ? 'status-enabled' : 'status-disabled'}">
+                <span class="status-dot"></span>
+                ${multitenancy ? 'Enabled' : 'Disabled'}
+              </span>
+            </td>
+          </tr>
+        </table>
       </div>
     </div>
   </body>
