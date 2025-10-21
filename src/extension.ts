@@ -23,6 +23,7 @@ import { showCommunityEvents } from "./anypoint/communityEvents";
 import { showRealTimeLogs } from "./anypoint/realTimeLogs";
 import { BASE_URL } from "./constants";
 import { showApplicationDiagram } from "./anypoint/applicationDiagram";
+import { showDataWeavePlayground } from "./anypoint/dataweavePlayground";
 
 interface EnvironmentOption {
 	label: string;
@@ -575,10 +576,18 @@ export function activate(context: vscode.ExtensionContext) {
 		}
 	});
 
+	const dataweavePlaygroundCmd = vscode.commands.registerCommand('anypoint-monitor.dataweavePlayground', async () => {
+		try {
+			await showDataWeavePlayground(context);
+		} catch (error: any) {
+			vscode.window.showErrorMessage(`Error opening DataWeave Playground: ${error.message}`);
+		}
+	});
+
 	context.subscriptions.push(userInfo);
 	context.subscriptions.push(getApplications);
 	context.subscriptions.push(revokeAccessCommand);
-	context.subscriptions.push(loginCommand); 
+	context.subscriptions.push(loginCommand);
 	context.subscriptions.push(loginCommand);
 	context.subscriptions.push(getCH1Apps);
 	context.subscriptions.push(organizationInformation);
@@ -592,6 +601,7 @@ export function activate(context: vscode.ExtensionContext) {
 	context.subscriptions.push(auditAPIsCmd);
 	context.subscriptions.push(realTimeLogsCmd);
 	context.subscriptions.push(environmentComparisonCmd);
+	context.subscriptions.push(dataweavePlaygroundCmd);
 }
 
 // This method is called when your extension is deactivated

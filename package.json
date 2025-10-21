@@ -72,7 +72,8 @@
     "onCommand:anypoint-monitor.auditAPIs",
     "onCommand:anypoint-monitor.realTimeLogs",
     "onCommand:anypoint-monitor.environmentComparison",
-    "onCommand:anypoint-monitor.applicationDiagram"
+    "onCommand:anypoint-monitor.applicationDiagram",
+    "onCommand:anypoint-monitor.dataweavePlayground"
   ],
   "main": "./out/extension.js",
   "files": [
@@ -147,6 +148,10 @@
       {
         "command": "anypoint-monitor.applicationDiagram",
         "title": "AM: Application Diagram"
+      },
+      {
+        "command": "anypoint-monitor.dataweavePlayground",
+        "title": "AM: DataWeave Playground"
       }
     ]
   },

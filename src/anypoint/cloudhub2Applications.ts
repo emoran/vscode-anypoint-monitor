@@ -944,29 +944,29 @@ export async function getCH2Deployments(
     if (Array.isArray(deploymentsData)) {
       deployments = deploymentsData;
       console.log('✅ Found deployments as direct array');
-    } else if (deploymentsData.items && Array.isArray(deploymentsData.items)) {
+    } else if ((deploymentsData as any).items && Array.isArray((deploymentsData as any).items)) {
       // ADDED: Handle 'items' property (most common for CloudHub 2.0)
-      deployments = deploymentsData.items;
+      deployments = (deploymentsData as any).items;
       console.log('✅ Found deployments in items property');
-    } else if (deploymentsData.data && Array.isArray(deploymentsData.data)) {
-      deployments = deploymentsData.data;
+    } else if ((deploymentsData as any).data && Array.isArray((deploymentsData as any).data)) {
+      deployments = (deploymentsData as any).data;
       console.log('✅ Found deployments in data property');
-    } else if (deploymentsData.deployments && Array.isArray(deploymentsData.deployments)) {
-      deployments = deploymentsData.deployments;
+    } else if ((deploymentsData as any).deployments && Array.isArray((deploymentsData as any).deployments)) {
+      deployments = (deploymentsData as any).deployments;
       console.log('✅ Found deployments in deployments property');
     } else {
       // Debug: Log the actual structure to understand what we're getting
-      console.error('❌ Unknown response structure. Available properties:', Object.keys(deploymentsData));
+      console.error('❌ Unknown response structure. Available properties:', Object.keys(deploymentsData as any));
       console.error('❌ Full response:', JSON.stringify(deploymentsData, null, 2));
-      
+
       // Try to find any array property
-      const arrayProps = Object.keys(deploymentsData).filter(key => 
-        Array.isArray(deploymentsData[key])
+      const arrayProps = Object.keys(deploymentsData as any).filter(key =>
+        Array.isArray((deploymentsData as any)[key])
       );
       
       if (arrayProps.length > 0) {
         console.log(`🔍 Found array properties: ${arrayProps.join(', ')}`);
-        deployments = deploymentsData[arrayProps[0]];
+        deployments = (deploymentsData as any)[arrayProps[0]];
         console.log(`⚠️ Using first array property '${arrayProps[0]}' with ${deployments.length} items`);
       }
     }

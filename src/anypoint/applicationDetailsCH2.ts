@@ -245,7 +245,7 @@ async function getCH2DeploymentSpecs(
     }
 
     const specsData = await response.json();
-    console.log('CH2 deployment specs response structure:', Object.keys(specsData));
+    console.log('CH2 deployment specs response structure:', Object.keys(specsData as any));
     console.log('Full specs response:', JSON.stringify(specsData, null, 2));
 
     // FIXED: Handle the actual response structure - specs come as a direct array
@@ -255,7 +255,7 @@ async function getCH2DeploymentSpecs(
       console.log('✅ Found specs as direct array');
     } else {
       console.error('❌ Expected array but got:', typeof specsData);
-      console.error('❌ Available properties:', Object.keys(specsData));
+      console.error('❌ Available properties:', Object.keys(specsData as any));
       specs = [];
     }
 
@@ -357,7 +357,7 @@ async function getCH2DeploymentLogs(
     }
 
  const logsData = await response.json();
-    console.log('CH2 logs response structure:', Object.keys(logsData));
+    console.log('CH2 logs response structure:', Object.keys(logsData as any));
     console.log('Full logs response sample:', JSON.stringify(logsData, null, 2));
 
     // FIXED: Handle different response structures - logs might come as direct array
@@ -365,25 +365,25 @@ async function getCH2DeploymentLogs(
     if (Array.isArray(logsData)) {
       logs = logsData;
       console.log('✅ Found logs as direct array');
-    } else if (logsData.items && Array.isArray(logsData.items)) {
-      logs = logsData.items;
+    } else if ((logsData as any).items && Array.isArray((logsData as any).items)) {
+      logs = (logsData as any).items;
       console.log('✅ Found logs in items property');
-    } else if (logsData.data && Array.isArray(logsData.data)) {
-      logs = logsData.data;
+    } else if ((logsData as any).data && Array.isArray((logsData as any).data)) {
+      logs = (logsData as any).data;
       console.log('✅ Found logs in data property');
-    } else if (logsData.logs && Array.isArray(logsData.logs)) {
-      logs = logsData.logs;
+    } else if ((logsData as any).logs && Array.isArray((logsData as any).logs)) {
+      logs = (logsData as any).logs;
       console.log('✅ Found logs in logs property');
     } else {
-      console.error('❌ Unknown logs response structure. Available properties:', Object.keys(logsData));
+      console.error('❌ Unknown logs response structure. Available properties:', Object.keys(logsData as any));
       // Try to find any array property as fallback
-      const arrayProps = Object.keys(logsData).filter(key => 
-        Array.isArray(logsData[key])
+      const arrayProps = Object.keys(logsData as any).filter(key =>
+        Array.isArray((logsData as any)[key])
       );
-      
+
       if (arrayProps.length > 0) {
         console.log(`🔍 Found array properties: ${arrayProps.join(', ')}`);
-        logs = logsData[arrayProps[0]];
+        logs = (logsData as any)[arrayProps[0]];
         console.log(`⚠️ Using first array property '${arrayProps[0]}' with ${logs.length} items`);
       }
     }
@@ -648,19 +648,19 @@ async function fetchCH2Schedulers(
     }
 
     const schedulersData = await response.json();
-    console.log('CH2 schedulers response structure:', Object.keys(schedulersData));
+    console.log('CH2 schedulers response structure:', Object.keys(schedulersData as any));
     console.log('Full schedulers response:', JSON.stringify(schedulersData, null, 2));
 
     // Handle the response structure: { items: [...], total: N }
     let schedulers = [];
-    if (schedulersData.items && Array.isArray(schedulersData.items)) {
-      schedulers = schedulersData.items;
+    if ((schedulersData as any).items && Array.isArray((schedulersData as any).items)) {
+      schedulers = (schedulersData as any).items;
       console.log('✅ Found schedulers in items property');
     } else if (Array.isArray(schedulersData)) {
       schedulers = schedulersData;
       console.log('✅ Found schedulers as direct array');
     } else {
-      console.error('❌ Unknown schedulers response structure. Available properties:', Object.keys(schedulersData));
+      console.error('❌ Unknown schedulers response structure. Available properties:', Object.keys(schedulersData as any));
       schedulers = [];
     }
 
@@ -822,7 +822,7 @@ async function fetchCH2Alerts(
     }
 
     const alertsData = await response.json();
-    return Array.isArray(alertsData) ? alertsData : alertsData.data || [];
+    return Array.isArray(alertsData) ? alertsData : (alertsData as any).data || [];
 
   } catch (error: any) {
     console.log('Alerts not available:', error.message);

@@ -21,7 +21,13 @@
       "WebFetch(domain:mermaid.live)",
       "Bash(git checkout:*)",
       "WebFetch(domain:marketplace.visualstudio.com)",
-      "Bash(npm run lint:*)"
+      "Bash(npm run lint:*)",
+      "WebFetch(domain:dataweave.mulesoft.com)",
+      "WebFetch(domain:developer.mulesoft.com)",
+      "mcp__ide__getDiagnostics",
+      "Bash(npx tsc:*)",
+      "Bash(./node_modules/.bin/tsc:*)",
+      "Bash(npm install)"
     ],
     "deny": []
   }
