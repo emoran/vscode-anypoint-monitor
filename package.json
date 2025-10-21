@@ -72,7 +72,8 @@
     "onCommand:anypoint-monitor.auditAPIs",
     "onCommand:anypoint-monitor.realTimeLogs",
     "onCommand:anypoint-monitor.environmentComparison",
-    "onCommand:anypoint-monitor.applicationDiagram"
+    "onCommand:anypoint-monitor.applicationDiagram",
+    "onCommand:anypoint-monitor.dataweavePlayground"
   ],
   "main": "./out/extension.js",
   "files": [
@@ -147,6 +148,10 @@
       {
         "command": "anypoint-monitor.applicationDiagram",
         "title": "AM: Application Diagram"
+      },
+      {
+        "command": "anypoint-monitor.dataweavePlayground",
+        "title": "AM: DataWeave Playground"
       }
     ]
   },
@@ -160,6 +165,7 @@
     "deploy": "vsce publish --yarn"
   },
   "devDependencies": {
+    "@types/jszip": "^3.4.0",
     "@types/mocha": "^10.0.10",
     "@types/node": "20.x",
     "@types/vscode": "^1.96.0",
@@ -168,12 +174,12 @@
     "@vscode/test-cli": "^0.0.10",
     "@vscode/test-electron": "^2.4.1",
     "eslint": "^9.16.0",
-    "typescript": "^5.7.2",
-    "@types/jszip": "^3.4.0"
+    "typescript": "^5.7.2"
   },
   "dependencies": {
     "axios": "^1.7.9",
     "jszip": "^3.10.1",
+    "monaco-editor": "^0.54.0",
     "open": "^10.1.0"
   }
 }
