@@ -3,7 +3,7 @@
   "displayName": "Anypoint Monitor",
   "description": "Professional Anypoint Platform management extension for Visual Studio Code. Provides comprehensive monitoring and management capabilities for CloudHub applications, API portfolio oversight, organizational analytics, and development workflow optimization within your IDE environment.",
   "publisher": "EdgarMoran",
-  "version": "0.0.30",
+  "version": "0.0.31",
   "engines": {
     "vscode": "^1.96.0"
   },

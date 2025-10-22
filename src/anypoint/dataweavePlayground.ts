@@ -102,7 +102,7 @@ class DataWeavePlaygroundPanel {
             width: 100%;
             height: 100%;
             position: relative;
-            background-color: var(--vscode-editor-background);
+            background-color: #ffffff;
         }
 
         iframe {
@@ -110,7 +110,11 @@ class DataWeavePlaygroundPanel {
             height: 100%;
             border: none;
             display: block;
+            filter: brightness(1.2) contrast(0.85) saturate(0.8);
+            background-color: #ffffff;
         }
+
+
 
         .loading {
             position: absolute;
@@ -168,6 +172,7 @@ class DataWeavePlaygroundPanel {
                 loading.style.display = 'none';
             }
         }
+
 
         // Handle iframe load error
         const iframe = document.getElementById('playground-frame');
