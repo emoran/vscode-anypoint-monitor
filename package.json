@@ -3,7 +3,7 @@
   "displayName": "Anypoint Monitor",
   "description": "Professional Anypoint Platform management extension for Visual Studio Code. Provides comprehensive monitoring and management capabilities for CloudHub applications, API portfolio oversight, organizational analytics, and development workflow optimization within your IDE environment.",
   "publisher": "EdgarMoran",
-  "version": "0.0.33",
+  "version": "0.0.37",
   "engines": {
     "vscode": "^1.96.0"
   },
@@ -22,14 +22,17 @@
   "homepage": "https://github.com/emoran/vscode-anypoint-monitor#readme",
   "icon": "logo.png",
   "screenshots": [
+
     {
       "path": "resources/ch1.png"
     },
+
     {
       "path": "resources/main.png"
     }
   ],
   "activitybar": [
+
     {
       "id": "chatAI",
       "title": "Chat AI",
@@ -75,7 +78,9 @@
     "onCommand:anypoint-monitor.applicationDiagram",
     "onCommand:anypoint-monitor.dataweavePlayground",
     "onCommand:anypoint-monitor.checkCH2Availability",
-    "onCommand:anypoint-monitor.accountManager"
+    "onCommand:anypoint-monitor.accountManager",
+    "onCommand:anypoint-monitor.deleteAllAccounts",
+    "onCommand:anypoint-monitor.migrateLegacyAccount"
   ],
   "main": "./out/extension.js",
   "files": [
@@ -83,85 +88,115 @@
   ],
   "contributes": {
     "commands": [
+
       {
         "command": "anypoint-monitor.userInfo",
         "title": "AM: My Information"
       },
+
       {
         "command": "anypoint-monitor.applicationDetails",
         "title": "AM: Application Details"
       },
+
       {
         "command": "anypoint-monitor.organizationInfo",
         "title": "AM: Organization Details"
       },
+
       {
         "command": "anypoint-monitor.login",
         "title": "AM: Login into Anypoint Platform"
       },
+
       {
         "command": "anypoint-monitor.cloudhub2Apps",
         "title": "AM: Show Cloudhub 2.0 Applications"
       },
+
       {
         "command": "anypoint-monitor.cloudhub1Apps",
         "title": "AM: Show Cloudhub 1.0 Applications"
       },
+
       {
         "command": "anypoint-monitor.subscriptionExpiration",
         "title": "AM: Subscription Expiration"
       },
+
       {
         "command": "anypoint-monitor.developerUtilities",
         "title": "AM: Developer Utilities"
       },
+
       {
         "command": "anypoint-monitor.retrieveAccessToken",
         "title": "AM: Retrieve Access Token"
       },
+
       {
         "command": "anypoint-monitor.retrieveAPIManagerAPIs",
         "title": "AM: Retrieve API Manager APIs"
       },
+
       {
         "command": "anypoint-monitor.communityEvents",
         "title": "AM: MuleSoft Community Events"
       },
+
       {
         "command": "anypoint-monitor.provideFeedback",
         "title": "AM: Provide Feedback"
       },
+
       {
         "command": "anypoint-monitor.logout",
         "title": "AM: Logout"
       },
+
       {
         "command": "anypoint-monitor.auditAPIs",
         "title": "AM: Audit APIs"
       },
+
       {
         "command": "anypoint-monitor.realTimeLogs",
         "title": "AM: Real-Time Logs"
       },
+
       {
         "command": "anypoint-monitor.environmentComparison",
         "title": "AM: Environment Comparison Table"
       },
+
       {
         "command": "anypoint-monitor.applicationDiagram",
         "title": "AM: Application Diagram"
       },
+
       {
         "command": "anypoint-monitor.dataweavePlayground",
         "title": "AM: DataWeave Playground"
       },
+
       {
         "command": "anypoint-monitor.checkCH2Availability",
         "title": "AM: Check CloudHub 2.0 Environment Compatibility"
       },
+
       {
         "command": "anypoint-monitor.accountManager",
         "title": "AM: Account Manager"
+      },
+
+      {
+        "command": "anypoint-monitor.deleteAllAccounts",
+        "title": "AM: Delete All Accounts & Data"
+      },
+
+      {
+        "command": "anypoint-monitor.migrateLegacyAccount",
+        "title": "AM: Migrate Legacy Account to Multi-Account"
       }
     ]
   },

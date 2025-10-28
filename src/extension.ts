@@ -154,7 +154,15 @@ export async function updateAccountStatusBar(context: vscode.ExtensionContext) {
 export function activate(context: vscode.ExtensionContext) {
 	// Initialize account service and migrate existing account if needed
 	const accountService = new AccountService(context);
-	accountService.migrateExistingAccount().catch(err => {
+	
+	// Run automatic migration for existing users
+	accountService.checkAndPromptMigration().then(migrated => {
+		if (migrated) {
+			// Update status bar to reflect the migrated account
+			updateAccountStatusBar(context);
+			console.log('✅ Legacy account migration completed on startup');
+		}
+	}).catch(err => {
 		console.error('Failed to migrate existing account:', err);
 	});
 
@@ -582,6 +590,93 @@ export function activate(context: vscode.ExtensionContext) {
 		}
 	});
 
+	// Command to delete all accounts and data
+	const deleteAllAccountsCmd = vscode.commands.registerCommand('anypoint-monitor.deleteAllAccounts', async () => {
+		const confirmation = await vscode.window.showWarningMessage(
+			'This will delete all stored accounts, tokens, and extension data. This action cannot be undone.',
+			{ modal: true },
+			'Delete All Data',
+			'Cancel'
+		);
+
+		if (confirmation === 'Delete All Data') {
+			try {
+				const accountService = new AccountService(context);
+				
+				// Delete all accounts
+				const accounts = await accountService.getAccounts();
+				for (const account of accounts) {
+					await accountService.removeAccount(account.id);
+				}
+
+				// Clear legacy storage
+				const legacyKeys = [
+					'anypoint.accessToken',
+					'anypoint.refreshToken', 
+					'anypoint.userInfo',
+					'anypoint.environments',
+					'anypoint.selectedEnvironment',
+					'anypoint.tempAccessToken',
+					'anypoint.tempRefreshToken',
+					'anypoint.tempUserInfo',
+					'anypoint.tempEnvironments'
+				];
+
+				for (const key of legacyKeys) {
+					try {
+						await context.secrets.delete(key);
+					} catch (error) {
+						// Ignore errors for keys that don't exist
+					}
+				}
+
+				// Update status bar
+				await updateAccountStatusBar(context);
+
+				vscode.window.showInformationMessage('All accounts and extension data have been deleted successfully.');
+			} catch (error: any) {
+				vscode.window.showErrorMessage(`Failed to delete accounts: ${error.message}`);
+			}
+		}
+	});
+
+	// Manual migration command for existing users
+	const migrateLegacyAccountCmd = vscode.commands.registerCommand('anypoint-monitor.migrateLegacyAccount', async () => {
+		try {
+			const accountService = new AccountService(context);
+			
+			vscode.window.showInformationMessage('Checking for legacy account data to migrate...');
+			
+			const migrationResult = await accountService.migrateLegacyAccount();
+			
+			if (migrationResult.migrated && migrationResult.accountId) {
+				const account = await accountService.getAccountById(migrationResult.accountId);
+				await updateAccountStatusBar(context);
+				
+				vscode.window.showInformationMessage(
+					`✅ Successfully migrated legacy account: ${account?.userEmail} (${account?.organizationName}). ` +
+					`Your account is now using the new multi-account system!`
+				);
+			} else if (migrationResult.error) {
+				vscode.window.showErrorMessage(`Migration failed: ${migrationResult.error}`);
+			} else {
+				// Check if already migrated
+				const existingAccounts = await accountService.getAccounts();
+				if (existingAccounts.length > 0) {
+					vscode.window.showInformationMessage(
+						'You already have accounts in the multi-account system. No migration needed.'
+					);
+				} else {
+					vscode.window.showInformationMessage(
+						'No legacy account data found to migrate. You may need to log in first.'
+					);
+				}
+			}
+		} catch (error: any) {
+			vscode.window.showErrorMessage(`Migration failed: ${error.message}`);
+		}
+	});
+
 	context.subscriptions.push(userInfo);
 	context.subscriptions.push(getApplications);
 	context.subscriptions.push(checkCH2EnvironmentCompatibility);
@@ -602,7 +697,12 @@ export function activate(context: vscode.ExtensionContext) {
 	context.subscriptions.push(environmentComparisonCmd);
 	context.subscriptions.push(dataweavePlaygroundCmd);
 	context.subscriptions.push(accountManagerCmd);
+	context.subscriptions.push(deleteAllAccountsCmd);
+	context.subscriptions.push(migrateLegacyAccountCmd);
 }
 
 // This method is called when your extension is deactivated
-export function deactivate() {}
+export function deactivate() {
+	// Optional: Add cleanup logic here if needed
+	console.log('Anypoint Monitor extension is being deactivated');
+}

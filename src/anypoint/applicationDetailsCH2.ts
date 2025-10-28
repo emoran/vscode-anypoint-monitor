@@ -150,30 +150,57 @@ panel.webview.onDidReceiveMessage(async (message) => {
  * Modified getStoredOrgAndEnvInfo to accept optional environment ID and use multi-account system
  */
 export async function getStoredOrgAndEnvInfo(context: vscode.ExtensionContext, providedEnvId?: string): Promise<{orgId: string, envId: string, environments: any[]}> {
-  // Use multi-account system
+  // Use multi-account system with backward compatibility
   const { AccountService } = await import('../controllers/accountService.js');
   const accountService = new AccountService(context);
   const activeAccount = await accountService.getActiveAccount();
   
-  if (!activeAccount) {
-    throw new Error('No active account found. Please log in first.');
+  let orgId: string;
+  let environmentsData: string | undefined;
+
+  if (activeAccount) {
+    // NEW: Multi-account system user
+    console.log('🔍 Using active account for CH2 details:', {
+      userEmail: activeAccount.userEmail,
+      organizationName: activeAccount.organizationName,
+      organizationId: activeAccount.organizationId
+    });
+
+    orgId = activeAccount.organizationId;
+    environmentsData = await accountService.getAccountData(activeAccount.id, 'environments');
+    
+    if (!environmentsData) {
+      console.log('⚠️ No environments in multi-account storage, falling back to legacy storage...');
+      // Fallback to legacy storage for environments
+      environmentsData = await context.secrets.get('anypoint.environments');
+    }
+  } else {
+    // LEGACY: Backward compatibility for existing users
+    console.log('🔄 No active account found, using legacy authentication for backward compatibility...');
+    
+    const storedUserInfo = await context.secrets.get('anypoint.userInfo');
+    if (!storedUserInfo) {
+      throw new Error('No user info found. Please log in first.');
+    }
+
+    const userInfo = JSON.parse(storedUserInfo);
+    orgId = userInfo.organization.id;
+    environmentsData = await context.secrets.get('anypoint.environments');
+    
+    console.log('🔍 Using legacy authentication for CH2 details:', {
+      organizationId: orgId,
+      organizationName: userInfo.organization.name
+    });
   }
 
-  console.log('🔍 Using active account for CH2 details:', {
-    userEmail: activeAccount.userEmail,
-    organizationName: activeAccount.organizationName,
-    organizationId: activeAccount.organizationId
-  });
-
-  const storedEnvironments = await context.secrets.get('anypoint.environments');
-  if (!storedEnvironments) {
+  if (!environmentsData) {
     throw new Error('Environment info not found. Please log in first.');
   }
 
-  const parsedEnvironments = JSON.parse(storedEnvironments); // { data: [...], total: N }
+  const parsedEnvironments = JSON.parse(environmentsData); // { data: [...], total: N }
 
   return {
-    orgId: activeAccount.organizationId,
+    orgId: orgId,
     envId: providedEnvId || parsedEnvironments.data[0]?.id || '', // Use provided env ID or fallback
     environments: parsedEnvironments.data
   };
@@ -188,10 +215,10 @@ async function getCH2DeploymentById(
   envId: string,
   deploymentId: string
 ): Promise<any> {
+  const apiHelper = new ApiHelper(context);
+  const url = `https://anypoint.mulesoft.com/amc/application-manager/api/v2/organizations/${orgId}/environments/${envId}/deployments/${deploymentId}`;
+  
   try {
-    const apiHelper = new ApiHelper(context);
-    const url = `https://anypoint.mulesoft.com/amc/application-manager/api/v2/organizations/${orgId}/environments/${envId}/deployments/${deploymentId}`;
-    
     console.log('Fetching CH2 deployment details from:', url);
 
     const response = await apiHelper.get(url);
@@ -202,6 +229,53 @@ async function getCH2DeploymentById(
 
   } catch (error: any) {
     console.error('Error fetching CloudHub 2.0 deployment details:', error);
+    
+    // Enhanced error logging for CloudHub 2.0 access issues
+    if (error.message?.includes('Access denied') || error.message?.includes('403')) {
+      console.error('🚫 CloudHub 2.0 Access Denied Details:');
+      console.error('URL that failed:', url);
+      console.error('Organization ID:', orgId);
+      console.error('Environment ID:', envId);
+      console.error('Deployment ID:', deploymentId);
+      
+      // Check if this is a subscription/licensing issue
+      const { AccountService } = await import('../controllers/accountService.js');
+      const accountService = new AccountService(context);
+      const activeAccount = await accountService.getActiveAccount();
+      
+      if (activeAccount) {
+        console.error('🔍 Account Details:');
+        console.error('- User Email:', activeAccount.userEmail);
+        console.error('- Organization:', activeAccount.organizationName);
+        console.error('- Organization ID:', activeAccount.organizationId);
+        console.error('- Account Status:', activeAccount.status);
+        
+        // Try to get user info to check subscriptions
+        try {
+          const userInfoStr = await accountService.getAccountData(activeAccount.id, 'userInfo');
+          if (userInfoStr) {
+            const userInfo = JSON.parse(userInfoStr);
+            console.error('🔍 Subscription Details:');
+            console.error('- Subscription:', userInfo.organization?.subscription);
+            console.error('- Plan:', userInfo.organization?.plan);
+            console.error('- Entitlements:', userInfo.organization?.entitlements);
+          }
+        } catch (subError) {
+          console.error('Could not retrieve subscription details:', subError);
+        }
+      }
+      
+      throw new Error(`CloudHub 2.0 access denied. This could be due to:
+• CloudHub 2.0 not being licensed for your organization
+• Your account (${activeAccount?.userEmail}) lacking CloudHub 2.0 permissions
+• CloudHub 2.0 not being available in environment "${envId}"
+• This application being CloudHub 1.0 only
+
+💡 Try running "AM: Check CloudHub 2.0 Environment Compatibility" command to diagnose the issue.
+
+Please contact your Anypoint Platform administrator to verify CloudHub 2.0 licensing and permissions.`);
+    }
+    
     throw error;
   }
 }
@@ -215,10 +289,10 @@ async function getCH2DeploymentSpecs(
   envId: string,
   deploymentId: string
 ): Promise<any[]> {
+  const apiHelper = new ApiHelper(context);
+  const url = `https://anypoint.mulesoft.com/amc/application-manager/api/v2/organizations/${orgId}/environments/${envId}/deployments/${deploymentId}/specs`;
+  
   try {
-    const apiHelper = new ApiHelper(context);
-    const url = `https://anypoint.mulesoft.com/amc/application-manager/api/v2/organizations/${orgId}/environments/${envId}/deployments/${deploymentId}/specs`;
-    
     console.log('Fetching CH2 deployment specs from:', url);
 
     const response = await apiHelper.get(url);
@@ -264,6 +338,14 @@ async function getCH2DeploymentSpecs(
 
   } catch (error: any) {
     console.error('Error fetching CloudHub 2.0 deployment specs:', error);
+    
+    // Enhanced error logging for CloudHub 2.0 access issues
+    if (error.message?.includes('Access denied') || error.message?.includes('403')) {
+      console.error('🚫 CloudHub 2.0 Specs Access Denied');
+      console.error('URL that failed:', url);
+      console.error('This may indicate CloudHub 2.0 licensing or permission issues');
+    }
+    
     throw error;
   }
 }
@@ -421,14 +503,52 @@ async function fetchCH2ApplicationDetails(
     const deploymentId = deployment.id;
     console.log(`Found deployment ID: ${deploymentId} for app: ${appName}`);
 
-    // Step 4: Get deployment details (optional, for additional info)
+    // Step 4: Get deployment details (optional, for additional info) with fallback
     console.log(`Fetching deployment details for ID: ${deploymentId}`);
-    const deploymentDetails = await getCH2DeploymentById(context, orgId, envId, deploymentId);
+    let deploymentDetails;
+    try {
+      deploymentDetails = await getCH2DeploymentById(context, orgId, envId, deploymentId);
+      console.log('✅ Successfully retrieved detailed deployment info via API');
+    } catch (error: any) {
+      console.error('❌ Failed to get detailed deployment info via API:', error.message);
+      
+      // Check if this is a permissions issue
+      if (error.message?.includes('Access denied') || error.message?.includes('403')) {
+        console.warn('🔒 Access denied for individual deployment API - using list data instead');
+        console.log('ℹ️ This is common when CloudHub 2.0 individual deployment access is restricted');
+        
+        // Fallback: Use the deployment data from the list, which we know works
+        deploymentDetails = {
+          ...deployment,
+          // Add any missing fields that might be expected
+          deployment: deployment,
+          application: deployment.application || { name: deployment.name || appName }
+        };
+        
+        console.log('✅ Using deployment info from list as fallback');
+      } else {
+        // Re-throw non-permission errors
+        throw error;
+      }
+    }
 
-    // Step 5: Get deployment specs
+    // Step 5: Get deployment specs with fallback
     console.log(`Fetching deployment specs for ID: ${deploymentId}`);
-    const specs = await getCH2DeploymentSpecs(context, orgId, envId, deploymentId);
-    console.log(`Retrieved ${specs.length} specs`);
+    let specs = [];
+    try {
+      specs = await getCH2DeploymentSpecs(context, orgId, envId, deploymentId);
+      console.log(`✅ Retrieved ${specs.length} specs via API`);
+    } catch (error: any) {
+      console.error('❌ Failed to get deployment specs:', error.message);
+      
+      if (error.message?.includes('Access denied') || error.message?.includes('403')) {
+        console.warn('🔒 Access denied for deployment specs API - continuing without specs');
+        specs = []; // Continue with empty specs
+      } else {
+        // Re-throw non-permission errors
+        throw error;
+      }
+    }
     
     // Step 6: Get the latest spec
     const latestSpec = getLatestSpec(specs);

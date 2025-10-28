@@ -138,6 +138,11 @@ export class AccountService {
         return accounts.find(acc => acc.id === activeAccountId);
     }
 
+    async getAccountById(accountId: string): Promise<AnypointAccount | undefined> {
+        const accounts = await this.getAccounts();
+        return accounts.find(account => account.id === accountId);
+    }
+
     async updateAccountStatus(accountId: string, status: 'authenticated' | 'expired' | 'error'): Promise<void> {
         const accounts = await this.getAccounts();
         const updatedAccounts = accounts.map(acc => 
@@ -230,6 +235,117 @@ export class AccountService {
                     await this.updateAccountStatus(account.id, 'error');
                 }
             }
+        }
+    }
+
+    /**
+     * Migrate legacy account data to multi-account system
+     * This helps existing users transition to the new system automatically
+     */
+    async migrateLegacyAccount(): Promise<{ migrated: boolean, accountId?: string, error?: string }> {
+        try {
+            console.log('🔄 Checking for legacy account data to migrate...');
+
+            // Check if we already have accounts in the new system
+            const existingAccounts = await this.getAccounts();
+            if (existingAccounts.length > 0) {
+                console.log('✅ Multi-account system already has accounts, no migration needed');
+                return { migrated: false };
+            }
+
+            // Check for legacy data
+            const legacyToken = await this.context.secrets.get('anypoint.accessToken');
+            const legacyUserInfo = await this.context.secrets.get('anypoint.userInfo');
+            const legacyEnvironments = await this.context.secrets.get('anypoint.environments');
+            const legacyRefreshToken = await this.context.secrets.get('anypoint.refreshToken');
+
+            if (!legacyToken || !legacyUserInfo) {
+                console.log('ℹ️ No legacy account data found to migrate');
+                return { migrated: false };
+            }
+
+            console.log('🎯 Found legacy account data, starting migration...');
+
+            // Parse user info to get organization details
+            const userInfo = JSON.parse(legacyUserInfo);
+            const orgId = userInfo.organization.id;
+            const accountId = `account_${orgId}_migrated_${Date.now()}`;
+
+            console.log(`📝 Creating migrated account with ID: ${accountId}`);
+
+            // Create the account object
+            const account = {
+                id: accountId,
+                organizationId: orgId,
+                organizationName: userInfo.organization.name || 'Unknown Organization',
+                userEmail: userInfo.email || 'unknown@email.com',
+                userName: userInfo.username || userInfo.firstName + ' ' + userInfo.lastName || 'Unknown User',
+                isActive: true, // Make it active immediately
+                lastUsed: new Date().toISOString(),
+                status: 'authenticated' as const
+            };
+
+            // Store account data
+            await this.setAccountData(accountId, 'accessToken', legacyToken);
+            await this.setAccountData(accountId, 'userInfo', legacyUserInfo);
+            
+            if (legacyRefreshToken) {
+                await this.setAccountData(accountId, 'refreshToken', legacyRefreshToken);
+            }
+            
+            if (legacyEnvironments) {
+                await this.setAccountData(accountId, 'environments', legacyEnvironments);
+            }
+
+            // Add to accounts list and set as active
+            await this.addAccount(account);
+            await this.setActiveAccount(accountId);
+
+            console.log('✅ Legacy account migration completed successfully');
+            console.log(`📧 Migrated account: ${account.userEmail} (${account.organizationName})`);
+
+            return { 
+                migrated: true, 
+                accountId: accountId 
+            };
+
+        } catch (error: any) {
+            console.error('❌ Legacy account migration failed:', error);
+            return { 
+                migrated: false, 
+                error: error.message 
+            };
+        }
+    }
+
+    /**
+     * Check if migration is needed and display appropriate message to user
+     */
+    async checkAndPromptMigration(): Promise<boolean> {
+        try {
+            const migrationResult = await this.migrateLegacyAccount();
+            
+            if (migrationResult.migrated && migrationResult.accountId) {
+                // Show success message to user
+                const account = await this.getAccountById(migrationResult.accountId);
+                if (account) {
+                    console.log(`🎉 Migration successful for ${account.userEmail}`);
+                    
+                    // Import vscode dynamically to show user notification
+                    const vscode = await import('vscode');
+                    vscode.window.showInformationMessage(
+                        `✅ Your legacy account has been migrated to the new multi-account system! ` +
+                        `Welcome ${account.userEmail} (${account.organizationName})`
+                    );
+                    
+                    return true;
+                }
+            }
+            
+            return false;
+        } catch (error: any) {
+            console.error('Migration check failed:', error);
+            return false;
         }
     }
 }
