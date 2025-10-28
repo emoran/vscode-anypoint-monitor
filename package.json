@@ -74,7 +74,8 @@
     "onCommand:anypoint-monitor.environmentComparison",
     "onCommand:anypoint-monitor.applicationDiagram",
     "onCommand:anypoint-monitor.dataweavePlayground",
-    "onCommand:anypoint-monitor.checkCH2Availability"
+    "onCommand:anypoint-monitor.checkCH2Availability",
+    "onCommand:anypoint-monitor.accountManager"
   ],
   "main": "./out/extension.js",
   "files": [
@@ -157,6 +158,10 @@
       {
         "command": "anypoint-monitor.checkCH2Availability",
         "title": "AM: Check CloudHub 2.0 Environment Compatibility"
+      },
+      {
+        "command": "anypoint-monitor.accountManager",
+        "title": "AM: Account Manager"
       }
     ]
   },
