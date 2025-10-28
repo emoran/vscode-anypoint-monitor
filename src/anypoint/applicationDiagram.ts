@@ -1218,13 +1218,11 @@ async function getCH2DeploymentsGraphQL(
     
     outputChannel?.appendLine(`📡 GraphQL Endpoint: ${graphqlEndpoint}`);
     
-    let accessToken = await context.secrets.get('anypoint.accessToken');
-    if (!accessToken) {
-        outputChannel?.appendLine('❌ No access token available for GraphQL request');
-        return [];
-    }
+    // Use ApiHelper for automatic token management
+    const { ApiHelper } = await import('../controllers/apiHelper.js');
+    const apiHelper = new ApiHelper(context);
     
-    outputChannel?.appendLine('✅ Access token retrieved for GraphQL request');
+    outputChannel?.appendLine('✅ Using ApiHelper for authenticated GraphQL request');
 
     // GraphQL query to get deployments with artifact information
     const query = `
@@ -1285,13 +1283,15 @@ async function getCH2DeploymentsGraphQL(
         envId: environmentId
     };
 
-    const issueRequest = async (token: string) => {
-        return axios.post(graphqlEndpoint, {
+    try {
+        outputChannel?.appendLine(`🚀 Sending GraphQL deployments query...`);
+        outputChannel?.appendLine(`Variables: orgId=${orgId}, envId=${environmentId}`);
+        
+        let response = await apiHelper.post(graphqlEndpoint, {
             query,
             variables
         }, {
             headers: {
-                Authorization: `Bearer ${token}`,
                 'Content-Type': 'application/json',
                 Accept: 'application/json',
                 'X-ANYPNT-ORG-ID': orgId,
@@ -1299,34 +1299,9 @@ async function getCH2DeploymentsGraphQL(
             },
             validateStatus: () => true,
         });
-    };
-
-    try {
-        outputChannel?.appendLine(`🚀 Sending GraphQL deployments query...`);
-        outputChannel?.appendLine(`Variables: orgId=${orgId}, envId=${environmentId}`);
-        
-        let response = await issueRequest(accessToken);
         
         outputChannel?.appendLine(`📨 GraphQL Response Status: ${response.status}`);
         
-        if (response.status === 401) {
-            outputChannel?.appendLine('🔄 GraphQL request returned 401, refreshing token...');
-            const refreshed = await refreshAccessToken(context);
-            if (!refreshed) {
-                outputChannel?.appendLine('❌ Failed to refresh access token for GraphQL request');
-                return [];
-            }
-
-            accessToken = await context.secrets.get('anypoint.accessToken');
-            if (!accessToken) {
-                outputChannel?.appendLine('❌ No access token available after refresh');
-                return [];
-            }
-
-            outputChannel?.appendLine('✅ Token refreshed, retrying GraphQL request...');
-            response = await issueRequest(accessToken);
-            outputChannel?.appendLine(`📨 Retry GraphQL Response Status: ${response.status}`);
-        }
 
         if (response.status >= 400) {
             outputChannel?.appendLine(`❌ GraphQL request failed with status ${response.status}`);

@@ -21,12 +21,15 @@ interface PolicyStatus {
 }
 
 export async function auditAPIs(context: vscode.ExtensionContext, environmentId: string): Promise<void> {
-    const userInfo = await context.secrets.get('anypoint.userInfo');
-
-    if (!userInfo) {
-        throw new Error('User info not found. Please log in first.');
+    const { AccountService } = await import('../controllers/accountService.js');
+    const accountService = new AccountService(context);
+    
+    const activeAccount = await accountService.getActiveAccount();
+    if (!activeAccount) {
+        throw new Error('No active account found. Please log in first.');
     }
-    const organizationID = JSON.parse(userInfo).organization.id;
+    
+    const organizationID = activeAccount.organizationId;
 
     try {
         vscode.window.showInformationMessage('Starting API audit...', { modal: false });
@@ -188,8 +191,11 @@ async function showAPIAuditWebview(context: vscode.ExtensionContext, policyStatu
         }
     );
 
-    // Get environment name
-    const storedEnvironments = await context.secrets.get('anypoint.environments');
+    // Get environment name using multi-account system
+    const { AccountService } = await import('../controllers/accountService.js');
+    const accountService = new AccountService(context);
+    const storedEnvironments = await accountService.getActiveAccountEnvironments();
+    
     let environmentName = 'Unknown Environment';
     if (storedEnvironments) {
         try {

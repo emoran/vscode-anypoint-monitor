@@ -74,21 +74,29 @@ panel.webview.onDidReceiveMessage(async (message) => {
         console.log('App name to open:', message.appName);
         console.log('App data:', JSON.stringify(message.appData, null, 2));
         
-        // Get the stored environment info
-        const storedEnvInfo = await context.secrets.get('anypoint.selectedEnvironment');
+        // Get the environment info using multi-account system
+        const { AccountService } = await import('../controllers/accountService.js');
+        const accountService = new AccountService(context);
+        const activeAccount = await accountService.getActiveAccount();
+        
         let environmentInfo = { id: '', name: environment };
         
-        console.log('🔍 Stored environment info raw:', storedEnvInfo);
-        
-        if (storedEnvInfo) {
-          try {
-            environmentInfo = JSON.parse(storedEnvInfo);
-            console.log('✅ Successfully parsed environment info:', environmentInfo);
-          } catch (error) {
-            console.error('❌ Failed to parse stored environment info:', error);
+        if (activeAccount) {
+          const environmentsData = await accountService.getAccountData(activeAccount.id, 'environments');
+          if (environmentsData) {
+            try {
+              const parsedEnvironments = JSON.parse(environmentsData);
+              if (parsedEnvironments.data && parsedEnvironments.data.length > 0) {
+                environmentInfo = { 
+                  id: parsedEnvironments.data[0].id, 
+                  name: parsedEnvironments.data[0].name || environment 
+                };
+                console.log('✅ Retrieved environment info from multi-account system:', environmentInfo);
+              }
+            } catch (error) {
+              console.error('❌ Failed to parse environments data:', error);
+            }
           }
-        } else {
-          console.warn('⚠️ No stored environment info found, using fallback');
         }
         
         console.log('🎯 Final environment ID to use:', environmentInfo.id);
@@ -135,14 +143,27 @@ panel.webview.onDidReceiveMessage(async (message) => {
         try {
           vscode.window.showInformationMessage('Refreshing CloudHub 2.0 applications...');
           
-          // Get the stored environment info for refresh
-          const storedEnvInfo = await context.secrets.get('anypoint.selectedEnvironment');
-          if (!storedEnvInfo) {
-            vscode.window.showErrorMessage('Environment info not found. Please run the command again.');
+          // Get the environment info using multi-account system for refresh
+          const { AccountService } = await import('../controllers/accountService.js');
+          const accountService = new AccountService(context);
+          const activeAccount = await accountService.getActiveAccount();
+          
+          if (!activeAccount) {
+            vscode.window.showErrorMessage('No active account found. Please log in first.');
+            return;
+          }
+
+          const environmentsData = await accountService.getAccountData(activeAccount.id, 'environments');
+          if (!environmentsData) {
+            vscode.window.showErrorMessage('Environment info not found. Please login first.');
             return;
           }
           
-          const envInfo = JSON.parse(storedEnvInfo);
+          const parsedEnvironments = JSON.parse(environmentsData);
+          const envInfo = { 
+            id: parsedEnvironments.data[0]?.id || '', 
+            name: parsedEnvironments.data[0]?.name || environment 
+          };
           console.log('🔄 Refreshing with environment:', envInfo);
           
           const refreshedApps = await getCH2Applications(context);
@@ -866,21 +887,28 @@ export function debugApplicationsData(data: any): void {
 // ==================== CLOUDHUB 2.0 API FUNCTIONS ====================
 
 /**
- * Get organization and environment info from stored secrets
+ * Get organization and environment info using multi-account system
  */
 export async function getStoredOrgAndEnvInfo(context: vscode.ExtensionContext): Promise<{orgId: string, envId: string, environments: any[]}> {
-  const storedUserInfo = await context.secrets.get('anypoint.userInfo');
-  const storedEnvironments = await context.secrets.get('anypoint.environments');
-
-  if (!storedUserInfo || !storedEnvironments) {
-    throw new Error('User info or environment info not found. Please log in first.');
+  // Use multi-account system
+  const { AccountService } = await import('../controllers/accountService.js');
+  const accountService = new AccountService(context);
+  const activeAccount = await accountService.getActiveAccount();
+  
+  if (!activeAccount) {
+    throw new Error('No active account found. Please log in first.');
   }
 
-  const userInfo = JSON.parse(storedUserInfo);
-  const parsedEnvironments = JSON.parse(storedEnvironments); // { data: [...], total: N }
+  // Get environments for the active account
+  const environmentsData = await accountService.getAccountData(activeAccount.id, 'environments');
+  if (!environmentsData) {
+    throw new Error('Environment info not found. Please login first.');
+  }
+
+  const parsedEnvironments = JSON.parse(environmentsData); // { data: [...], total: N }
 
   return {
-    orgId: userInfo.organization.id,
+    orgId: activeAccount.organizationId,
     envId: parsedEnvironments.data[0]?.id || '', // Use first environment or let user select
     environments: parsedEnvironments.data
   };

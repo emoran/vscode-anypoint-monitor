@@ -282,7 +282,8 @@ export function activate(context: vscode.ExtensionContext) {
 
 	const subcriptionExpiration = vscode.commands.registerCommand('anypoint-monitor.subscriptionExpiration', async () => {
 		try{
-			const userInfoStr = await context.secrets.get('anypoint.userInfo');
+			const accountService = new AccountService(context);
+			const userInfoStr = await accountService.getActiveAccountUserInfo();
 	
 			if (!userInfoStr) {
 				vscode.window.showErrorMessage('No user info found. Please log in first.');
@@ -333,8 +334,9 @@ export function activate(context: vscode.ExtensionContext) {
 		  return;
 		}
 		
-		// Retrieve the newly refreshed access token from secret storage
-		const refreshedToken = await context.secrets.get('anypoint.accessToken');
+		// Retrieve the newly refreshed access token using multi-account system
+		const accountService = new AccountService(context);
+		const refreshedToken = await accountService.getActiveAccountAccessToken();
 		if (!refreshedToken) {
 		  vscode.window.showErrorMessage('No access token found after refresh. Please log in again.');
 		  return;

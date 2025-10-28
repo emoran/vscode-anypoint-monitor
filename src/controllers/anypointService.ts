@@ -664,7 +664,16 @@ Try selecting a different environment or check your account permissions.`);
 }
 
 export async function retrieveAPIManagerAPIs(context: vscode.ExtensionContext) {
-    const storedEnvironments = await context.secrets.get('anypoint.environments');
+    const { AccountService } = await import('./accountService.js');
+    const accountService = new AccountService(context);
+    
+    const activeAccount = await accountService.getActiveAccount();
+    if (!activeAccount) {
+        vscode.window.showErrorMessage('No active account found. Please log in first.');
+        return;
+    }
+
+    const storedEnvironments = await accountService.getActiveAccountEnvironments();
     if (!storedEnvironments) {
         vscode.window.showErrorMessage('No environment information found. Please log in first.');
         return;
@@ -690,12 +699,9 @@ export async function retrieveAPIManagerAPIs(context: vscode.ExtensionContext) {
             vscode.window.showErrorMessage('Failed to find the selected environment ID.');
             return;
         }
-        const userInfo = await context.secrets.get('anypoint.userInfo');
-        if (userInfo) {
-            const userInfoData = JSON.parse(userInfo);
-            const organizationID = userInfoData.organization.id;
-            showAPIManagerWebview(context, selectedEnvironmentId, organizationID);
-        }
+        
+        const organizationID = activeAccount.organizationId;
+        showAPIManagerWebview(context, selectedEnvironmentId, organizationID);
     } catch (error: any) {
         vscode.window.showErrorMessage(`Error: ${error.message || error}`);
     }
@@ -778,18 +784,25 @@ function getBestApplicationGroupName(apps: any[]): string {
 }
 
 export async function getEnvironmentComparison(context: vscode.ExtensionContext) {
-    let accessToken = await context.secrets.get('anypoint.accessToken');
-    const userInfo = await context.secrets.get('anypoint.userInfo');
-    const storedEnvironments = await context.secrets.get('anypoint.environments');
-
-    if (!accessToken || !userInfo || !storedEnvironments) {
-        vscode.window.showErrorMessage('Missing authentication or environment data. Please log in first.');
+    const { AccountService } = await import('./accountService.js');
+    const { ApiHelper } = await import('./apiHelper.js');
+    const accountService = new AccountService(context);
+    
+    const activeAccount = await accountService.getActiveAccount();
+    if (!activeAccount) {
+        vscode.window.showErrorMessage('No active account found. Please log in first.');
         return;
     }
 
-    const userInfoData = JSON.parse(userInfo);
-    const organizationID = userInfoData.organization.id;
+    const storedEnvironments = await accountService.getActiveAccountEnvironments();
+    if (!storedEnvironments) {
+        vscode.window.showErrorMessage('No environment information found. Please log in first.');
+        return;
+    }
+
+    const organizationID = activeAccount.organizationId;
     const environments = JSON.parse(storedEnvironments);
+    const apiHelper = new ApiHelper(context);
 
     if (!environments.data || environments.data.length === 0) {
         vscode.window.showErrorMessage('No environments available.');
@@ -818,9 +831,8 @@ export async function getEnvironmentComparison(context: vscode.ExtensionContext)
     for (const env of filteredEnvironments) {
         try {
             // Fetch CloudHub 1.0 applications
-            const ch1Response = await axios.get(BASE_URL + '/cloudhub/api/applications', {
+            const ch1Response = await apiHelper.get(BASE_URL + '/cloudhub/api/applications', {
                 headers: {
-                    Authorization: `Bearer ${accessToken}`,
                     'X-ANYPNT-ENV-ID': env.id,
                     'X-ANYPNT-ORG-ID': organizationID,
                 },
@@ -883,78 +895,12 @@ export async function getEnvironmentComparison(context: vscode.ExtensionContext)
                 });
             }
         } catch (error: any) {
-            if (error.response?.status === 401) {
-                const didRefresh = await refreshTokenWithAccount(context);
-                if (didRefresh) {
-                    accessToken = await getRefreshedToken(context);
-                    try {
-                        const ch1Response = await axios.get(BASE_URL + '/cloudhub/api/applications', {
-                            headers: {
-                                Authorization: `Bearer ${accessToken}`,
-                                'X-ANYPNT-ENV-ID': env.id,
-                                'X-ANYPNT-ORG-ID': organizationID,
-                            },
-                        });
-                        if (ch1Response.status === 200) {
-                            const ch1Apps = Array.isArray(ch1Response.data) ? ch1Response.data : [];
-                            ch1Apps.forEach((app: any) => {
-                                const normalizedName = normalizeApplicationName(app.domain, env.name);
-                                
-                                // Group applications by normalized name
-                                if (!applicationGroups[normalizedName]) {
-                                    applicationGroups[normalizedName] = [];
-                                }
-                                
-                                const appInfo = {
-                                    originalName: app.domain,
-                                    normalizedName: normalizedName,
-                                    environmentId: env.id,
-                                    environmentName: env.name,
-                                    type: 'CH1',
-                                    deploymentData: {
-                                    environmentName: env.name,
-                                    status: app.status,
-                                    version: app.muleVersion || app.filename || app.versionId || 'N/A',
-                                    runtime: app.muleVersion || app.runtime || 'N/A',
-                                    region: app.region || 'N/A',
-                                    workers: app.workers || 'N/A',
-                                    workerType: app.workerType || 'N/A',
-                                    lastUpdateTime: app.lastUpdateTime || 'N/A',
-                                    filename: app.filename || app.file || app.muleArtifact || app.deploymentFile || 'N/A',
-                                    // Advanced CloudHub 1.0 fields
-                                    fullDomain: app.fullDomain || 'N/A',
-                                    monitoringEnabled: app.monitoringEnabled !== undefined ? app.monitoringEnabled : 'N/A',
-                                    objectStoreV1: app.objectStoreV1 !== undefined ? app.objectStoreV1 : 'N/A',
-                                    persistentQueues: app.persistentQueues !== undefined ? app.persistentQueues : 'N/A',
-                                    multipleWorkers: app.multipleWorkers !== undefined ? app.multipleWorkers : 'N/A',
-                                    autoRestart: app.autoRestart !== undefined ? app.autoRestart : 'N/A',
-                                    staticIPsEnabled: app.staticIPsEnabled !== undefined ? app.staticIPsEnabled : 'N/A',
-                                    secureDataGateway: app.secureDataGateway !== undefined ? app.secureDataGateway : 'N/A',
-                                    hasFile: app.hasFile !== undefined ? app.hasFile : 'N/A',
-                                    trackingSettings: app.trackingSettings || 'N/A',
-                                    propertiesCount: app.properties ? Object.keys(app.properties).length : 0,
-                                    applicationSize: app.applicationSize || 'N/A',
-                                    vpn: app.vpn !== undefined ? app.vpn : 'N/A'
-                                }
-                            };
-                            
-                            applicationGroups[normalizedName].push(appInfo);
-                        });
-                        }
-                    } catch (retryError) {
-                        console.error(`Failed to fetch CH1 apps for environment ${env.name} after retry:`, retryError);
-                    }
-                }
-            } else {
-                console.error(`Failed to fetch CH1 apps for environment ${env.name}:`, error.message);
-            }
+            console.error(`Failed to fetch CH1 apps for environment ${env.name}:`, error.message);
         }
 
         try {
             // Fetch CloudHub 2.0 applications
-            const ch2Response = await axios.get(BASE_URL + '/amc/application-manager/api/v2/organizations/' + organizationID + '/environments/' + env.id + '/deployments', {
-                headers: { Authorization: `Bearer ${accessToken}` },
-            });
+            const ch2Response = await apiHelper.get(BASE_URL + '/amc/application-manager/api/v2/organizations/' + organizationID + '/environments/' + env.id + '/deployments');
 
             if (ch2Response.status === 200) {
                 let ch2Apps = ch2Response.data;
@@ -1038,80 +984,7 @@ export async function getEnvironmentComparison(context: vscode.ExtensionContext)
                 });
             }
         } catch (error: any) {
-            if (error.response?.status === 401) {
-                const didRefresh = await refreshTokenWithAccount(context);
-                if (didRefresh) {
-                    accessToken = await getRefreshedToken(context);
-                    try {
-                        const ch2Response = await axios.get(BASE_URL + '/amc/application-manager/api/v2/organizations/' + organizationID + '/environments/' + env.id + '/deployments', {
-                            headers: { Authorization: `Bearer ${accessToken}` },
-                        });
-                        if (ch2Response.status === 200) {
-                            let ch2Apps = ch2Response.data;
-                            if (Array.isArray(ch2Apps)) {
-                                // Already an array
-                            } else if (ch2Apps && typeof ch2Apps === 'object') {
-                                ch2Apps = ch2Apps.data || ch2Apps.applications || ch2Apps.items || [];
-                            }
-
-                            if (!Array.isArray(ch2Apps)) {
-                                ch2Apps = [];
-                            }
-
-                            ch2Apps.forEach((app: any) => {
-                                const normalizedName = normalizeApplicationName(app.name, env.name);
-                                
-                                // Group applications by normalized name
-                                if (!applicationGroups[normalizedName]) {
-                                    applicationGroups[normalizedName] = [];
-                                }
-                                
-                                const appInfo = {
-                                    originalName: app.name,
-                                    normalizedName: normalizedName,
-                                    environmentId: env.id,
-                                    environmentName: env.name,
-                                    type: 'CH2',
-                                    deploymentData: {
-                                    environmentName: env.name,
-                                    status: app.status,
-                                    version: app.currentRuntimeVersion || app.lastSuccessfulRuntimeVersion || app.version || app.artifact?.name || 'N/A',
-                                    runtime: app.currentRuntimeVersion || app.lastSuccessfulRuntimeVersion || app.runtime?.version || 'N/A',
-                                    replicas: app.replicas || 'N/A',
-                                    cpuReserved: app.cpuReserved || 'N/A',
-                                    memoryReserved: app.memoryReserved || 'N/A',
-                                    lastUpdateTime: app.lastUpdateTime || app.lastModifiedDate || 'N/A',
-                                    filename: app.artifact?.name || app.artifact?.fileName || app.filename || app.file || app.application?.artifact?.name || 'N/A',
-                                    // Advanced CloudHub 2.0 fields
-                                    creationDate: app.creationDate || 'N/A',
-                                    lastModifiedDate: app.lastModifiedDate || 'N/A',
-                                    deploymentId: app.id || 'N/A',
-                                    applicationId: app.applicationId || 'N/A',
-                                    minReplicas: app.autoScaling?.minReplicas || app.minReplicas || 'N/A',
-                                    maxReplicas: app.autoScaling?.maxReplicas || app.maxReplicas || 'N/A',
-                                    autoScalingEnabled: app.autoScaling?.enabled !== undefined ? app.autoScaling.enabled : 'N/A',
-                                    cpuLimit: app.cpuLimit || 'N/A',
-                                    memoryLimit: app.memoryLimit || 'N/A',
-                                    networkType: app.network?.type || 'N/A',
-                                    publicEndpoints: app.network?.publicEndpoints !== undefined ? app.network.publicEndpoints : 'N/A',
-                                    javaVersion: app.javaVersion || 'N/A',
-                                    updateStrategy: app.updateStrategy || 'N/A',
-                                    persistentStorage: app.persistentStorage !== undefined ? app.persistentStorage : 'N/A',
-                                    clustered: app.clustered !== undefined ? app.clustered : 'N/A',
-                                    monitoring: app.monitoring !== undefined ? app.monitoring : 'N/A'
-                                    }
-                                };
-                                
-                                applicationGroups[normalizedName].push(appInfo);
-                            });
-                        }
-                    } catch (retryError) {
-                        console.error(`Failed to fetch CH2 apps for environment ${env.name} after retry:`, retryError);
-                    }
-                }
-            } else {
-                console.error(`Failed to fetch CH2 apps for environment ${env.name}:`, error.message);
-            }
+            console.error(`Failed to fetch CH2 apps for environment ${env.name}:`, error.message);
         }
     }
 

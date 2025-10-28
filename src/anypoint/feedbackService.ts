@@ -264,7 +264,9 @@ async function sendFeedbackToSlack(feedback: FeedbackItem): Promise<boolean> {
 
 async function getUserInfo(context: vscode.ExtensionContext): Promise<any | undefined> {
     try {
-        const userInfoStr = await context.secrets.get('anypoint.userInfo');
+        const { AccountService } = await import('../controllers/accountService.js');
+        const accountService = new AccountService(context);
+        const userInfoStr = await accountService.getActiveAccountUserInfo();
         if (userInfoStr) {
             return JSON.parse(userInfoStr);
         }
