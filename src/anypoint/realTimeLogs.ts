@@ -2,6 +2,8 @@ import * as vscode from 'vscode';
 import axios from 'axios';
 import { BASE_URL } from '../constants';
 import { refreshAccessToken } from '../controllers/oauthService';
+import { AccountService } from '../controllers/accountService.js';
+import { ApiHelper } from '../controllers/apiHelper.js';
 import * as fs from 'fs';
 
 interface LogEntry {
@@ -223,49 +225,35 @@ async function fetchCH1Logs(
     context: vscode.ExtensionContext,
     session: RealTimeLogSession
 ): Promise<LogEntry[]> {
-    let accessToken = await context.secrets.get('anypoint.accessToken');
-    const userInfoStr = await context.secrets.get('anypoint.userInfo');
-
-    if (!accessToken || !userInfoStr) {
-        throw new Error('Authentication required');
+    const accountService = new AccountService(context);
+    const apiHelper = new ApiHelper(context);
+    
+    const activeAccount = await accountService.getActiveAccount();
+    if (!activeAccount) {
+        throw new Error('No active account found. Please log in.');
     }
-
-    const userInfoData = JSON.parse(userInfoStr);
-    const organizationID = userInfoData.organization.id;
+    
+    const organizationID = activeAccount.organizationId;
 
     // Get deployment info first if not already available
     let deploymentId = session.deploymentId;
     if (!deploymentId) {
         const deploymentsURL = `${BASE_URL}/cloudhub/api/v2/applications/${session.applicationDomain}/deployments?orderByDate=DESC`;
         
-        const headers = {
-            Authorization: `Bearer ${accessToken}`,
-            'X-ANYPNT-ENV-ID': session.environmentId,
-            'X-ANYPNT-ORG-ID': organizationID,
-        };
-
         try {
-            const deploymentsResponse = await axios.get(deploymentsURL, { headers });
+            const deploymentsResponse = await apiHelper.get(deploymentsURL, {
+                headers: {
+                    'X-ANYPNT-ENV-ID': session.environmentId,
+                    'X-ANYPNT-ORG-ID': organizationID,
+                }
+            });
             if (deploymentsResponse.status !== 200) {
                 throw new Error(`Deployments request failed with status ${deploymentsResponse.status}`);
             }
             deploymentId = deploymentsResponse.data.data[0].deploymentId;
             session.deploymentId = deploymentId; // Cache for future calls
         } catch (error: any) {
-            if (error.response?.status === 401) {
-                const didRefresh = await refreshAccessToken(context);
-                if (!didRefresh) {
-                    throw new Error('Unable to refresh token');
-                }
-                accessToken = await context.secrets.get('anypoint.accessToken');
-                const retryResponse = await axios.get(deploymentsURL, {
-                    headers: { ...headers, Authorization: `Bearer ${accessToken}` }
-                });
-                deploymentId = retryResponse.data.data[0].deploymentId;
-                session.deploymentId = deploymentId;
-            } else {
-                throw error;
-            }
+            throw error;
         }
     }
 
@@ -275,14 +263,13 @@ async function fetchCH1Logs(
     
     const logsURL = `${BASE_URL}/cloudhub/api/v2/applications/${session.applicationDomain}/deployments/${deploymentId}/logs?startTime=${startTime}&endTime=${endTime}&limit=100`;
     
-    const headers = {
-        Authorization: `Bearer ${accessToken}`,
-        'X-ANYPNT-ENV-ID': session.environmentId,
-        'X-ANYPNT-ORG-ID': organizationID,
-    };
-
     try {
-        const logsResponse = await axios.get(logsURL, { headers });
+        const logsResponse = await apiHelper.get(logsURL, {
+            headers: {
+                'X-ANYPNT-ENV-ID': session.environmentId,
+                'X-ANYPNT-ORG-ID': organizationID,
+            }
+        });
         
         if (logsResponse.status !== 200) {
             throw new Error(`Logs request failed with status ${logsResponse.status}`);
@@ -293,21 +280,7 @@ async function fetchCH1Logs(
         
         return logs.filter((log: LogEntry) => log.timestamp > session.lastLogTimestamp);
     } catch (error: any) {
-        if (error.response?.status === 401) {
-            const didRefresh = await refreshAccessToken(context);
-            if (!didRefresh) {
-                throw new Error('Unable to refresh token');
-            }
-            accessToken = await context.secrets.get('anypoint.accessToken');
-            const retryResponse = await axios.get(logsURL, {
-                headers: { ...headers, Authorization: `Bearer ${accessToken}` }
-            });
-            const logsData = retryResponse.data;
-            const logs = Array.isArray(logsData.data) ? logsData.data : Array.isArray(logsData) ? logsData : [];
-            return logs.filter((log: LogEntry) => log.timestamp > session.lastLogTimestamp);
-        } else {
-            throw error;
-        }
+        throw error;
     }
 }
 
@@ -318,15 +291,19 @@ async function fetchCH2Logs(
     context: vscode.ExtensionContext,
     session: RealTimeLogSession
 ): Promise<LogEntry[]> {
-    let accessToken = await context.secrets.get('anypoint.accessToken');
-    const userInfoStr = await context.secrets.get('anypoint.userInfo');
-
-    if (!accessToken || !userInfoStr) {
-        throw new Error('Authentication required');
+    const accountService = new AccountService(context);
+    
+    const activeAccount = await accountService.getActiveAccount();
+    if (!activeAccount) {
+        throw new Error('No active account found. Please log in.');
     }
-
-    const userInfoData = JSON.parse(userInfoStr);
-    const organizationID = userInfoData.organization.id;
+    
+    const organizationID = activeAccount.organizationId;
+    const accessToken = await accountService.getActiveAccountAccessToken();
+    
+    if (!accessToken) {
+        throw new Error('No access token found for active account');
+    }
 
     // For CH2, we need deploymentId and specificationId
     if (!session.deploymentId || !session.specificationId) {
@@ -372,17 +349,20 @@ async function fetchCH2Logs(
             console.error(`Real-time logs CH2: Error response body:`, errorText);
             
             if (response.status === 401) {
-                const didRefresh = await refreshAccessToken(context);
+                const didRefresh = await refreshAccessToken(context, activeAccount.id);
                 if (!didRefresh) {
                     throw new Error('Unable to refresh token');
                 }
-                accessToken = await context.secrets.get('anypoint.accessToken');
+                const newAccessToken = await accountService.getActiveAccountAccessToken();
+                if (!newAccessToken) {
+                    throw new Error('Failed to get refreshed access token');
+                }
                 // Rebuild URL with new token for retry
                 const retryURL = `https://anypoint.mulesoft.com/amc/application-manager/api/v2/organizations/${organizationID}/environments/${session.environmentId}/deployments/${session.deploymentId}/specs/${session.specificationId}/logs?${queryParams.toString()}`;
                 const retryResponse = await fetch(retryURL, {
                     method: 'GET',
                     headers: {
-                        'Authorization': `Bearer ${accessToken}`,
+                        'Authorization': `Bearer ${newAccessToken}`,
                         'Content-Type': 'application/json'
                     }
                 });
@@ -648,28 +628,27 @@ async function exportLogs(session: RealTimeLogSession, format: 'json' | 'txt' | 
  */
 async function fetchFullCH1Logs(session: RealTimeLogSession): Promise<LogEntry[]> {
     const context = session.context;
-    let accessToken = await context.secrets.get('anypoint.accessToken');
-    const userInfoStr = await context.secrets.get('anypoint.userInfo');
-
-    if (!accessToken || !userInfoStr) {
-        throw new Error('Authentication required');
+    const accountService = new AccountService(context);
+    const apiHelper = new ApiHelper(context);
+    
+    const activeAccount = await accountService.getActiveAccount();
+    if (!activeAccount) {
+        throw new Error('No active account found. Please log in.');
     }
-
-    const userInfoData = JSON.parse(userInfoStr);
-    const organizationID = userInfoData.organization.id;
+    
+    const organizationID = activeAccount.organizationId;
 
     // Get deployment info
     let deploymentId = session.deploymentId;
     if (!deploymentId) {
         const deploymentsURL = `${BASE_URL}/cloudhub/api/v2/applications/${session.applicationDomain}/deployments?orderByDate=DESC`;
         
-        const headers = {
-            Authorization: `Bearer ${accessToken}`,
-            'X-ANYPNT-ENV-ID': session.environmentId,
-            'X-ANYPNT-ORG-ID': organizationID,
-        };
-
-        const deploymentsResponse = await axios.get(deploymentsURL, { headers });
+        const deploymentsResponse = await apiHelper.get(deploymentsURL, {
+            headers: {
+                'X-ANYPNT-ENV-ID': session.environmentId,
+                'X-ANYPNT-ORG-ID': organizationID,
+            }
+        });
         deploymentId = deploymentsResponse.data.data[0].deploymentId;
     }
 
@@ -679,13 +658,12 @@ async function fetchFullCH1Logs(session: RealTimeLogSession): Promise<LogEntry[]
     
     const logsURL = `${BASE_URL}/cloudhub/api/v2/applications/${session.applicationDomain}/deployments/${deploymentId}/logs?startTime=${startTime}&endTime=${endTime}&limit=2000`;
     
-    const headers = {
-        Authorization: `Bearer ${accessToken}`,
-        'X-ANYPNT-ENV-ID': session.environmentId,
-        'X-ANYPNT-ORG-ID': organizationID,
-    };
-
-    const logsResponse = await axios.get(logsURL, { headers });
+    const logsResponse = await apiHelper.get(logsURL, {
+        headers: {
+            'X-ANYPNT-ENV-ID': session.environmentId,
+            'X-ANYPNT-ORG-ID': organizationID,
+        }
+    });
     const logsData = logsResponse.data;
     const logs = Array.isArray(logsData.data) ? logsData.data : Array.isArray(logsData) ? logsData : [];
     
@@ -698,15 +676,19 @@ async function fetchFullCH1Logs(session: RealTimeLogSession): Promise<LogEntry[]
 async function fetchFullCH2Logs(session: RealTimeLogSession): Promise<LogEntry[]> {
     console.log('Export: Starting fetchFullCH2Logs');
     const context = session.context;
-    let accessToken = await context.secrets.get('anypoint.accessToken');
-    const userInfoStr = await context.secrets.get('anypoint.userInfo');
-
-    if (!accessToken || !userInfoStr) {
-        throw new Error('Authentication required');
+    const accountService = new AccountService(context);
+    
+    const activeAccount = await accountService.getActiveAccount();
+    if (!activeAccount) {
+        throw new Error('No active account found. Please log in.');
     }
-
-    const userInfoData = JSON.parse(userInfoStr);
-    const organizationID = userInfoData.organization.id;
+    
+    let accessToken = await accountService.getActiveAccountAccessToken();
+    if (!accessToken) {
+        throw new Error('No access token found for active account');
+    }
+    
+    const organizationID = activeAccount.organizationId;
 
     console.log('Export: Organization ID:', organizationID);
     console.log('Export: Environment ID:', session.environmentId);
@@ -796,11 +778,14 @@ async function fetchFullCH2Logs(session: RealTimeLogSession): Promise<LogEntry[]
                             totalLogs: totalFetched
                         });
                         
-                        const didRefresh = await refreshAccessToken(context);
+                        const didRefresh = await refreshAccessToken(context, activeAccount.id);
                         if (!didRefresh) {
                             throw new Error('Unable to refresh token');
                         }
-                        accessToken = await context.secrets.get('anypoint.accessToken');
+                        accessToken = await accountService.getActiveAccountAccessToken();
+                        if (!accessToken) {
+                            throw new Error('Failed to get refreshed access token');
+                        }
                         retryCount++; // Count token refresh as a retry
                         continue;
                     } else if (response.status >= 500 && retryCount < maxRetries) {

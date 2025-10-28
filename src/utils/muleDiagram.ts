@@ -405,10 +405,20 @@ function buildSimplifiedMermaidDefinition(graph: MuleFlowGraph): string {
         lines.push(`${safeFromId} --> ${safeToId}`);
     });
     
-    // Enhanced styling with solid colors and improved visual hierarchy
-    lines.push('classDef flow fill:#667eea,stroke:#4c51bf,stroke-width:3px,color:#fff,font-weight:bold');
-    lines.push('classDef subflow fill:#f093fb,stroke:#e53e3e,stroke-width:3px,color:#fff,font-weight:bold');
-    lines.push('classDef unknown fill:#a8b3cf,stroke:#718096,stroke-width:2px,color:#2d3748,font-weight:bold');
+    // Enhanced styling with solid colors, emotional design, and improved visual hierarchy
+    lines.push('classDef flow fill:#667eea,stroke:#4c51bf,stroke-width:4px,color:#fff,font-weight:bold');
+    lines.push('classDef subflow fill:#f093fb,stroke:#e53e3e,stroke-width:4px,color:#fff,font-weight:bold');
+    lines.push('classDef unknown fill:#a8b3cf,stroke:#718096,stroke-width:3px,color:#2d3748,font-weight:bold');
+    
+    // Enhanced component-specific styling with emotional colors
+    lines.push('classDef httpComponent fill:#3182ce,stroke:#2a4365,stroke-width:3px,color:#fff,font-weight:bold');
+    lines.push('classDef dbComponent fill:#38a169,stroke:#276749,stroke-width:3px,color:#fff,font-weight:bold');
+    lines.push('classDef transformComponent fill:#805ad5,stroke:#44337a,stroke-width:3px,color:#fff,font-weight:bold');
+    lines.push('classDef errorComponent fill:#e53e3e,stroke:#9b2c2c,stroke-width:3px,color:#fff,font-weight:bold');
+    lines.push('classDef loggerComponent fill:#ecc94b,stroke:#b7791f,stroke-width:3px,color:#744210,font-weight:bold');
+    lines.push('classDef apiComponent fill:#00d4aa,stroke:#00a693,stroke-width:3px,color:#fff,font-weight:bold');
+    lines.push('classDef securityComponent fill:#ff6b9d,stroke:#e63972,stroke-width:3px,color:#fff,font-weight:bold');
+    lines.push('classDef variableComponent fill:#ffa726,stroke:#f57c00,stroke-width:3px,color:#fff,font-weight:bold');
     
     graph.nodes.forEach(node => {
         const className = getNodeClassName(node);
@@ -944,11 +954,49 @@ function extractComponentsFromFlowBody(body: string): MuleComponent[] {
 
         const rawDisplayName = attributes['doc:name']
             || attributes.name
+            || attributes.path
+            || attributes.url
+            || attributes.host
+            || attributes.method
+            || attributes.query
+            || attributes.target
+            || attributes.displayName
             || descriptor.defaultLabel;
 
-        const displayName = rawDisplayName && rawDisplayName.trim().length > 0
-            ? rawDisplayName.trim()
-            : `${type} ${componentIndex}`;
+        // Enhanced naming logic for better component identification
+        let displayName: string;
+        if (rawDisplayName && rawDisplayName.trim().length > 0) {
+            displayName = rawDisplayName.trim();
+        } else {
+            // Create more meaningful names based on component type and attributes
+            if (type.toLowerCase().includes('listener')) {
+                const method = attributes.method || attributes.allowedMethods || 'ANY';
+                const path = attributes.path || attributes.url || '/';
+                displayName = `${method} ${path}`;
+            } else if (type.toLowerCase().includes('request')) {
+                const method = attributes.method || 'GET';
+                const url = attributes.url || attributes.path || attributes.host || 'endpoint';
+                displayName = `${method} ${url}`;
+            } else if (type.toLowerCase().includes('response')) {
+                const status = attributes.statusCode || '200';
+                displayName = `Response ${status}`;
+            } else if (type.toLowerCase().includes('transform')) {
+                displayName = 'Transform Message';
+            } else if (type.toLowerCase().includes('logger')) {
+                const message = attributes.message || attributes.category || 'Log Event';
+                displayName = `Log: ${message}`;
+            } else if (type.toLowerCase().includes('error')) {
+                const errorType = attributes.type || 'Error Handler';
+                displayName = errorType;
+            } else if (type.toLowerCase().includes('choice')) {
+                displayName = 'Route Decision';
+            } else if (type.toLowerCase().includes('set')) {
+                const target = attributes.target || attributes.variableName || 'variable';
+                displayName = `Set ${target}`;
+            } else {
+                displayName = `${type} ${componentIndex}`;
+            }
+        }
 
         const component: MuleComponent = {
             id: `comp_${componentIndex}`,
@@ -1125,15 +1173,24 @@ function getComponentShape(component: MuleComponent): { open: string; close: str
 
 function getComponentClassName(component: MuleComponent): string {
     const type = component.type.toLowerCase();
+    const name = component.name.toLowerCase();
     
-    if (type.includes('http')) {
+    if (type.includes('http') || name.includes('http')) {
         return 'httpComponent';
-    } else if (type.includes('db') || type.includes('database')) {
+    } else if (type.includes('db') || type.includes('database') || name.includes('database')) {
         return 'dbComponent';
-    } else if (type.includes('transform')) {
+    } else if (type.includes('transform') || name.includes('transform')) {
         return 'transformComponent';
-    } else if (type.includes('error') || type.includes('choice')) {
+    } else if (type.includes('error') || type.includes('choice') || name.includes('error')) {
         return 'errorComponent';
+    } else if (type.includes('logger') || name.includes('log')) {
+        return 'loggerComponent';
+    } else if (type.includes('api') || name.includes('api') || name.includes('endpoint')) {
+        return 'apiComponent';
+    } else if (type.includes('security') || type.includes('auth') || name.includes('security')) {
+        return 'securityComponent';
+    } else if (type.includes('set') || type.includes('variable') || name.includes('variable')) {
+        return 'variableComponent';
     } else {
         return 'component';
     }

@@ -3,6 +3,7 @@ import * as vscode from 'vscode';
 import * as fs from 'fs';
 import { showApplicationDetailsCH2Webview } from './/applicationDetailsCH2';
 import { refreshAccessToken } from '../controllers/oauthService';
+import { ApiHelper } from '../controllers/apiHelper.js';
 
 // ==================== MAIN ENTRY POINTS ====================
 
@@ -895,47 +896,17 @@ export async function getCH2Deployments(
 ): Promise<any[]> {
   try {
     const url = `https://anypoint.mulesoft.com/amc/application-manager/api/v2/organizations/${orgId}/environments/${envId}/deployments`;
-    let accessToken = await context.secrets.get('anypoint.accessToken');
+    const apiHelper = new ApiHelper(context);
 
-    if (!accessToken) {
-      throw new Error('No access token found. Please log in first.');
-    }
+    console.log('Fetching CH2 deployments from:', url);
+    const response = await apiHelper.get(url);
 
-    const executeRequest = async (token: string) => {
-      console.log('Fetching CH2 deployments from:', url);
-      return fetch(url, {
-        method: 'GET',
-        headers: {
-          'Authorization': `Bearer ${token}`,
-          'Content-Type': 'application/json'
-        }
-      });
-    };
-
-    let response = await executeRequest(accessToken);
-
-    if (response.status === 401) {
-      console.warn('CH2 deployments request returned 401. Attempting to refresh access token.');
-      const refreshed = await refreshAccessToken(context);
-      if (!refreshed) {
-        throw new Error('Failed to refresh access token while fetching deployments.');
-      }
-
-      accessToken = await context.secrets.get('anypoint.accessToken');
-      if (!accessToken) {
-        throw new Error('No access token available after refresh. Please log in again.');
-      }
-
-      response = await executeRequest(accessToken);
-    }
-
-    if (!response.ok) {
-      const errorText = await response.text();
-      console.error('CloudHub 2.0 deployments API error:', response.status, errorText);
+    if (response.status !== 200) {
+      console.error('CloudHub 2.0 deployments API error:', response.status, response.data);
       throw new Error(`Failed to fetch deployments: ${response.status} ${response.statusText}`);
     }
 
-    const deploymentsData = await response.json();
+    const deploymentsData = response.data;
     console.log('CH2 deployments response structure:', Object.keys(deploymentsData));
     console.log('Full response data:', JSON.stringify(deploymentsData, null, 2));
 

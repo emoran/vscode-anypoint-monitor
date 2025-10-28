@@ -10,6 +10,7 @@
    import axios, { AxiosError } from 'axios';
    import * as http from 'http';
    import * as path from 'path';
+   import { ApiHelper } from '../controllers/apiHelper.js';
    
    // ------------------------------------------------------------------
    // CONSTANTS & CONFIG
@@ -289,23 +290,13 @@
    // GET USER INFO + Org info, with 401 auto-refresh
    // ------------------------------------------------------------------
    export async function getUserInfo(context: vscode.ExtensionContext) {
-     let accessToken = await context.secrets.get('anypoint.accessToken');
-     if (!accessToken) {
-       throw new Error('No access token found. Please log in first.');
-     }
-   
      const apiUrl = `${BASE_URL}/accounts/api/me`;
    
      try {
-       const response = await axios.get(apiUrl, {
-         headers: { Authorization: `Bearer ${accessToken}` }
-       });
-   
-       if (response.status !== 200) {
-         throw new Error(`API request failed with status ${response.status}`);
-       }
-   
+       const apiHelper = new ApiHelper(context);
+       const response = await apiHelper.get(apiUrl);
        const data = response.data;
+       
        // Store user info if you like
        await context.secrets.store('anypoint.userInfo', JSON.stringify(data.user));
    
@@ -313,92 +304,21 @@
        vscode.window.showInformationMessage(`User Info: ${JSON.stringify(data.user)}`);
    
      } catch (error: any) {
-       if (error.response?.status === 401) {
-         vscode.window.showInformationMessage('Access token expired. Attempting to refresh...');
-   
-         const didRefresh = await refreshAccessToken(context);
-         if (!didRefresh) {
-           vscode.window.showErrorMessage('Unable to refresh token. Please log in again.');
-           return;
-         }
-   
-         // Retry
-         accessToken = await context.secrets.get('anypoint.accessToken');
-         if (!accessToken) {
-           vscode.window.showErrorMessage('No new access token found after refresh. Please log in again.');
-           return;
-         }
-   
-         try {
-           const retryResp = await axios.get(apiUrl, {
-             headers: { Authorization: `Bearer ${accessToken}` }
-           });
-           if (retryResp.status !== 200) {
-             throw new Error(`Retry API request failed with status ${retryResp.status}`);
-           }
-           const data = retryResp.data;
-           vscode.window.showInformationMessage(`User Info (refreshed): ${JSON.stringify(data.user)}`);
-         } catch (retryError: any) {
-           vscode.window.showErrorMessage(`API request failed after refresh: ${retryError.message}`);
-         }
-       } else {
-         vscode.window.showErrorMessage(`Error calling API: ${error.message}`);
-       }
+       vscode.window.showErrorMessage(`Error calling API: ${error.message}`);
      }
    }
    
    export async function getOrganizationInfo(context: vscode.ExtensionContext) {
-     let accessToken = await context.secrets.get('anypoint.accessToken');
-     if (!accessToken) {
-       throw new Error('No access token found. Please log in first.');
-     }
-   
      const apiUrl = `${BASE_URL}/cloudhub/api/organization`;
    
      try {
-       const response = await axios.get(apiUrl, {
-         headers: { Authorization: `Bearer ${accessToken}` }
-       });
-   
-       if (response.status !== 200) {
-         throw new Error(`API request failed with status ${response.status}`);
-       }
-   
+       const apiHelper = new ApiHelper(context);
+       const response = await apiHelper.get(apiUrl);
        const data = response.data;
        vscode.window.showInformationMessage(`Organization Info: ${JSON.stringify(data)}`);
    
      } catch (error: any) {
-       if (error.response?.status === 401) {
-         vscode.window.showInformationMessage('Access token expired. Attempting to refresh...');
-   
-         const didRefresh = await refreshAccessToken(context);
-         if (!didRefresh) {
-           vscode.window.showErrorMessage('Unable to refresh token. Please log in again.');
-           return;
-         }
-   
-         // Retry
-         accessToken = await context.secrets.get('anypoint.accessToken');
-         if (!accessToken) {
-           vscode.window.showErrorMessage('No new access token found after refresh. Please log in again.');
-           return;
-         }
-   
-         try {
-           const retryResp = await axios.get(apiUrl, {
-             headers: { Authorization: `Bearer ${accessToken}` }
-           });
-           if (retryResp.status !== 200) {
-             throw new Error(`Retry API request failed with status ${retryResp.status}`);
-           }
-           const data = retryResp.data;
-           vscode.window.showInformationMessage(`Organization Info (refreshed): ${JSON.stringify(data)}`);
-         } catch (retryError: any) {
-           vscode.window.showErrorMessage(`API request failed after refresh: ${retryError.message}`);
-         }
-       } else {
-         vscode.window.showErrorMessage(`Error calling API: ${error.message}`);
-       }
+       vscode.window.showErrorMessage(`Error calling API: ${error.message}`);
      }
    }
    
@@ -406,11 +326,10 @@
    // GET ENVIRONMENTS
    // ------------------------------------------------------------------
    export async function getEnvironments(context: vscode.ExtensionContext) {
-     let accessToken = await context.secrets.get('anypoint.accessToken');
      const userInfoStr = await context.secrets.get('anypoint.userInfo');
    
-     if (!accessToken || !userInfoStr) {
-       throw new Error('No access token or user info found. Please log in first.');
+     if (!userInfoStr) {
+       throw new Error('No user info found. Please log in first.');
      }
    
      const userInfoData = JSON.parse(userInfoStr);
@@ -418,52 +337,16 @@
      const apiUrl = `${BASE_URL}/accounts/api/organizations/${orgId}/environments`;
    
      try {
-       const response = await axios.get(apiUrl, {
-         headers: { Authorization: `Bearer ${accessToken}` }
-       });
-   
-       if (response.status !== 200) {
-         throw new Error(`API request failed with status ${response.status}`);
-       }
-   
+       const apiHelper = new ApiHelper(context);
+       const response = await apiHelper.get(apiUrl);
        const data = response.data;
+       
        // Store them in secrets for later
        await context.secrets.store('anypoint.environments', JSON.stringify(data));
        vscode.window.showInformationMessage('Environments saved successfully.');
    
      } catch (error: any) {
-       if (error.response?.status === 401) {
-         vscode.window.showInformationMessage('Access token expired. Attempting to refresh...');
-   
-         const didRefresh = await refreshAccessToken(context);
-         if (!didRefresh) {
-           vscode.window.showErrorMessage('Unable to refresh token. Please log in again.');
-           return;
-         }
-   
-         // Retry
-         accessToken = await context.secrets.get('anypoint.accessToken');
-         if (!accessToken) {
-           vscode.window.showErrorMessage('No new access token found after refresh. Please log in again.');
-           return;
-         }
-   
-         try {
-           const retryResp = await axios.get(apiUrl, {
-             headers: { Authorization: `Bearer ${accessToken}` }
-           });
-           if (retryResp.status !== 200) {
-             throw new Error(`Retry API request failed with status ${retryResp.status}`);
-           }
-           const data = retryResp.data;
-           await context.secrets.store('anypoint.environments', JSON.stringify(data));
-           vscode.window.showInformationMessage('Environments saved (after refresh).');
-         } catch (retryError: any) {
-           vscode.window.showErrorMessage(`API request failed after refresh: ${retryError.message}`);
-         }
-       } else {
-         vscode.window.showErrorMessage(`Error calling API: ${error.message}`);
-       }
+       vscode.window.showErrorMessage(`Error calling API: ${error.message}`);
      }
    }
    
@@ -498,19 +381,11 @@
      userInfo: { orgName: string; orgId: string },
      environments: IEnvironment[]
    ) {
-     let accessToken = await context.secrets.get('anypoint.accessToken');
-     if (!accessToken) {
-       vscode.window.showErrorMessage('No access token found. Please log in first.');
-       return;
-     }
-   
      const url = `https://anypoint.mulesoft.com/accounts/api/organizations/${userInfo.orgId}/clients`;
    
      try {
-       // 1) Try the request
-       const response = await axios.get(url, {
-         headers: { Authorization: `Bearer ${accessToken}` },
-       });
+       const apiHelper = new ApiHelper(context);
+       const response = await apiHelper.get(url);
    
        // 2) Separate clients into environment-specific and general clients
        const envClients: Array<{
@@ -560,78 +435,7 @@
        );
    
      } catch (error: any) {
-       const axiosErr = error as AxiosError;
-       if (axiosErr.response && axiosErr.response.status === 401) {
-         vscode.window.showInformationMessage('Access token expired. Attempting to refresh...');
-         const didRefresh = await refreshAccessToken(context);
-         if (!didRefresh) {
-           vscode.window.showErrorMessage('Unable to refresh token. Please log in again.');
-           return;
-         }
-   
-         accessToken = await context.secrets.get('anypoint.accessToken');
-         if (!accessToken) {
-           vscode.window.showErrorMessage('No new access token found after refresh. Please log in again.');
-           return;
-         }
-   
-         // Retry once
-         try {
-           const retryResp = await axios.get(url, {
-             headers: { Authorization: `Bearer ${accessToken}` },
-           });
-   
-           const allClients = retryResp.data;
-           const envClients: Array<{
-             client_id: string;
-             client_secret: string;
-             name: string;
-           }> = [];
-           
-           const generalClients: Array<{
-             client_id: string;
-             client_secret: string;
-             name: string;
-           }> = [];
-   
-           for (const key of Object.keys(allClients)) {
-             const c = allClients[key];
-             if (c.name && c.name.includes('- Env:')) {
-               envClients.push({
-                 client_id: c.client_id,
-                 client_secret: c.client_secret,
-                 name: c.name
-               });
-             } else if (c.name) {
-               generalClients.push({
-                 client_id: c.client_id,
-                 client_secret: c.client_secret,
-                 name: c.name
-               });
-             }
-           }
-   
-           const panel = vscode.window.createWebviewPanel(
-             'environmentOrgView',
-             'Environment & Organization Info',
-             vscode.ViewColumn.One,
-             { enableScripts: true }
-           );
-           panel.webview.html = getEnvironmentOrgHtml(
-             panel.webview,
-             context.extensionUri,
-             userInfo,
-             environments,
-             envClients,
-             generalClients
-           );
-   
-         } catch (retryErr: any) {
-           vscode.window.showErrorMessage(`Retry after refresh failed: ${retryErr.message}`);
-         }
-       } else {
-         vscode.window.showErrorMessage(`Error fetching clients: ${error.message}`);
-       }
+       vscode.window.showErrorMessage(`Error fetching clients: ${error.message}`);
      }
    }
    

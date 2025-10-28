@@ -2,6 +2,7 @@
 import * as vscode from 'vscode';
 import * as fs from 'fs';
 import {getCH2Deployments } from './cloudhub2Applications';
+import { ApiHelper } from '../controllers/apiHelper.js';
 
 // ==================== MAIN APPLICATION DETAILS WEBVIEW ====================
 
@@ -16,6 +17,7 @@ export async function showApplicationDetailsCH2Webview(
   console.log(`📱 Opening application details for: ${appName}`);
   console.log(`🌍 Environment ID: ${environmentId}`);
   console.log(`📊 App data keys:`, Object.keys(appData || {}));
+  console.log(`📊 Full app data:`, JSON.stringify(appData, null, 2));
   
   const panel = vscode.window.createWebviewPanel(
     'applicationDetailsCH2',
@@ -58,23 +60,20 @@ panel.webview.onDidReceiveMessage(async (message) => {
   try {
     switch (message.command) {
       case 'stopApp':
-        const accessTokenStop = await context.secrets.get('anypoint.accessToken');
-        if (!accessTokenStop) throw new Error('No access token found. Please log in first.');
-        await updateCH2ApplicationStatus(appName, 'stop', accessTokenStop, additionalData.deploymentId);
+        const apiHelperStop = new ApiHelper(context);
+        await updateCH2ApplicationStatus(appName, 'stop', apiHelperStop, additionalData.deploymentId);
         vscode.window.showInformationMessage(`Application ${appName} is being stopped...`);
         break;
 
       case 'startApp':
-        const accessTokenStart = await context.secrets.get('anypoint.accessToken');
-        if (!accessTokenStart) throw new Error('No access token found. Please log in first.');
-        await updateCH2ApplicationStatus(appName, 'start', accessTokenStart, additionalData.deploymentId);
+        const apiHelperStart = new ApiHelper(context);
+        await updateCH2ApplicationStatus(appName, 'start', apiHelperStart, additionalData.deploymentId);
         vscode.window.showInformationMessage(`Application ${appName} is being started...`);
         break;
 
       case 'restartApp':
-        const accessTokenRestart = await context.secrets.get('anypoint.accessToken');
-        if (!accessTokenRestart) throw new Error('No access token found. Please log in first.');
-        await updateCH2ApplicationStatus(appName, 'restart', accessTokenRestart, additionalData.deploymentId);
+        const apiHelperRestart = new ApiHelper(context);
+        await updateCH2ApplicationStatus(appName, 'restart', apiHelperRestart, additionalData.deploymentId);
         vscode.window.showInformationMessage(`Application ${appName} is being restarted...`);
         break;
 
@@ -148,21 +147,33 @@ panel.webview.onDidReceiveMessage(async (message) => {
 // ==================== CLOUDHUB 2.0 API FUNCTIONS ====================
 
 /**
- * Modified getStoredOrgAndEnvInfo to accept optional environment ID
+ * Modified getStoredOrgAndEnvInfo to accept optional environment ID and use multi-account system
  */
 export async function getStoredOrgAndEnvInfo(context: vscode.ExtensionContext, providedEnvId?: string): Promise<{orgId: string, envId: string, environments: any[]}> {
-  const storedUserInfo = await context.secrets.get('anypoint.userInfo');
-  const storedEnvironments = await context.secrets.get('anypoint.environments');
-
-  if (!storedUserInfo || !storedEnvironments) {
-    throw new Error('User info or environment info not found. Please log in first.');
+  // Use multi-account system
+  const { AccountService } = await import('../controllers/accountService.js');
+  const accountService = new AccountService(context);
+  const activeAccount = await accountService.getActiveAccount();
+  
+  if (!activeAccount) {
+    throw new Error('No active account found. Please log in first.');
   }
 
-  const userInfo = JSON.parse(storedUserInfo);
+  console.log('🔍 Using active account for CH2 details:', {
+    userEmail: activeAccount.userEmail,
+    organizationName: activeAccount.organizationName,
+    organizationId: activeAccount.organizationId
+  });
+
+  const storedEnvironments = await context.secrets.get('anypoint.environments');
+  if (!storedEnvironments) {
+    throw new Error('Environment info not found. Please log in first.');
+  }
+
   const parsedEnvironments = JSON.parse(storedEnvironments); // { data: [...], total: N }
 
   return {
-    orgId: userInfo.organization.id,
+    orgId: activeAccount.organizationId,
     envId: providedEnvId || parsedEnvironments.data[0]?.id || '', // Use provided env ID or fallback
     environments: parsedEnvironments.data
   };
@@ -178,32 +189,16 @@ async function getCH2DeploymentById(
   deploymentId: string
 ): Promise<any> {
   try {
-    const accessToken = await context.secrets.get('anypoint.accessToken');
-    if (!accessToken) {
-      throw new Error('No access token found. Please log in first.');
-    }
-
+    const apiHelper = new ApiHelper(context);
     const url = `https://anypoint.mulesoft.com/amc/application-manager/api/v2/organizations/${orgId}/environments/${envId}/deployments/${deploymentId}`;
     
     console.log('Fetching CH2 deployment details from:', url);
 
-    const response = await fetch(url, {
-      method: 'GET',
-      headers: {
-        'Authorization': `Bearer ${accessToken}`,
-        'Content-Type': 'application/json'
-      }
-    });
+    const response = await apiHelper.get(url);
 
-    if (!response.ok) {
-      const errorText = await response.text();
-      console.error('CloudHub 2.0 deployment details API error:', response.status, errorText);
-      throw new Error(`Failed to fetch deployment details: ${response.status} ${response.statusText}`);
-    }
-
-    const deploymentData = await response.json();
     console.log('Retrieved deployment details for:', deploymentId);
-    return deploymentData;
+    console.log('🔍 FULL DEPLOYMENT DETAILS:', JSON.stringify(response.data, null, 2));
+    return response.data;
 
   } catch (error: any) {
     console.error('Error fetching CloudHub 2.0 deployment details:', error);
@@ -221,32 +216,16 @@ async function getCH2DeploymentSpecs(
   deploymentId: string
 ): Promise<any[]> {
   try {
-    const accessToken = await context.secrets.get('anypoint.accessToken');
-    if (!accessToken) {
-      throw new Error('No access token found. Please log in first.');
-    }
-
+    const apiHelper = new ApiHelper(context);
     const url = `https://anypoint.mulesoft.com/amc/application-manager/api/v2/organizations/${orgId}/environments/${envId}/deployments/${deploymentId}/specs`;
     
     console.log('Fetching CH2 deployment specs from:', url);
 
-    const response = await fetch(url, {
-      method: 'GET',
-      headers: {
-        'Authorization': `Bearer ${accessToken}`,
-        'Content-Type': 'application/json'
-      }
-    });
+    const response = await apiHelper.get(url);
 
-    if (!response.ok) {
-      const errorText = await response.text();
-      console.error('CloudHub 2.0 deployment specs API error:', response.status, errorText);
-      throw new Error(`Failed to fetch deployment specs: ${response.status} ${response.statusText}`);
-    }
-
-    const specsData = await response.json();
+    const specsData = response.data;
     console.log('CH2 deployment specs response structure:', Object.keys(specsData as any));
-    console.log('Full specs response:', JSON.stringify(specsData, null, 2));
+    console.log('🔍 FULL DEPLOYMENT SPECS:', JSON.stringify(specsData, null, 2));
 
     // FIXED: Handle the actual response structure - specs come as a direct array
     let specs = [];
@@ -308,10 +287,7 @@ async function getCH2DeploymentLogs(
   } = {}
 ): Promise<any[]> {
   try {
-    const accessToken = await context.secrets.get('anypoint.accessToken');
-    if (!accessToken) {
-      throw new Error('No access token found. Please log in first.');
-    }
+    const apiHelper = new ApiHelper(context);
 
     // Set default options
     const defaultOptions = {
@@ -338,25 +314,13 @@ async function getCH2DeploymentLogs(
       queryParams.append('search', finalOptions.search);
     }
 
-    const url = `https://anypoint.mulesoft.com/amc/application-manager/api/v2/organizations/${orgId}/environments/${envId}/deployments/${deploymentId}/specs/${specificationId}/logs`;
+    const url = `https://anypoint.mulesoft.com/amc/application-manager/api/v2/organizations/${orgId}/environments/${envId}/deployments/${deploymentId}/specs/${specificationId}/logs?${queryParams.toString()}`;
     
     console.log('Fetching CH2 logs from:', url);
 
-    const response = await fetch(url, {
-      method: 'GET',
-      headers: {
-        'Authorization': `Bearer ${accessToken}`,
-        'Content-Type': 'application/json'
-      }
-    });
+    const response = await apiHelper.get(url);
 
-    if (!response.ok) {
-      const errorText = await response.text();
-      console.error('CloudHub 2.0 logs API error:', response.status, errorText);
-      throw new Error(`Failed to fetch logs: ${response.status} ${response.statusText}`);
-    }
-
- const logsData = await response.json();
+    const logsData = response.data;
     console.log('CH2 logs response structure:', Object.keys(logsData as any));
     console.log('Full logs response sample:', JSON.stringify(logsData, null, 2));
 
@@ -531,9 +495,14 @@ async function fetchCH2ApplicationDetails(
 
   } catch (error: any) {
     console.error('=== ERROR in fetchCH2ApplicationDetails ===');
+    console.error('App name:', appName);
+    console.error('Environment ID:', environmentId);
     console.error('Error details:', error);
+    console.error('Error message:', error.message);
+    console.error('Error response:', error.response?.data);
+    console.error('Error status:', error.response?.status);
     console.error('Stack trace:', error.stack);
-    vscode.window.showErrorMessage(`Failed to fetch application details: ${error.message}`);
+    vscode.window.showErrorMessage(`Failed to fetch application details for ${appName}: ${error.message}`);
     
     return {
       logs: [],
@@ -619,35 +588,14 @@ async function fetchCH2Schedulers(
   deploymentId: string
 ): Promise<any[]> {
   try {
-    const accessToken = await context.secrets.get('anypoint.accessToken');
-    if (!accessToken) throw new Error('No access token found.');
-
+    const apiHelper = new ApiHelper(context);
     const url = `https://anypoint.mulesoft.com/amc/application-manager/api/v2/organizations/${orgId}/environments/${envId}/deployments/${deploymentId}/schedulers`;
     
     console.log('Fetching CH2 schedulers from:', url);
 
-    const response = await fetch(url, {
-      method: 'GET',
-      headers: {
-        'Authorization': `Bearer ${accessToken}`,
-        'Content-Type': 'application/json'
-      }
-    });
+    const response = await apiHelper.get(url);
 
-    if (!response.ok) {
-      const errorText = await response.text();
-      console.error('CloudHub 2.0 schedulers API error:', response.status, errorText);
-      
-      // If it's a 404, the endpoint might not exist for this deployment
-      if (response.status === 404) {
-        console.log('Schedulers endpoint not found - deployment may not have schedulers');
-        return [];
-      }
-      
-      throw new Error(`Failed to fetch schedulers: ${response.status} ${response.statusText}`);
-    }
-
-    const schedulersData = await response.json();
+    const schedulersData = response.data;
     console.log('CH2 schedulers response structure:', Object.keys(schedulersData as any));
     console.log('Full schedulers response:', JSON.stringify(schedulersData, null, 2));
 
@@ -802,26 +750,13 @@ async function fetchCH2Alerts(
   deploymentId: string
 ): Promise<any[]> {
   try {
-    const accessToken = await context.secrets.get('anypoint.accessToken');
-    if (!accessToken) throw new Error('No access token found.');
-
+    const apiHelper = new ApiHelper(context);
     // This endpoint might not exist in CH2, check documentation
     const url = `https://anypoint.mulesoft.com/amc/application-manager/api/v2/organizations/${orgId}/environments/${envId}/deployments/${deploymentId}/alerts`;
     
-    const response = await fetch(url, {
-      method: 'GET',
-      headers: {
-        'Authorization': `Bearer ${accessToken}`,
-        'Content-Type': 'application/json'
-      }
-    });
+    const response = await apiHelper.get(url);
 
-    if (!response.ok) {
-      console.log('Alerts endpoint not available or no alerts found');
-      return [];
-    }
-
-    const alertsData = await response.json();
+    const alertsData = response.data;
     return Array.isArray(alertsData) ? alertsData : (alertsData as any).data || [];
 
   } catch (error: any) {
@@ -836,7 +771,7 @@ async function fetchCH2Alerts(
 async function updateCH2ApplicationStatus(
   applicationName: string,
   status: 'stop' | 'start' | 'restart',
-  authToken: string,
+  apiHelper: ApiHelper,
   deploymentId?: string
 ): Promise<void> {
   try {
@@ -849,20 +784,8 @@ async function updateCH2ApplicationStatus(
     // This is a placeholder - you may need to adjust based on actual CloudHub 2.0 API
     const url = `https://anypoint.mulesoft.com/amc/application-manager/api/v2/deployments/${deploymentId}/${status}`;
     
-    const resp = await fetch(url, {
-      method: 'POST',
-      headers: {
-        authorization: `Bearer ${authToken}`,
-        'content-type': 'application/json'
-      },
-      body: JSON.stringify({ action: status })
-    });
+    const resp = await apiHelper.post(url, { action: status });
     
-    if (!resp.ok) {
-      const txt = await resp.text();
-      throw new Error(`Failed to ${status} application: ${resp.status} ${resp.statusText} => ${txt}`);
-    }
-
     console.log(`Successfully initiated ${status} for deployment ${deploymentId}`);
 
   } catch (error: any) {

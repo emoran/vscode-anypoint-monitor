@@ -1,6 +1,5 @@
 import * as vscode from 'vscode';
-import axios from 'axios';
-import { refreshAccessToken } from './DeveloperInfo'; // Adjust the path if needed
+import { ApiHelper } from '../controllers/apiHelper.js';
 
 /**
  * Displays a WebView with:
@@ -12,8 +11,7 @@ export async function showApiManagerAPIDetail(
   context: vscode.ExtensionContext,
   recordId: string,
   environmentId: string,
-  organizationId: string,
-  accessToken: string
+  organizationId: string
 ) {
   const panel = vscode.window.createWebviewPanel(
     'apiManagerAPIDetail',
@@ -30,111 +28,35 @@ export async function showApiManagerAPIDetail(
   // ---------------- Fetch API detail ----------------
   let apiDetail: any;
   try {
-    const detailResp = await axios.get(apiDetailUrl, {
-      headers: { Authorization: `Bearer ${accessToken}` },
-    });
+    const apiHelper = new ApiHelper(context);
+    const detailResp = await apiHelper.get(apiDetailUrl);
     apiDetail = detailResp.data;
   } catch (err: any) {
-    if (err.response?.status === 401) {
-     
-      const refreshed = await refreshAccessToken(context);
-      if (!refreshed) {
-        vscode.window.showErrorMessage('Unable to refresh token. Please log in again.');
-        return;
-      }
-      // Retrieve new token
-      accessToken = (await context.secrets.get('anypoint.accessToken')) || '';
-      if (!accessToken) {
-        
-        return;
-      }
-      // Retry once
-      try {
-        const retryResp = await axios.get(apiDetailUrl, {
-          headers: { Authorization: `Bearer ${accessToken}` },
-        });
-        apiDetail = retryResp.data;
-      } catch (retryErr: any) {
-        vscode.window.showErrorMessage(`Retry fetch of API detail failed: ${retryErr.message}`);
-        return;
-      }
-    } else {
-      vscode.window.showErrorMessage(`Failed to fetch API detail: ${err.message}`);
-      return;
-    }
+    vscode.window.showErrorMessage(`Failed to fetch API detail: ${err.message}`);
+    return;
   }
 
   // ---------------- Fetch Policies ----------------
   let policies: any[] = [];
   try {
-    const policiesResp = await axios.get(policiesUrl, {
-      headers: { Authorization: `Bearer ${accessToken}` },
-    });
+    const apiHelper = new ApiHelper(context);
+    const policiesResp = await apiHelper.get(policiesUrl);
     // The policies call returns an array
     policies = policiesResp.data || [];
   } catch (err: any) {
-    if (err.response?.status === 401) {
-     
-      const refreshed = await refreshAccessToken(context);
-      if (!refreshed) {
-       
-        return;
-      }
-      accessToken = (await context.secrets.get('anypoint.accessToken')) || '';
-      if (!accessToken) {
-        vscode.window.showErrorMessage('No access token found after refresh. Please log in again.');
-        return;
-      }
-      // Retry once
-      try {
-        const retryPoliciesResp = await axios.get(policiesUrl, {
-          headers: { Authorization: `Bearer ${accessToken}` },
-        });
-        policies = retryPoliciesResp.data || [];
-      } catch (retryErr: any) {
-        vscode.window.showErrorMessage(`Retry fetch of Policies failed: ${retryErr.message}`);
-        return;
-      }
-    } else {
-      vscode.window.showErrorMessage(`Failed to fetch Policies: ${err.message}`);
-      return;
-    }
+    vscode.window.showErrorMessage(`Failed to fetch Policies: ${err.message}`);
+    return;
   }
 
   // ---------------- Fetch Contracts ----------------
   let contracts: any[] = [];
   try {
-    const contractsResp = await axios.get(contractsUrl, {
-      headers: { Authorization: `Bearer ${accessToken}` },
-    });
+    const apiHelper = new ApiHelper(context);
+    const contractsResp = await apiHelper.get(contractsUrl);
     contracts = contractsResp.data.contracts || [];
   } catch (err: any) {
-    if (err.response?.status === 401) {
-      vscode.window.showInformationMessage('Access token expired. Attempting to refresh...');
-      const refreshed = await refreshAccessToken(context);
-      if (!refreshed) {
-        vscode.window.showErrorMessage('Unable to refresh token for Contracts. Please log in again.');
-        return;
-      }
-      accessToken = (await context.secrets.get('anypoint.accessToken')) || '';
-      if (!accessToken) {
-        vscode.window.showErrorMessage('No access token found after refresh. Please log in again.');
-        return;
-      }
-      // Retry once
-      try {
-        const retryContractsResp = await axios.get(contractsUrl, {
-          headers: { Authorization: `Bearer ${accessToken}` },
-        });
-        contracts = retryContractsResp.data.contracts || [];
-      } catch (retryErr: any) {
-        vscode.window.showErrorMessage(`Retry fetch of Contracts failed: ${retryErr.message}`);
-        return;
-      }
-    } else {
-      vscode.window.showErrorMessage(`Failed to fetch Contracts: ${err.message}`);
-      return;
-    }
+    vscode.window.showErrorMessage(`Failed to fetch Contracts: ${err.message}`);
+    return;
   }
 
   // Render final HTML

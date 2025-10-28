@@ -1,7 +1,6 @@
 import * as vscode from 'vscode';
 import * as fs from 'fs';
-import axios from 'axios';
-import { refreshAccessToken } from './DeveloperInfo'; // adjust path if needed
+import { ApiHelper } from '../controllers/apiHelper.js';
 import {showApiManagerAPIDetail} from '../anypoint/apiMananagerAPIDetail'; // adjust path if needed
 
 // Keep references so we can update the same panel
@@ -52,8 +51,7 @@ export async function showAPIManagerWebview(
             context,
             message.recordId,
             message.organizationId,
-            message.environmentId,
-            'accessToken' // or re-fetch from secrets if you prefer
+            message.environmentId
           );
         }
         break;
@@ -77,49 +75,16 @@ export async function showAPIManagerWebview(
 async function loadAPIsAndRender() {
   if (!currentPanel || !currentContext) return;
 
-  let accessToken = await currentContext.secrets.get('anypoint.accessToken');
   const apiUrl = `https://anypoint.mulesoft.com/apimanager/xapi/v1/organizations/${currentOrganizationId}/environments/${currentEnvironmentId}/apis?pinnedFirst=true&sort=name&ascending=false`;
 
   let apiData: any[] = [];
   try {
-    const response = await axios.get(apiUrl, {
-      headers: { Authorization: `Bearer ${accessToken}` },
-    });
+    const apiHelper = new ApiHelper(currentContext);
+    const response = await apiHelper.get(apiUrl);
     apiData = response.data.instances || [];
   } catch (error: any) {
-    // Handle 401 token refresh
-    if (error.response?.status === 401) {
-      vscode.window.showInformationMessage('Access token expired. Attempting to refresh...');
-      const didRefresh = await refreshAccessToken(currentContext);
-      if (!didRefresh) {
-        vscode.window.showErrorMessage('Unable to refresh token. Please log in again.');
-        return;
-      }
-
-      // Retrieve the new token from secrets
-      accessToken = await currentContext.secrets.get('anypoint.accessToken');
-      if (!accessToken) {
-        vscode.window.showErrorMessage('No access token found after refresh. Please log in again.');
-        return;
-      }
-
-      // Retry once
-      try {
-        const retryResp = await axios.get(apiUrl, {
-          headers: { Authorization: `Bearer ${accessToken}` },
-        });
-        if (retryResp.status !== 200) {
-          throw new Error(`APIs request failed (retry) with status ${retryResp.status}`);
-        }
-        apiData = retryResp.data.instances || [];
-      } catch (retryErr: any) {
-        vscode.window.showErrorMessage(`Retry after refresh failed: ${retryErr.message}`);
-        return;
-      }
-    } else {
-      vscode.window.showErrorMessage(`Error fetching environment APIs: ${error.message}`);
-      return;
-    }
+    vscode.window.showErrorMessage(`Error fetching environment APIs: ${error.message}`);
+    return;
   }
 
   // Update the existing panel's HTML with new data
@@ -608,11 +573,7 @@ function showApiDetailsWebview(
   context: vscode.ExtensionContext,
   recordId: string,
   organizationId: string,
-  environmentId: string,
-  accessToken: string
+  environmentId: string
 ) {
-    
-    showApiManagerAPIDetail(context, recordId, environmentId, organizationId, accessToken);
-
-
+    showApiManagerAPIDetail(context, recordId, environmentId, organizationId);
 }

@@ -1,7 +1,6 @@
 import * as vscode from 'vscode';
-import axios from 'axios';
 import { BASE_URL } from '../constants';
-import { refreshAccessToken } from '../controllers/oauthService';
+import { ApiHelper } from '../controllers/apiHelper.js';
 
 interface APIInfo {
     environment: string;
@@ -22,7 +21,6 @@ interface PolicyStatus {
 }
 
 export async function auditAPIs(context: vscode.ExtensionContext, environmentId: string): Promise<void> {
-    let accessToken = await context.secrets.get('anypoint.accessToken');
     const userInfo = await context.secrets.get('anypoint.userInfo');
 
     if (!userInfo) {
@@ -30,43 +28,19 @@ export async function auditAPIs(context: vscode.ExtensionContext, environmentId:
     }
     const organizationID = JSON.parse(userInfo).organization.id;
 
-    if (!accessToken) {
-        throw new Error('No access token found. Please log in first.');
-    }
-
     try {
         vscode.window.showInformationMessage('Starting API audit...', { modal: false });
         
-        const policyStatus = await analyzeAPIs(accessToken, organizationID, environmentId);
+        const policyStatus = await analyzeAPIs(context, organizationID, environmentId);
         await showAPIAuditWebview(context, policyStatus, environmentId);
         
     } catch (error: any) {
-        if (error.response?.status === 401) {
-            vscode.window.showInformationMessage('Access token expired. Attempting to refresh...');
-            const didRefresh = await refreshAccessToken(context);
-            if (!didRefresh) {
-                vscode.window.showErrorMessage('Unable to refresh token. Please log in again.');
-                return;
-            }
-            accessToken = await context.secrets.get('anypoint.accessToken');
-            if (!accessToken) {
-                vscode.window.showErrorMessage('No new access token found after refresh. Please log in again.');
-                return;
-            }
-            try {
-                const policyStatus = await analyzeAPIs(accessToken, organizationID, environmentId);
-                await showAPIAuditWebview(context, policyStatus, environmentId);
-            } catch (retryError: any) {
-                vscode.window.showErrorMessage(`API audit failed after refresh: ${retryError.message}`);
-            }
-        } else {
-            vscode.window.showErrorMessage(`API audit failed: ${error.message}`);
-        }
+        vscode.window.showErrorMessage(`API audit failed: ${error.message}`);
     }
 }
 
-async function analyzeAPIs(accessToken: string, organizationID: string, environmentId: string): Promise<PolicyStatus> {
-    const apis = await getAPIsInEnvironment(accessToken, organizationID, environmentId);
+async function analyzeAPIs(context: vscode.ExtensionContext, organizationID: string, environmentId: string): Promise<PolicyStatus> {
+    const apis = await getAPIsInEnvironment(context, organizationID, environmentId);
     
     const apisWithPolicies: APIInfo[] = [];
     const apisWithoutPolicies: APIInfo[] = [];
@@ -76,7 +50,7 @@ async function analyzeAPIs(accessToken: string, organizationID: string, environm
         const apiName = api.instanceLabel || api.assetId || api.name || 'Unknown';
         const apiVersion = api.assetVersion || api.version || 'Unknown';
         
-        const policies = await getAPIPolicies(accessToken, organizationID, environmentId, api);
+        const policies = await getAPIPolicies(context, organizationID, environmentId, api);
         
         // Filter active policies
         const activePolicies = policies.filter(policy => {
@@ -118,47 +92,41 @@ async function analyzeAPIs(accessToken: string, organizationID: string, environm
     };
 }
 
-async function getAPIsInEnvironment(accessToken: string, organizationID: string, environmentId: string): Promise<any[]> {
+async function getAPIsInEnvironment(context: vscode.ExtensionContext, organizationID: string, environmentId: string): Promise<any[]> {
     const endpoints = [
         `${BASE_URL}/apimanager/api/v1/organizations/${organizationID}/environments/${environmentId}/apis`,
         `${BASE_URL}/apimanager/api/v2/organizations/${organizationID}/environments/${environmentId}/apis`
     ];
 
+    const apiHelper = new ApiHelper(context);
+
     for (const apiUrl of endpoints) {
         try {
-            const response = await axios.get(apiUrl, {
-                headers: {
-                    Authorization: `Bearer ${accessToken}`,
-                    'Content-Type': 'application/json'
-                }
-            });
+            const response = await apiHelper.get(apiUrl);
+            let apis = response.data;
 
-            if (response.status === 200) {
-                let apis = response.data;
-
-                if (typeof apis === 'object' && !Array.isArray(apis)) {
-                    apis = apis.assets || apis.apis || [];
-                }
-
-                // Flatten nested API structures (handle grouped APIs)
-                const flattenedApis: any[] = [];
-                for (const api of apis) {
-                    if (api.apis && Array.isArray(api.apis)) {
-                        // Grouped API
-                        for (const subApi of api.apis) {
-                            const enhancedSubApi = { ...subApi };
-                            enhancedSubApi.parentAssetId = api.assetId;
-                            enhancedSubApi.parentGroupId = api.groupId;
-                            enhancedSubApi.parentName = api.name;
-                            flattenedApis.push(enhancedSubApi);
-                        }
-                    } else {
-                        flattenedApis.push(api);
-                    }
-                }
-
-                return flattenedApis;
+            if (typeof apis === 'object' && !Array.isArray(apis)) {
+                apis = apis.assets || apis.apis || [];
             }
+
+            // Flatten nested API structures (handle grouped APIs)
+            const flattenedApis: any[] = [];
+            for (const api of apis) {
+                if (api.apis && Array.isArray(api.apis)) {
+                    // Grouped API
+                    for (const subApi of api.apis) {
+                        const enhancedSubApi = { ...subApi };
+                        enhancedSubApi.parentAssetId = api.assetId;
+                        enhancedSubApi.parentGroupId = api.groupId;
+                        enhancedSubApi.parentName = api.name;
+                        flattenedApis.push(enhancedSubApi);
+                    }
+                } else {
+                    flattenedApis.push(api);
+                }
+            }
+
+            return flattenedApis;
         } catch (error: any) {
             // Try next endpoint
             continue;
@@ -168,7 +136,7 @@ async function getAPIsInEnvironment(accessToken: string, organizationID: string,
     throw new Error('Failed to retrieve APIs from all endpoints');
 }
 
-async function getAPIPolicies(accessToken: string, organizationID: string, environmentId: string, apiData: any): Promise<any[]> {
+async function getAPIPolicies(context: vscode.ExtensionContext, organizationID: string, environmentId: string, apiData: any): Promise<any[]> {
     const possibleIds = [
         apiData.id,
         apiData.environmentApiId,
@@ -182,28 +150,22 @@ async function getAPIPolicies(accessToken: string, organizationID: string, envir
         `${BASE_URL}/apimanager/api/v2/organizations/${organizationID}/environments/${environmentId}/apis/{api_id}/policies`
     ];
 
+    const apiHelper = new ApiHelper(context);
+
     for (const apiId of possibleIds) {
         for (const template of endpointTemplates) {
             const policiesUrl = template.replace('{api_id}', apiId.toString());
 
             try {
-                const response = await axios.get(policiesUrl, {
-                    headers: {
-                        Authorization: `Bearer ${accessToken}`,
-                        'Content-Type': 'application/json'
-                    }
-                });
+                const response = await apiHelper.get(policiesUrl);
+                let policies = response.data;
 
-                if (response.status === 200) {
-                    let policies = response.data;
+                if (typeof policies === 'object' && !Array.isArray(policies)) {
+                    policies = policies.policies || policies.data || policies.assets || [];
+                }
 
-                    if (typeof policies === 'object' && !Array.isArray(policies)) {
-                        policies = policies.policies || policies.data || policies.assets || [];
-                    }
-
-                    if (Array.isArray(policies)) {
-                        return policies;
-                    }
+                if (Array.isArray(policies)) {
+                    return policies;
                 }
             } catch (error: any) {
                 // Try next combination

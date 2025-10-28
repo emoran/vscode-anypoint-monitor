@@ -2,6 +2,26 @@ import * as vscode from 'vscode';
 import axios from 'axios';
 import { BASE_URL } from '../constants';
 import { refreshAccessToken } from './oauthService';
+
+// Helper function to refresh token with account context
+async function refreshTokenWithAccount(context: vscode.ExtensionContext): Promise<boolean> {
+    const { AccountService } = await import('./accountService.js');
+    const accountService = new AccountService(context);
+    const activeAccount = await accountService.getActiveAccount();
+    return await refreshAccessToken(context, activeAccount?.id);
+}
+
+// Helper function to get fresh token after refresh
+async function getRefreshedToken(context: vscode.ExtensionContext): Promise<string | undefined> {
+    const { AccountService } = await import('./accountService.js');
+    const accountService = new AccountService(context);
+    
+    let accessToken = await accountService.getActiveAccountAccessToken();
+    if (!accessToken) {
+        accessToken = await context.secrets.get('anypoint.accessToken');
+    }
+    return accessToken;
+}
 import { showApplicationsWebview } from '../anypoint/cloudhub2Applications';
 import { showApplicationsWebview1 } from '../anypoint/cloudhub1Applications';
 import { showDashboardWebview } from '../anypoint/ApplicationDetails';
@@ -12,64 +32,42 @@ import { showAPIManagerWebview } from '../anypoint/apiMananagerAPIs';
 import { showEnvironmentComparisonWebview } from '../anypoint/environmentComparison';
 
 export async function retrieveApplications(context: vscode.ExtensionContext, selectedEnvironmentId: string) {
-    let accessToken = await context.secrets.get('anypoint.accessToken');
-    const userInfoStr = await context.secrets.get('anypoint.userInfo');
+    const { AccountService } = await import('./accountService.js');
+    const accountService = new AccountService(context);
+    
+    let accessToken = await accountService.getActiveAccountAccessToken();
+    const userInfoStr = await accountService.getActiveAccountUserInfo();
 
-    if (!accessToken || !userInfoStr) {
-        vscode.window.showErrorMessage('No access token or user info found. Please log in first.');
-        return;
+    if (!accessToken) {
+        accessToken = await context.secrets.get('anypoint.accessToken');
+    }
+    let finalUserInfoStr = userInfoStr;
+    if (!finalUserInfoStr) {
+        finalUserInfoStr = await context.secrets.get('anypoint.userInfo');
+        if (!accessToken || !finalUserInfoStr) {
+            vscode.window.showErrorMessage('No access token or user info found. Please log in first.');
+            return;
+        }
     }
 
-    const userInfoData = JSON.parse(userInfoStr);
+    const userInfoData = JSON.parse(finalUserInfoStr);
     const organizationID = userInfoData.organization.id;
 
     const appsUrl = BASE_URL + '/cloudhub/api/applications';
     let appsList: any[] = [];
     try {
-        const response = await axios.get(appsUrl, {
+        const { ApiHelper } = await import('./apiHelper.js');
+        const apiHelper = new ApiHelper(context);
+        const response = await apiHelper.get(appsUrl, {
             headers: {
-                Authorization: `Bearer ${accessToken}`,
                 'X-ANYPNT-ENV-ID': selectedEnvironmentId,
                 'X-ANYPNT-ORG-ID': organizationID,
             },
         });
-        if (response.status !== 200) {
-            throw new Error(`Applications request failed with status ${response.status}`);
-        }
         appsList = response.data;
     } catch (error: any) {
-        if (error.response?.status === 401) {
-            vscode.window.showInformationMessage('Access token expired. Attempting to refresh...');
-            const didRefresh = await refreshAccessToken(context);
-            if (!didRefresh) {
-                vscode.window.showErrorMessage('Unable to refresh token. Please log in again.');
-                return;
-            }
-            accessToken = await context.secrets.get('anypoint.accessToken');
-            if (!accessToken) {
-                vscode.window.showErrorMessage('No access token found after refresh. Please log in again.');
-                return;
-            }
-            try {
-                const retryResp = await axios.get(appsUrl, {
-                    headers: {
-                        Authorization: `Bearer ${accessToken}`,
-                        'X-ANYPNT-ENV-ID': selectedEnvironmentId,
-                        'X-ANYPNT-ORG-ID': organizationID,
-                    },
-                });
-                if (retryResp.status !== 200) {
-                    throw new Error(`Applications request failed (retry) with status ${retryResp.status}`);
-                }
-                appsList = retryResp.data;
-            } catch (retryErr: any) {
-                vscode.window.showErrorMessage(`Retry after refresh failed: ${retryErr.message}`);
-                return;
-            }
-        } else {
-            vscode.window.showErrorMessage(`Error fetching environment apps: ${error.message}`);
-            return;
-        }
+        vscode.window.showErrorMessage(`Error fetching environment apps: ${error.message}`);
+        return;
     }
 
     if (!Array.isArray(appsList) || appsList.length === 0) {
@@ -171,10 +169,33 @@ export async function retrieveApplications(context: vscode.ExtensionContext, sel
     showDashboardWebview(context, singleAppData.domain, dashboardData, selectedEnvironmentId);
 }
 
-export async function getUserInfo(context: vscode.ExtensionContext) {
-    let accessToken = await context.secrets.get('anypoint.accessToken');
-    if (!accessToken) {
-        throw new Error('No access token found. Please log in first.');
+export async function getUserInfo(context: vscode.ExtensionContext, isNewAccount: boolean = false) {
+    const { AccountService } = await import('./accountService.js');
+    const accountService = new AccountService(context);
+    
+    let accessToken: string | undefined;
+    
+    if (isNewAccount) {
+        console.log('getUserInfo: Getting temporary access token for new account');
+        accessToken = await context.secrets.get('anypoint.tempAccessToken');
+        console.log('getUserInfo: Temporary access token found:', !!accessToken);
+        if (accessToken) {
+            console.log('getUserInfo: Access token length:', accessToken.length);
+        } else {
+            console.log('getUserInfo: No temporary access token found in secrets');
+            // Let's check if main account tokens exist
+            const mainToken = await context.secrets.get('anypoint.accessToken');
+            console.log('getUserInfo: Main access token exists:', !!mainToken);
+            throw new Error('No temporary access token found. Please try logging in again.');
+        }
+    } else {
+        accessToken = await accountService.getActiveAccountAccessToken();
+        if (!accessToken) {
+            accessToken = await context.secrets.get('anypoint.accessToken');
+        }
+        if (!accessToken) {
+            throw new Error('No access token found. Please log in first.');
+        }
     }
 
     const apiUrl = BASE_URL + '/accounts/api/me';
@@ -189,36 +210,75 @@ export async function getUserInfo(context: vscode.ExtensionContext) {
             throw new Error(`API request failed with status ${response.status}`);
         }
         const data = response.data;
-        await context.secrets.store('anypoint.userInfo', JSON.stringify(data.user));
+        
+        if (isNewAccount) {
+            await context.secrets.store('anypoint.tempUserInfo', JSON.stringify(data.user));
+            
+            const userInfo = data.user;
+            const orgId = userInfo.organization.id;
+            const accountId = `account_${orgId}_${Date.now()}`;
+            
+            const tempAccessToken = await context.secrets.get('anypoint.tempAccessToken');
+            const tempRefreshToken = await context.secrets.get('anypoint.tempRefreshToken');
+            
+            if (tempAccessToken) {
+                await accountService.setAccountData(accountId, 'accessToken', tempAccessToken);
+                await context.secrets.delete('anypoint.tempAccessToken');
+            }
+            if (tempRefreshToken) {
+                await accountService.setAccountData(accountId, 'refreshToken', tempRefreshToken);
+                await context.secrets.delete('anypoint.tempRefreshToken');
+            }
+            
+            await accountService.setAccountData(accountId, 'userInfo', JSON.stringify(userInfo));
+            
+            const account = {
+                id: accountId,
+                organizationId: orgId,
+                organizationName: userInfo.organization.name || 'Unknown Organization',
+                userEmail: userInfo.email || 'unknown@email.com',
+                userName: userInfo.username || userInfo.firstName + ' ' + userInfo.lastName || 'Unknown User',
+                isActive: false,
+                lastUsed: new Date().toISOString(),
+                status: 'authenticated' as const
+            };
+            
+            await accountService.addAccount(account);
+            await context.secrets.delete('anypoint.tempUserInfo');
+            
+            return data;
+        } else {
+            const activeAccount = await accountService.getActiveAccount();
+            if (activeAccount) {
+                await accountService.setAccountData(activeAccount.id, 'userInfo', JSON.stringify(data.user));
+            } else {
+                await context.secrets.store('anypoint.userInfo', JSON.stringify(data.user));
+            }
 
-        const panel = vscode.window.createWebviewPanel(
-            'userInfoWebview',
-            'User Information',
-            vscode.ViewColumn.One,
-            { enableScripts: true }
-        );
-        panel.webview.html = getUserInfoWebviewContent(data, panel.webview, context.extensionUri);
+            const panel = vscode.window.createWebviewPanel(
+                'userInfoWebview',
+                'User Information',
+                vscode.ViewColumn.One,
+                { enableScripts: true }
+            );
+            panel.webview.html = getUserInfoWebviewContent(data, panel.webview, context.extensionUri);
+        }
     } catch (error: any) {
-        if (error.response?.status === 401) {
-            vscode.window.showInformationMessage('Access token expired. Attempting to refresh...');
-            const didRefresh = await refreshAccessToken(context);
-            if (!didRefresh) {
-                vscode.window.showErrorMessage('Unable to refresh token. Please log in again.');
-                return;
-            }
-            accessToken = await context.secrets.get('anypoint.accessToken');
-            if (!accessToken) {
-                vscode.window.showErrorMessage('No new access token found after refresh. Please log in again.');
-                return;
-            }
+        // For existing accounts, use the ApiHelper for automatic 401 handling
+        if (!isNewAccount) {
             try {
-                const retryResponse = await axios.get(apiUrl, {
-                    headers: { Authorization: `Bearer ${accessToken}` },
-                });
-                if (retryResponse.status !== 200) {
-                    throw new Error(`Retry API request failed with status ${retryResponse.status}`);
+                const { ApiHelper } = await import('./apiHelper.js');
+                const apiHelper = new ApiHelper(context);
+                const response = await apiHelper.get(apiUrl);
+                const data = response.data;
+                
+                const activeAccount = await accountService.getActiveAccount();
+                if (activeAccount) {
+                    await accountService.setAccountData(activeAccount.id, 'userInfo', JSON.stringify(data.user));
+                } else {
+                    await context.secrets.store('anypoint.userInfo', JSON.stringify(data.user));
                 }
-                const data = retryResponse.data;
+
                 const panel = vscode.window.createWebviewPanel(
                     'userInfoWebview',
                     'User Information',
@@ -226,30 +286,25 @@ export async function getUserInfo(context: vscode.ExtensionContext) {
                     { enableScripts: true }
                 );
                 panel.webview.html = getUserInfoWebviewContent(data, panel.webview, context.extensionUri);
-            } catch (retryError: any) {
-                vscode.window.showErrorMessage(`API request failed after refresh: ${retryError.message}`);
+                return;
+            } catch (apiHelperError: any) {
+                vscode.window.showErrorMessage(`Error calling API: ${apiHelperError.message}`);
+                return;
             }
-        } else {
-            vscode.window.showErrorMessage(`Error calling API: ${error.message}`);
         }
+        
+        vscode.window.showErrorMessage(`Error calling API: ${error.message}`);
     }
 }
 
 export async function getOrganizationInfo(context: vscode.ExtensionContext) {
-    let accessToken = await context.secrets.get('anypoint.accessToken');
-    if (!accessToken) {
-        throw new Error('No access token found. Please log in first.');
-    }
+    const { ApiHelper } = await import('./apiHelper.js');
+    const apiHelper = new ApiHelper(context);
 
     const apiUrl = BASE_URL + '/cloudhub/api/organization';
 
     try {
-        const response = await axios.get(apiUrl, {
-            headers: { Authorization: `Bearer ${accessToken}` },
-        });
-        if (response.status !== 200) {
-            throw new Error(`API request failed with status ${response.status}`);
-        }
+        const response = await apiHelper.get(apiUrl);
         const data = response.data;
         const panel = vscode.window.createWebviewPanel(
             'orgInfoWebview',
@@ -259,45 +314,23 @@ export async function getOrganizationInfo(context: vscode.ExtensionContext) {
         );
         panel.webview.html = getOrgInfoWebviewContent(data, panel.webview, context.extensionUri);
     } catch (error: any) {
-        if (error.response?.status === 401) {
-            vscode.window.showInformationMessage('Access token expired. Attempting to refresh...');
-            const didRefresh = await refreshAccessToken(context);
-            if (!didRefresh) {
-                vscode.window.showErrorMessage('Unable to refresh token. Please log in again.');
-                return;
-            }
-            accessToken = await context.secrets.get('anypoint.accessToken');
-            if (!accessToken) {
-                vscode.window.showErrorMessage('No new access token found after refresh. Please log in again.');
-                return;
-            }
-            try {
-                const retryResponse = await axios.get(apiUrl, {
-                    headers: { Authorization: `Bearer ${accessToken}` },
-                });
-                if (retryResponse.status !== 200) {
-                    throw new Error(`Retry API request failed with status ${retryResponse.status}`);
-                }
-                const data = retryResponse.data;
-                const panel = vscode.window.createWebviewPanel(
-                    'orgInfoWebview',
-                    'Organization Details',
-                    vscode.ViewColumn.One,
-                    { enableScripts: true }
-                );
-                panel.webview.html = getOrgInfoWebviewContent(data, panel.webview, context.extensionUri);
-            } catch (retryError: any) {
-                vscode.window.showErrorMessage(`API request failed after refresh: ${retryError.message}`);
-            }
-        } else {
-            vscode.window.showErrorMessage(`Error calling API: ${error.message}`);
-        }
+        vscode.window.showErrorMessage(`Error calling API: ${error.message}`);
     }
 }
 
 export async function developerInfo(context: vscode.ExtensionContext) {
-    const storedUserInfo = await context.secrets.get('anypoint.userInfo');
-    const storedEnvironments = await context.secrets.get('anypoint.environments');
+    const { AccountService } = await import('./accountService.js');
+    const accountService = new AccountService(context);
+    
+    let storedUserInfo = await accountService.getActiveAccountUserInfo();
+    let storedEnvironments = await accountService.getActiveAccountEnvironments();
+
+    if (!storedUserInfo) {
+        storedUserInfo = await context.secrets.get('anypoint.userInfo');
+    }
+    if (!storedEnvironments) {
+        storedEnvironments = await context.secrets.get('anypoint.environments');
+    }
 
     if (!storedUserInfo || !storedEnvironments) {
         vscode.window.showErrorMessage('User info or environment info not found. Please log in first.');
@@ -314,77 +347,108 @@ export async function developerInfo(context: vscode.ExtensionContext) {
     );
 }
 
-export async function getEnvironments(context: vscode.ExtensionContext) {
-    let accessToken = await context.secrets.get('anypoint.accessToken');
-    const userInfo = await context.secrets.get('anypoint.userInfo');
-
-    if (!userInfo) {
-        throw new Error('User info not found. Please log in first.');
-    }
-    const organizationID = JSON.parse(userInfo).organization.id;
-
-    if (!accessToken) {
-        throw new Error('No access token found. Please log in first.');
+export async function getEnvironments(context: vscode.ExtensionContext, isNewAccount: boolean = false) {
+    const { AccountService } = await import('./accountService.js');
+    const { ApiHelper } = await import('./apiHelper.js');
+    const accountService = new AccountService(context);
+    
+    let userInfo: string | undefined;
+    let organizationID: string;
+    
+    if (isNewAccount) {
+        userInfo = await context.secrets.get('anypoint.tempUserInfo');
+        if (!userInfo) {
+            throw new Error('No temporary user info found. Please try logging in again.');
+        }
+        organizationID = JSON.parse(userInfo).organization.id;
+    } else {
+        const activeAccount = await accountService.getActiveAccount();
+        if (!activeAccount) {
+            throw new Error('No active account found. Please log in first.');
+        }
+        organizationID = activeAccount.organizationId;
     }
 
     const apiUrl = BASE_URL + '/accounts/api/organizations/' + organizationID + '/environments';
 
     try {
-        const response = await axios.get(apiUrl, {
-            headers: { Authorization: `Bearer ${accessToken}` },
-        });
+        let response;
+        
+        if (isNewAccount) {
+            // For new accounts, use temporary token manually
+            const tempToken = await context.secrets.get('anypoint.tempAccessToken');
+            if (!tempToken) {
+                throw new Error('No temporary access token found. Please try logging in again.');
+            }
+            response = await axios.get(apiUrl, {
+                headers: { Authorization: `Bearer ${tempToken}` },
+            });
+        } else {
+            // For existing accounts, use ApiHelper for automatic token management
+            const apiHelper = new ApiHelper(context);
+            response = await apiHelper.get(apiUrl);
+        }
+        
         if (response.status !== 200) {
             throw new Error(`API request failed with status ${response.status}`);
         }
-        await context.secrets.store('anypoint.environments', JSON.stringify(response.data));
-        vscode.window.showInformationMessage('environment saved');
-    } catch (error: any) {
-        if (error.response?.status === 401) {
-            vscode.window.showInformationMessage('Access token expired. Attempting to refresh...');
-            const didRefresh = await refreshAccessToken(context);
-            if (!didRefresh) {
-                vscode.window.showErrorMessage('Unable to refresh token. Please log in again.');
-                return;
-            }
-            accessToken = await context.secrets.get('anypoint.accessToken');
-            if (!accessToken) {
-                vscode.window.showErrorMessage('No new access token found after refresh. Please log in again.');
-                return;
-            }
-            try {
-                const retryResponse = await axios.get(apiUrl, {
-                    headers: { Authorization: `Bearer ${accessToken}` },
-                });
-                if (retryResponse.status !== 200) {
-                    throw new Error(`Retry API request failed with status ${retryResponse.status}`);
+        
+        // Store environments based on account type
+        if (isNewAccount) {
+            await context.secrets.store('anypoint.tempEnvironments', JSON.stringify(response.data));
+            
+            const tempUserInfo = await context.secrets.get('anypoint.tempUserInfo');
+            if (tempUserInfo) {
+                const userInfoData = JSON.parse(tempUserInfo);
+                const orgId = userInfoData.organization.id;
+                const accounts = await accountService.getAccounts();
+                const account = accounts.find(acc => acc.organizationId === orgId);
+                
+                if (account) {
+                    await accountService.setAccountData(account.id, 'environments', JSON.stringify(response.data));
                 }
-                const data = retryResponse.data;
-                vscode.window.showInformationMessage('environment saved');
-                vscode.window.showInformationMessage(`API response (after refresh): ${JSON.stringify(data)}`);
-            } catch (retryError: any) {
-                vscode.window.showErrorMessage(`API request failed after refresh: ${retryError.message}`);
             }
+            
+            await context.secrets.delete('anypoint.tempEnvironments');
         } else {
-            vscode.window.showErrorMessage(`Error calling API: ${error.message}`);
+            // Store environments for the active account
+            const activeAccount = await accountService.getActiveAccount();
+            if (activeAccount) {
+                await accountService.setAccountData(activeAccount.id, 'environments', JSON.stringify(response.data));
+                console.log(`Stored ${response.data?.data?.length || 0} environments for account ${activeAccount.userName} (${activeAccount.organizationName})`);
+            } else {
+                // Fallback to legacy storage if no active account
+                await context.secrets.store('anypoint.environments', JSON.stringify(response.data));
+                console.log('Stored environments in legacy storage (no active account found)');
+            }
         }
+        
+        return response.data;
+    } catch (error: any) {
+        vscode.window.showErrorMessage(`Error calling API: ${error.message}`);
     }
 }
 
 export async function getCH2Applications(context: vscode.ExtensionContext, environmentId: string) {
-    let accessToken = await context.secrets.get('anypoint.accessToken');
-    const userInfo = await context.secrets.get('anypoint.userInfo');
-
-    if (!userInfo) {
-        throw new Error('User info not found. Please log in first.');
+    const { AccountService } = await import('./accountService.js');
+    const { ApiHelper } = await import('./apiHelper.js');
+    const accountService = new AccountService(context);
+    
+    const activeAccount = await accountService.getActiveAccount();
+    if (!activeAccount) {
+        throw new Error('No active account found. Please log in first.');
     }
-    const organizationID = JSON.parse(userInfo).organization.id;
-
-    if (!accessToken) {
-        throw new Error('No access token found. Please log in first.');
-    }
+    
+    const organizationID = activeAccount.organizationId;
+    console.log(`CloudHub 2.0: Fetching applications for org ${organizationID}, env ${environmentId}`);
+    console.log(`CloudHub 2.0: Active account: ${activeAccount.userEmail} (${activeAccount.organizationName})`);
 
     // FIXED: Store the selected environment ID and get environment name
-    const storedEnvironments = await context.secrets.get('anypoint.environments');
+    let storedEnvironments = await accountService.getActiveAccountEnvironments();
+    if (!storedEnvironments) {
+        storedEnvironments = await context.secrets.get('anypoint.environments');
+    }
+    
     let environmentName = environmentId; // fallback
     
     if (storedEnvironments) {
@@ -408,105 +472,193 @@ export async function getCH2Applications(context: vscode.ExtensionContext, envir
     const apiUrl = BASE_URL + '/amc/application-manager/api/v2/organizations/' + organizationID + '/environments/' + environmentId + '/deployments';
 
     try {
-        const response = await axios.get(apiUrl, {
-            headers: { Authorization: `Bearer ${accessToken}` },
-        });
+        console.log(`CloudHub 2.0: Making API call to ${apiUrl}`);
+        const apiHelper = new ApiHelper(context);
+        const response = await apiHelper.get(apiUrl);
+        
+        console.log(`CloudHub 2.0: API response status: ${response.status}`);
+        console.log(`CloudHub 2.0: Response data structure:`, Object.keys(response.data || {}));
+        console.log(`CloudHub 2.0: Full response data:`, JSON.stringify(response.data, null, 2));
+        
         if (response.status !== 200) {
             throw new Error(`API request failed with status ${response.status}`);
         }
+        
         const data = response.data;
+        
+        // Check if we have applications
+        let applicationsFound = 0;
+        if (Array.isArray(data)) {
+            applicationsFound = data.length;
+        } else if (data.items && Array.isArray(data.items)) {
+            applicationsFound = data.items.length;
+        } else if (data.data && Array.isArray(data.data)) {
+            applicationsFound = data.data.length;
+        }
+        
+        console.log(`CloudHub 2.0: Found ${applicationsFound} applications in environment ${environmentName}`);
         
         // FIXED: Pass environment name for display, but ID is stored in secrets
         showApplicationsWebview(context, data, environmentName);
     } catch (error: any) {
-        if (error.response?.status === 401) {
-            vscode.window.showInformationMessage('Access token expired. Attempting to refresh...');
-            const didRefresh = await refreshAccessToken(context);
-            if (!didRefresh) {
-                vscode.window.showErrorMessage('Unable to refresh token. Please log in again.');
-                return;
-            }
-            accessToken = await context.secrets.get('anypoint.accessToken');
-            if (!accessToken) {
-                vscode.window.showErrorMessage('No new access token found after refresh. Please log in again.');
-                return;
-            }
-            try {
-                const retryResponse = await axios.get(apiUrl, {
-                    headers: { Authorization: `Bearer ${accessToken}` },
-                });
-                if (retryResponse.status !== 200) {
-                    throw new Error(`Retry API request failed with status ${retryResponse.status}`);
+        console.error(`CloudHub 2.0: Error fetching applications:`, error);
+        
+        if (error.message.includes('Access denied') || error.message.includes('403') || error.message.includes('Forbidden')) {
+            console.log(`CloudHub 2.0: Access denied for environment ${environmentName}`);
+            
+            // Show detailed error message with options
+            const action = await vscode.window.showWarningMessage(
+                `CloudHub 2.0 access denied for environment "${environmentName}". This might be because:
+
+• CloudHub 2.0 is not licensed for this environment
+• Your account (${activeAccount.userEmail}) doesn't have CloudHub 2.0 permissions
+• CloudHub 2.0 apps are in a different environment
+• This environment only supports CloudHub 1.0
+
+Would you like to try CloudHub 1.0 applications instead?`,
+                'Try CloudHub 1.0',
+                'Select Different Environment',
+                'Cancel'
+            );
+            
+            if (action === 'Try CloudHub 1.0') {
+                console.log(`CloudHub 2.0: User chose to try CloudHub 1.0 for environment ${environmentId}`);
+                try {
+                    await getCH1Applications(context, environmentId);
+                } catch (ch1Error: any) {
+                    vscode.window.showErrorMessage(`CloudHub 1.0 also failed: ${ch1Error.message}`);
                 }
-                const data = retryResponse.data;
-                showApplicationsWebview(context, data, environmentName);
-            } catch (retryError: any) {
-                vscode.window.showErrorMessage(`API request failed after refresh: ${retryError.message}`);
+            } else if (action === 'Select Different Environment') {
+                // Trigger environment selection
+                vscode.commands.executeCommand('anypoint-monitor.cloudhub2Apps');
             }
         } else {
-            vscode.window.showErrorMessage(`Error calling API: ${error.message}`);
+            vscode.window.showErrorMessage(`Error calling CloudHub 2.0 API: ${error.message}`);
         }
     }
 }
 
+// Diagnostic function to check CloudHub 2.0 availability across environments
+export async function checkCH2Availability(context: vscode.ExtensionContext) {
+    const { AccountService } = await import('./accountService.js');
+    const { ApiHelper } = await import('./apiHelper.js');
+    const accountService = new AccountService(context);
+    
+    const activeAccount = await accountService.getActiveAccount();
+    if (!activeAccount) {
+        throw new Error('No active account found. Please log in first.');
+    }
+    
+    const organizationID = activeAccount.organizationId;
+    
+    // Get all environments
+    let storedEnvironments = await accountService.getActiveAccountEnvironments();
+    if (!storedEnvironments) {
+        storedEnvironments = await context.secrets.get('anypoint.environments');
+    }
+    
+    if (!storedEnvironments) {
+        vscode.window.showErrorMessage('No environments found. Please login first.');
+        return;
+    }
+    
+    const environments = JSON.parse(storedEnvironments);
+    const results: string[] = [];
+    
+    results.push(`🔍 CloudHub 2.0 Environment Compatibility Check`);
+    results.push(`Account: ${activeAccount.userEmail}`);
+    results.push(`Organization: ${activeAccount.organizationName} (${organizationID})`);
+    results.push(`Total Environments: ${environments.data?.length || 0}`);
+    results.push('');
+    
+    if (environments.data && Array.isArray(environments.data)) {
+        for (const env of environments.data) {
+            const apiUrl = BASE_URL + '/amc/application-manager/api/v2/organizations/' + organizationID + '/environments/' + env.id + '/deployments';
+            
+            try {
+                const apiHelper = new ApiHelper(context);
+                const response = await apiHelper.get(apiUrl);
+                
+                if (response.status === 200) {
+                    const deploymentCount = Array.isArray(response.data) ? response.data.length : 
+                                          response.data.items?.length || response.data.data?.length || 0;
+                    results.push(`✅ ${env.name}: CloudHub 2.0 AVAILABLE (${deploymentCount} deployments)`);
+                } else {
+                    results.push(`❌ ${env.name}: API returned ${response.status}`);
+                }
+            } catch (error: any) {
+                if (error.message.includes('403') || error.message.includes('Access denied')) {
+                    results.push(`🚫 ${env.name}: ACCESS DENIED (CloudHub 2.0 not licensed or no permissions)`);
+                } else {
+                    results.push(`❌ ${env.name}: ERROR - ${error.message}`);
+                }
+            }
+        }
+    }
+    
+    results.push('');
+    results.push('💡 Recommendations:');
+    results.push('• Use environments marked with ✅ for CloudHub 2.0');
+    results.push('• Use CloudHub 1.0 command for environments with 🚫');
+    results.push('• Contact your admin if all environments show ACCESS DENIED');
+    
+    const diagnosticMessage = results.join('\n');
+    console.log(diagnosticMessage);
+    
+    // Show in a new document
+    const doc = await vscode.workspace.openTextDocument({
+        content: diagnosticMessage,
+        language: 'plaintext'
+    });
+    await vscode.window.showTextDocument(doc);
+}
+
 export async function getCH1Applications(context: vscode.ExtensionContext, environmentId: string) {
-    let accessToken = await context.secrets.get('anypoint.accessToken');
-    const userInfo = await context.secrets.get('anypoint.userInfo');
-
-    if (!userInfo) {
-        throw new Error('User info not found. Please log in first.');
+    const { AccountService } = await import('./accountService.js');
+    const { ApiHelper } = await import('./apiHelper.js');
+    const accountService = new AccountService(context);
+    
+    const activeAccount = await accountService.getActiveAccount();
+    if (!activeAccount) {
+        throw new Error('No active account found. Please log in first.');
     }
-    const organizationID = JSON.parse(userInfo).organization.id;
-
-    if (!accessToken) {
-        throw new Error('No access token found. Please log in first.');
-    }
+    
+    const organizationID = activeAccount.organizationId;
+    console.log(`CloudHub 1.0: Fetching applications for org ${organizationID}, env ${environmentId}`);
+    console.log(`CloudHub 1.0: Active account: ${activeAccount.userName} (${activeAccount.organizationName})`);
 
     const apiUrl = BASE_URL + '/cloudhub/api/applications';
 
     try {
-        const response = await axios.get(apiUrl, {
+        console.log(`CloudHub 1.0: Making API call to ${apiUrl}`);
+        const apiHelper = new ApiHelper(context);
+        const response = await apiHelper.get(apiUrl, {
             headers: {
-                Authorization: `Bearer ${accessToken}`,
                 'X-ANYPNT-ENV-ID': environmentId,
                 'X-ANYPNT-ORG-ID': organizationID,
             },
         });
+        
+        console.log(`CloudHub 1.0: API response status: ${response.status}`);
+        console.log(`CloudHub 1.0: Found ${Array.isArray(response.data) ? response.data.length : 0} applications`);
+        
         if (response.status !== 200) {
             throw new Error(`API request failed with status ${response.status}`);
         }
+        
         const data = response.data;
         showApplicationsWebview1(context, data);
     } catch (error: any) {
-        if (error.response?.status === 401) {
-            vscode.window.showInformationMessage('Access token expired. Attempting to refresh...');
-            const didRefresh = await refreshAccessToken(context);
-            if (!didRefresh) {
-                vscode.window.showErrorMessage('Unable to refresh token. Please log in again.');
-                return;
-            }
-            accessToken = await context.secrets.get('anypoint.accessToken');
-            if (!accessToken) {
-                vscode.window.showErrorMessage('No new access token found after refresh. Please log in again.');
-                return;
-            }
-            try {
-                const retryResponse = await axios.get(apiUrl, {
-                    headers: { Authorization: `Bearer ${accessToken}` },
-                });
-                if (retryResponse.status !== 200) {
-                    throw new Error(`Retry API request failed with status ${retryResponse.status}`);
-                }
-                const data = retryResponse.data;
-                showApplicationsWebview1(context, data);
-                vscode.window.showInformationMessage(`API response (after refresh): ${JSON.stringify(data)}`);
-            } catch (retryError: any) {
-                vscode.window.showErrorMessage(`API request failed after refresh: ${retryError.message}`);
-            }
-        } else if (error.response?.status === 403) {
-            vscode.window.showErrorMessage(`Error calling API: ${error.message}` + ' Check CloudHub 1.0 Entitlement / Permissions');
+        console.error(`CloudHub 1.0: Error fetching applications:`, error);
+        if (error.message.includes('Access denied') || error.message.includes('403')) {
+            vscode.window.showErrorMessage(`CloudHub 1.0 access denied for account ${activeAccount.userName}. This might be because:
+1. CloudHub 1.0 is not licensed for this environment
+2. Your account doesn't have CloudHub 1.0 permissions
+3. CloudHub 1.0 apps are in a different environment
+
+Try selecting a different environment or check your account permissions.`);
         } else {
-            vscode.window.showErrorMessage(`Error calling API: ${error.message}`);
+            vscode.window.showErrorMessage(`Error calling CloudHub 1.0 API: ${error.message}`);
         }
     }
 }
@@ -732,9 +884,9 @@ export async function getEnvironmentComparison(context: vscode.ExtensionContext)
             }
         } catch (error: any) {
             if (error.response?.status === 401) {
-                const didRefresh = await refreshAccessToken(context);
+                const didRefresh = await refreshTokenWithAccount(context);
                 if (didRefresh) {
-                    accessToken = await context.secrets.get('anypoint.accessToken');
+                    accessToken = await getRefreshedToken(context);
                     try {
                         const ch1Response = await axios.get(BASE_URL + '/cloudhub/api/applications', {
                             headers: {
@@ -887,9 +1039,9 @@ export async function getEnvironmentComparison(context: vscode.ExtensionContext)
             }
         } catch (error: any) {
             if (error.response?.status === 401) {
-                const didRefresh = await refreshAccessToken(context);
+                const didRefresh = await refreshTokenWithAccount(context);
                 if (didRefresh) {
-                    accessToken = await context.secrets.get('anypoint.accessToken');
+                    accessToken = await getRefreshedToken(context);
                     try {
                         const ch2Response = await axios.get(BASE_URL + '/amc/application-manager/api/v2/organizations/' + organizationID + '/environments/' + env.id + '/deployments', {
                             headers: { Authorization: `Bearer ${accessToken}` },

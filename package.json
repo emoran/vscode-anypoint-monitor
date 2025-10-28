@@ -3,7 +3,7 @@
   "displayName": "Anypoint Monitor",
   "description": "Professional Anypoint Platform management extension for Visual Studio Code. Provides comprehensive monitoring and management capabilities for CloudHub applications, API portfolio oversight, organizational analytics, and development workflow optimization within your IDE environment.",
   "publisher": "EdgarMoran",
-  "version": "0.0.31",
+  "version": "0.0.32",
   "engines": {
     "vscode": "^1.96.0"
   },
@@ -73,7 +73,8 @@
     "onCommand:anypoint-monitor.realTimeLogs",
     "onCommand:anypoint-monitor.environmentComparison",
     "onCommand:anypoint-monitor.applicationDiagram",
-    "onCommand:anypoint-monitor.dataweavePlayground"
+    "onCommand:anypoint-monitor.dataweavePlayground",
+    "onCommand:anypoint-monitor.checkCH2Availability"
   ],
   "main": "./out/extension.js",
   "files": [
@@ -152,6 +153,10 @@
       {
         "command": "anypoint-monitor.dataweavePlayground",
         "title": "AM: DataWeave Playground"
+      },
+      {
+        "command": "anypoint-monitor.checkCH2Availability",
+        "title": "AM: Check CloudHub 2.0 Environment Compatibility"
       }
     ]
   },

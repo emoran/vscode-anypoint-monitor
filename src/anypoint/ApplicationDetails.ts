@@ -1,6 +1,6 @@
 import * as vscode from 'vscode';
 import * as fs from 'fs';
-// import fetch from 'node-fetch'; // Or use axios if needed
+import { ApiHelper } from '../controllers/apiHelper.js';
 
 /** Flatten objects into dot-notation */
 function flattenObject(obj: any, parentKey = '', res: any = {}): any {
@@ -269,24 +269,14 @@ async function updateApplicationStatus(
   applicationName: string,
   status: 'stop' | 'start' | 'restart',
   envId: string,
-  authToken: string
+  apiHelper: ApiHelper
 ): Promise<void> {
   const url = `https://anypoint.mulesoft.com/cloudhub/api/applications/${applicationName}/status`;
-  const body = JSON.stringify({ status });
+  const headers = {
+    'x-anypnt-env-id': envId
+  };
   
-  const resp = await fetch(url, {
-    method: 'POST',
-    headers: {
-      authorization: `Bearer ${authToken}`,
-      'content-type': 'application/json',
-      'x-anypnt-env-id': envId
-    },
-    body,
-  });
-  if (!resp.ok) {
-    const txt = await resp.text();
-    throw new Error(`Failed to update app status: ${resp.status} ${resp.statusText} => ${txt}`);
-  }
+  await apiHelper.post(url, { status }, { headers });
 }
 
 /**
@@ -372,33 +362,24 @@ export async function showDashboardWebview(
       }
     } else if (message.command === 'stopApp') {
       try {
-        const accessToken = await context.secrets.get('anypoint.accessToken');
-        if (!accessToken) {
-          throw new Error('No access token found. Please log in first.');
-        }
-        await updateApplicationStatus(domain, 'stop', envId, accessToken);
+        const apiHelper = new ApiHelper(context);
+        await updateApplicationStatus(domain, 'stop', envId, apiHelper);
         vscode.window.showInformationMessage(`Application ${domain} is being stopped...`);
       } catch (err: any) {
         vscode.window.showErrorMessage(`Failed to stop app: ${err.message}`);
       }
     } else if (message.command === 'startApp') {
       try {
-        const accessToken = await context.secrets.get('anypoint.accessToken');
-        if (!accessToken) {
-          throw new Error('No access token found. Please log in first.');
-        }
-        await updateApplicationStatus(domain, 'start', envId, accessToken);
+        const apiHelper = new ApiHelper(context);
+        await updateApplicationStatus(domain, 'start', envId, apiHelper);
         vscode.window.showInformationMessage(`Application ${domain} is being started...`);
       } catch (err: any) {
         vscode.window.showErrorMessage(`Failed to start app: ${err.message}`);
       }
     } else if (message.command === 'restartApp') {
       try {
-        const accessToken = await context.secrets.get('anypoint.accessToken');
-        if (!accessToken) {
-          throw new Error('No access token found. Please log in first.');
-        }
-        await updateApplicationStatus(domain, 'restart', envId, accessToken);
+        const apiHelper = new ApiHelper(context);
+        await updateApplicationStatus(domain, 'restart', envId, apiHelper);
         vscode.window.showInformationMessage(`Application ${domain} is being restarted...`);
       } catch (err: any) {
         vscode.window.showErrorMessage(`Failed to restart app: ${err.message}`);

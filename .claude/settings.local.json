@@ -27,7 +27,10 @@
       "mcp__ide__getDiagnostics",
       "Bash(npx tsc:*)",
       "Bash(./node_modules/.bin/tsc:*)",
-      "Bash(npm install)"
+      "Bash(npm install)",
+      "WebFetch(domain:github.com)",
+      "Bash(npm run webpack:*)",
+      "WebFetch(domain:docs.mulesoft.com)"
     ],
     "deny": []
   }

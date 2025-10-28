@@ -16,7 +16,8 @@ import {
     getCH2Applications,
     getCH1Applications,
     retrieveAPIManagerAPIs,
-    getEnvironmentComparison
+    getEnvironmentComparison,
+    checkCH2Availability
 } from "./controllers/anypointService";
 import { auditAPIs } from "./anypoint/apiAudit";
 import { showCommunityEvents } from "./anypoint/communityEvents";
@@ -31,16 +32,38 @@ interface EnvironmentOption {
 }
 
 async function selectEnvironment(context: vscode.ExtensionContext): Promise<string | null> {
-	const storedEnvironments = await context.secrets.get('anypoint.environments');
+	const accountService = new AccountService(context);
+	
+	let storedEnvironments = await accountService.getActiveAccountEnvironments();
 	if (!storedEnvironments) {
-		vscode.window.showErrorMessage('No environment information found. Please log in first.');
-		return null;
+		storedEnvironments = await context.secrets.get('anypoint.environments');
+		if (!storedEnvironments) {
+			// Try to fetch environments if none are stored
+			try {
+				console.log('No environments found, fetching from API...');
+				await getEnvironments(context, false);
+				storedEnvironments = await accountService.getActiveAccountEnvironments();
+				if (!storedEnvironments) {
+					storedEnvironments = await context.secrets.get('anypoint.environments');
+				}
+			} catch (error: any) {
+				console.error('Failed to fetch environments:', error);
+			}
+			
+			if (!storedEnvironments) {
+				vscode.window.showErrorMessage('No environment information found. Please log in first.');
+				return null;
+			}
+		}
 	}
 
 	const environments = JSON.parse(storedEnvironments) as {
 		data: { id: string; name: string }[];
 		total: number;
 	};
+
+	console.log(`Environment Selection: Found ${environments.data?.length || 0} environments`);
+	console.log(`Environment Selection: Available environments:`, environments.data?.map(e => `${e.name} (${e.id})`));
 
 	if (!environments.data || environments.data.length === 0) {
 		vscode.window.showErrorMessage('No environments available.');
@@ -73,10 +96,76 @@ async function selectEnvironment(context: vscode.ExtensionContext): Promise<stri
 	return selectedEnvironmentId;
 }
 import { provideFeedback } from "./anypoint/feedbackService";
+import { showAccountManagerWebview } from "./anypoint/accountManager";
+import { AccountService } from "./controllers/accountService";
+
+// Helper function to refresh token with account context
+async function refreshTokenWithAccount(context: vscode.ExtensionContext): Promise<boolean> {
+	const accountService = new AccountService(context);
+	const activeAccount = await accountService.getActiveAccount();
+	return await refreshAccessToken(context, activeAccount?.id);
+}
+
+// Helper function to get fresh token after refresh
+async function getRefreshedToken(context: vscode.ExtensionContext): Promise<string | undefined> {
+	const accountService = new AccountService(context);
+	
+	let accessToken = await accountService.getActiveAccountAccessToken();
+	if (!accessToken) {
+		accessToken = await context.secrets.get('anypoint.accessToken');
+	}
+	return accessToken;
+}
 
 // This method is called when your extension is activated
 // Your extension is activated the very first time the command is executed
+// Global status bar item for active account
+let accountStatusBarItem: vscode.StatusBarItem;
+
+// Function to update the account status bar
+export async function updateAccountStatusBar(context: vscode.ExtensionContext) {
+	try {
+		const accountService = new AccountService(context);
+		const activeAccount = await accountService.getActiveAccount();
+		
+		if (activeAccount) {
+			// Show active account with organization name
+			const displayName = activeAccount.userName || 'Unknown User';
+			const orgName = activeAccount.organizationName || 'Unknown Org';
+			
+			accountStatusBarItem.text = `$(organization) ${displayName} • ${orgName}`;
+			accountStatusBarItem.backgroundColor = undefined; // Default color for active
+			accountStatusBarItem.show();
+		} else {
+			// No active account
+			accountStatusBarItem.text = `$(alert) No Anypoint Account`;
+			accountStatusBarItem.backgroundColor = new vscode.ThemeColor('statusBarItem.warningBackground');
+			accountStatusBarItem.show();
+		}
+	} catch (error) {
+		// Error getting account info
+		accountStatusBarItem.text = `$(error) Anypoint Account Error`;
+		accountStatusBarItem.backgroundColor = new vscode.ThemeColor('statusBarItem.errorBackground');
+		accountStatusBarItem.show();
+		console.error('Failed to update account status bar:', error);
+	}
+}
+
 export function activate(context: vscode.ExtensionContext) {
+	// Initialize account service and migrate existing account if needed
+	const accountService = new AccountService(context);
+	accountService.migrateExistingAccount().catch(err => {
+		console.error('Failed to migrate existing account:', err);
+	});
+
+	// Create status bar item for active account
+	accountStatusBarItem = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Left, 100);
+	accountStatusBarItem.command = 'anypoint-monitor.accountManager';
+	accountStatusBarItem.tooltip = 'Click to open Account Manager';
+	context.subscriptions.push(accountStatusBarItem);
+
+	// Initialize status bar
+	updateAccountStatusBar(context);
 
 	 // Register a command for the login
         const loginCommand = vscode.commands.registerCommand('anypoint-monitor.login', async () => {
@@ -84,18 +173,26 @@ export function activate(context: vscode.ExtensionContext) {
                         await loginToAnypointWithOAuth(context);
                         await getUserInfo(context);
                         await getEnvironments(context);
+                        // Update status bar after successful login
+                        await updateAccountStatusBar(context);
                 }
                 catch (error: any) {
                         vscode.window.showErrorMessage(`Login failed: ${error.message || error}`);
+                        // Update status bar to show error state
+                        await updateAccountStatusBar(context);
                 }
         });
 
 	const revokeAccessCommand = vscode.commands.registerCommand('anypoint-monitor.logout', async () => {
 		try {
 			await revokeAnypointToken(context, 'access');
+			// Update status bar after logout
+			await updateAccountStatusBar(context);
 		} 
 		catch (err: any) {
 			vscode.window.showErrorMessage(`Failed to revoke access token: ${err.message}`);
+			// Update status bar to reflect error state
+			await updateAccountStatusBar(context);
 		}
 	});
 
@@ -175,6 +272,14 @@ export function activate(context: vscode.ExtensionContext) {
 		}
 	});
 
+	const checkCH2EnvironmentCompatibility = vscode.commands.registerCommand('anypoint-monitor.checkCH2Availability', async () => {
+		try {
+			await checkCH2Availability(context);
+		} catch (error: any) {
+			vscode.window.showErrorMessage(`Error checking CloudHub 2.0 availability: ${error.message}`);
+		}
+	});
+
 	const subcriptionExpiration = vscode.commands.registerCommand('anypoint-monitor.subscriptionExpiration', async () => {
 		try{
 			const userInfoStr = await context.secrets.get('anypoint.userInfo');
@@ -222,7 +327,7 @@ export function activate(context: vscode.ExtensionContext) {
 
 	const retrieveAccessToken = vscode.commands.registerCommand('anypoint-monitor.retrieveAccessToken', async () => {
 		// Attempt to refresh the access token using your existing refresh logic
-		const didRefresh = await refreshAccessToken(context);
+		const didRefresh = await refreshTokenWithAccount(context);
 		if (!didRefresh) {
 		  vscode.window.showErrorMessage('Failed to refresh access token. Please log in again.');
 		  return;
@@ -277,32 +382,32 @@ export function activate(context: vscode.ExtensionContext) {
 				return;
 			}
 			
-			// Get applications for the selected environment
-			const userInfoStr = await context.secrets.get('anypoint.userInfo');
-			const accessToken = await context.secrets.get('anypoint.accessToken');
+			// Use the new multi-account system
+			const accountService = new AccountService(context);
+			const activeAccount = await accountService.getActiveAccount();
 			
-			if (!userInfoStr || !accessToken) {
-				vscode.window.showErrorMessage('Please log in first.');
+			if (!activeAccount) {
+				vscode.window.showErrorMessage('No active account found. Please log in first.');
 				return;
 			}
 
-			const userInfoData = JSON.parse(userInfoStr);
-			const organizationID = userInfoData.organization.id;
+			const organizationID = activeAccount.organizationId;
 
 			console.log('Real-time logs: Environment ID:', selectedEnvironmentId);
 			console.log('Real-time logs: Organization ID:', organizationID);
-			console.log('Real-time logs: Access token exists:', !!accessToken);
+			console.log('Real-time logs: Active account:', activeAccount.userName, '(' + activeAccount.organizationName + ')');
 
-			// Fetch both CloudHub 1.0 and 2.0 applications
-			const axios = require('axios');
+			// Fetch both CloudHub 1.0 and 2.0 applications using the new ApiHelper
+			const { ApiHelper } = await import('./controllers/apiHelper.js');
+			const apiHelper = new ApiHelper(context);
 			let ch1Apps: any[] = [];
 			let ch2Apps: any[] = [];
 
 			// Fetch CloudHub 1.0 applications
 			try {
-				const ch1Response = await axios.get(BASE_URL + '/cloudhub/api/applications', {
+				console.log('Real-time logs: Fetching CloudHub 1.0 applications...');
+				const ch1Response = await apiHelper.get(BASE_URL + '/cloudhub/api/applications', {
 					headers: {
-						Authorization: `Bearer ${accessToken}`,
 						'X-ANYPNT-ENV-ID': selectedEnvironmentId,
 						'X-ANYPNT-ORG-ID': organizationID,
 					},
@@ -312,43 +417,14 @@ export function activate(context: vscode.ExtensionContext) {
 					console.log(`Real-time logs: Found ${ch1Apps.length} CloudHub 1.0 applications`);
 				}
 			} catch (error: any) {
-				console.error('CloudHub 1.0 apps fetch failed:', {
-					status: error.response?.status,
-					statusText: error.response?.statusText,
-					data: error.response?.data,
-					message: error.message
-				});
-				
-				// Handle token refresh for 401 errors
-				if (error.response?.status === 401) {
-					console.log('Real-time logs: Attempting to refresh access token for CH1...');
-					const didRefresh = await refreshAccessToken(context);
-					if (didRefresh) {
-						const newAccessToken = await context.secrets.get('anypoint.accessToken');
-						try {
-							const ch1RetryResponse = await axios.get(BASE_URL + '/cloudhub/api/applications', {
-								headers: {
-									Authorization: `Bearer ${newAccessToken}`,
-									'X-ANYPNT-ENV-ID': selectedEnvironmentId,
-									'X-ANYPNT-ORG-ID': organizationID,
-								},
-							});
-							if (ch1RetryResponse.status === 200) {
-								ch1Apps = Array.isArray(ch1RetryResponse.data) ? ch1RetryResponse.data : [];
-								console.log(`Real-time logs: Found ${ch1Apps.length} CloudHub 1.0 applications after token refresh`);
-							}
-						} catch (retryError: any) {
-							console.error('CloudHub 1.0 retry after refresh failed:', retryError.message);
-						}
-					}
-				}
+				console.error('Real-time logs: CloudHub 1.0 apps fetch failed:', error.message);
 			}
 
 			// Fetch CloudHub 2.0 applications
 			try {
-				const ch2Response = await axios.get(BASE_URL + '/amc/application-manager/api/v2/organizations/' + organizationID + '/environments/' + selectedEnvironmentId + '/deployments', {
-					headers: { Authorization: `Bearer ${accessToken}` },
-				});
+				console.log('Real-time logs: Fetching CloudHub 2.0 applications...');
+				const ch2Response = await apiHelper.get(BASE_URL + '/amc/application-manager/api/v2/organizations/' + organizationID + '/environments/' + selectedEnvironmentId + '/deployments');
+				
 				if (ch2Response.status === 200) {
 					// Handle different data structures from CH2 API response
 					let applicationsData = ch2Response.data;
@@ -379,57 +455,7 @@ export function activate(context: vscode.ExtensionContext) {
 					}
 				}
 			} catch (error: any) {
-				console.error('CloudHub 2.0 apps fetch failed:', {
-					status: error.response?.status,
-					statusText: error.response?.statusText,
-					data: error.response?.data,
-					message: error.message
-				});
-				
-				// Handle token refresh for 401 errors
-				if (error.response?.status === 401) {
-					console.log('Real-time logs: Attempting to refresh access token for CH2...');
-					const didRefresh = await refreshAccessToken(context);
-					if (didRefresh) {
-						const newAccessToken = await context.secrets.get('anypoint.accessToken');
-						try {
-							const ch2RetryResponse = await axios.get(BASE_URL + '/amc/application-manager/api/v2/organizations/' + organizationID + '/environments/' + selectedEnvironmentId + '/deployments', {
-								headers: { Authorization: `Bearer ${newAccessToken}` },
-							});
-							if (ch2RetryResponse.status === 200) {
-								// Handle different data structures from CH2 API response
-								let applicationsData = ch2RetryResponse.data;
-								console.log('Real-time logs: Raw CH2 response structure after refresh:', JSON.stringify(applicationsData, null, 2));
-								
-								if (Array.isArray(applicationsData)) {
-									ch2Apps = applicationsData;
-								} else if (applicationsData && typeof applicationsData === 'object') {
-									// Check if it's wrapped in a property like { data: [...] } or { applications: [...] }
-									ch2Apps = applicationsData.data || applicationsData.applications || applicationsData.items || [];
-									
-									// If still not an array, check for other common API response structures
-									if (!Array.isArray(ch2Apps)) {
-										ch2Apps = applicationsData.response?.data || 
-												applicationsData.response?.applications ||
-												applicationsData.result?.data ||
-												applicationsData.result?.applications ||
-												[];
-									}
-								}
-								
-								// Ensure we have an array
-								if (!Array.isArray(ch2Apps)) {
-									ch2Apps = [];
-									console.warn('CH2 applications data is not in expected format after refresh. Received:', typeof applicationsData, applicationsData);
-								} else {
-									console.log(`Real-time logs: Found ${ch2Apps.length} CloudHub 2.0 applications after token refresh`);
-								}
-							}
-						} catch (retryError: any) {
-							console.error('CloudHub 2.0 retry after refresh failed:', retryError.message);
-						}
-					}
-				}
+				console.error('Real-time logs: CloudHub 2.0 apps fetch failed:', error.message);
 			}
 
 			// Create unified application list
@@ -446,63 +472,25 @@ export function activate(context: vscode.ExtensionContext) {
 					
 					try {
 						const specsUrl = `${BASE_URL}/amc/application-manager/api/v2/organizations/${organizationID}/environments/${selectedEnvironmentId}/deployments/${app.id}/specs`;
-						let currentAccessToken = accessToken;
 						
-						try {
-							const specsResponse = await axios.get(specsUrl, {
-								headers: { Authorization: `Bearer ${currentAccessToken}` },
-							});
+						const specsResponse = await apiHelper.get(specsUrl);
+						
+						if (specsResponse.status === 200 && specsResponse.data) {
+							console.log(`Real-time logs: Raw specs response for deployment ${app.id}:`, JSON.stringify(specsResponse.data, null, 2));
 							
-							if (specsResponse.status === 200 && specsResponse.data) {
-								console.log(`Real-time logs: Raw specs response for deployment ${app.id}:`, JSON.stringify(specsResponse.data, null, 2));
+							const specs = Array.isArray(specsResponse.data) ? specsResponse.data : specsResponse.data.data || [];
+							console.log(`Real-time logs: Processed specs array length: ${specs.length}`);
+							
+							if (specs.length > 0) {
+								// Get the latest spec (first one is usually the latest)
+								const latestSpec = specs[0];
+								console.log(`Real-time logs: Latest spec structure:`, JSON.stringify(latestSpec, null, 2));
 								
-								const specs = Array.isArray(specsResponse.data) ? specsResponse.data : specsResponse.data.data || [];
-								console.log(`Real-time logs: Processed specs array length: ${specs.length}`);
-								
-								if (specs.length > 0) {
-									// Get the latest spec (first one is usually the latest)
-									const latestSpec = specs[0];
-									console.log(`Real-time logs: Latest spec structure:`, JSON.stringify(latestSpec, null, 2));
-									
-									// Check for different ID fields like the working implementation does
-									specificationId = latestSpec.id || latestSpec.version || app.id;
-									console.log(`Real-time logs: Found spec ID ${specificationId} for deployment ${app.id} (id: ${latestSpec.id}, version: ${latestSpec.version})`);
-								} else {
-									console.log(`Real-time logs: No specs found for deployment ${app.id}, using deployment ID as fallback`);
-								}
-							}
-						} catch (specsError: any) {
-							// Handle token refresh for specs API
-							if (specsError.response?.status === 401) {
-								console.log(`Real-time logs: Attempting to refresh access token for specs API (deployment ${app.id})...`);
-								const didRefresh = await refreshAccessToken(context);
-								if (didRefresh) {
-									currentAccessToken = await context.secrets.get('anypoint.accessToken') || accessToken;
-									const specsRetryResponse = await axios.get(specsUrl, {
-										headers: { Authorization: `Bearer ${currentAccessToken}` },
-									});
-									
-									if (specsRetryResponse.status === 200 && specsRetryResponse.data) {
-										console.log(`Real-time logs: Raw specs retry response for deployment ${app.id}:`, JSON.stringify(specsRetryResponse.data, null, 2));
-										
-										const specs = Array.isArray(specsRetryResponse.data) ? specsRetryResponse.data : specsRetryResponse.data.data || [];
-										console.log(`Real-time logs: Processed specs retry array length: ${specs.length}`);
-										
-										if (specs.length > 0) {
-											// Get the latest spec (first one is usually the latest)
-											const latestSpec = specs[0];
-											console.log(`Real-time logs: Latest retry spec structure:`, JSON.stringify(latestSpec, null, 2));
-											
-											// Check for different ID fields like the working implementation does
-											specificationId = latestSpec.id || latestSpec.version || app.id;
-											console.log(`Real-time logs: Found spec ID ${specificationId} for deployment ${app.id} after token refresh (id: ${latestSpec.id}, version: ${latestSpec.version})`);
-										} else {
-											console.log(`Real-time logs: No specs found for deployment ${app.id} after retry, using deployment ID as fallback`);
-										}
-									}
-								}
+								// Check for different ID fields like the working implementation does
+								specificationId = latestSpec.id || latestSpec.version || app.id;
+								console.log(`Real-time logs: Found spec ID ${specificationId} for deployment ${app.id} (id: ${latestSpec.id}, version: ${latestSpec.version})`);
 							} else {
-								throw specsError;
+								console.log(`Real-time logs: No specs found for deployment ${app.id}, using deployment ID as fallback`);
 							}
 						}
 					} catch (specError: any) {
@@ -584,8 +572,17 @@ export function activate(context: vscode.ExtensionContext) {
 		}
 	});
 
+	const accountManagerCmd = vscode.commands.registerCommand('anypoint-monitor.accountManager', async () => {
+		try {
+			await showAccountManagerWebview(context);
+		} catch (error: any) {
+			vscode.window.showErrorMessage(`Error opening Account Manager: ${error.message}`);
+		}
+	});
+
 	context.subscriptions.push(userInfo);
 	context.subscriptions.push(getApplications);
+	context.subscriptions.push(checkCH2EnvironmentCompatibility);
 	context.subscriptions.push(revokeAccessCommand);
 	context.subscriptions.push(loginCommand);
 	context.subscriptions.push(loginCommand);
@@ -602,6 +599,7 @@ export function activate(context: vscode.ExtensionContext) {
 	context.subscriptions.push(realTimeLogsCmd);
 	context.subscriptions.push(environmentComparisonCmd);
 	context.subscriptions.push(dataweavePlaygroundCmd);
+	context.subscriptions.push(accountManagerCmd);
 }
 
 // This method is called when your extension is deactivated

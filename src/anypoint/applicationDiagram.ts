@@ -30,24 +30,31 @@ export async function showApplicationDiagram(context: vscode.ExtensionContext, e
     outputChannel.appendLine('=== Application Diagram Generation Started ===');
     outputChannel.appendLine(`Timestamp: ${new Date().toISOString()}`);
     
-    const userInfoRaw = await context.secrets.get('anypoint.userInfo');
-    if (!userInfoRaw) {
-        outputChannel.appendLine('❌ ERROR: User information not found');
-        vscode.window.showErrorMessage('User information not found. Please log in first.');
+    // Get active account for multi-account support
+    const { AccountService } = await import('../controllers/accountService.js');
+    const accountService = new AccountService(context);
+    const activeAccount = await accountService.getActiveAccount();
+    
+    if (!activeAccount) {
+        outputChannel.appendLine('❌ ERROR: No active account found');
+        vscode.window.showErrorMessage('No active account found. Please log in first.');
         return;
     }
-
-    const { organization } = JSON.parse(userInfoRaw);
-    if (!organization?.id) {
-        outputChannel.appendLine('❌ ERROR: Unable to determine organization ID');
-        vscode.window.showErrorMessage('Unable to determine organization id from stored credentials.');
-        return;
-    }
-
-    outputChannel.appendLine(`✅ Organization ID: ${organization.id}`);
+    
+    outputChannel.appendLine(`🔐 Active Account: ${activeAccount.userEmail} (${activeAccount.organizationName})`);
+    outputChannel.appendLine(`✅ Organization ID: ${activeAccount.organizationId}`);
     outputChannel.appendLine(`✅ Environment ID: ${environmentId}`);
+    
+    // For backward compatibility, also check legacy user info
+    const userInfoRaw = await context.secrets.get('anypoint.userInfo');
+    if (userInfoRaw) {
+        const { organization } = JSON.parse(userInfoRaw);
+        if (organization?.id) {
+            outputChannel.appendLine(`📋 Legacy Organization ID: ${organization.id}`);
+        }
+    }
 
-    const deploymentChoice = await pickDeployment(context, organization.id, environmentId, outputChannel);
+    const deploymentChoice = await pickDeployment(context, activeAccount.organizationId, environmentId, outputChannel);
     if (!deploymentChoice) {
         outputChannel.appendLine('❌ No deployment selected or available');
         return;
@@ -116,7 +123,7 @@ export async function showApplicationDiagram(context: vscode.ExtensionContext, e
         
         const hydratedDeployment = await enrichDeploymentDetails(
             context,
-            organization.id,
+            activeAccount.organizationId,
             environmentId,
             deploymentChoice.deploymentId,
             deploymentChoice.raw,
@@ -130,7 +137,7 @@ export async function showApplicationDiagram(context: vscode.ExtensionContext, e
         outputChannel.appendLine('\n--- Extracting Artifact Coordinates ---');
         const artifactZip = await fetchDeploymentArtifact(
             context,
-            organization.id,
+            activeAccount.organizationId,
             environmentId,
             deploymentChoice.deploymentId,
             hydratedDeployment,
@@ -199,14 +206,80 @@ async function pickDeployment(
 ): Promise<DeploymentOption | undefined> {
     try {
         outputChannel.appendLine('\n--- Fetching Deployments ---');
+        // Import and use multi-account system
+        const { AccountService } = await import('../controllers/accountService.js');
+        const accountService = new AccountService(context);
+        
+        const activeAccount = await accountService.getActiveAccount();
+        if (!activeAccount) {
+            outputChannel.appendLine('❌ No active account found. Please log in first.');
+            throw new Error('No active account found. Please log in first.');
+        }
+        
+        outputChannel.appendLine(`🔐 Using active account: ${activeAccount.userEmail} (${activeAccount.organizationName})`);
+        outputChannel.appendLine(`🏢 Organization ID from account: ${activeAccount.organizationId}`);
+        outputChannel.appendLine(`🌍 Environment ID: ${environmentId}`);
+        
         // GraphQL deployment query currently has schema issues, using REST API
         outputChannel.appendLine('🔍 Using REST API for deployments (GraphQL schema validation issues)...');
-        let deployments = await getCH2Deployments(context, orgId, environmentId);
-        outputChannel.appendLine(`📝 REST API returned ${deployments?.length || 0} deployments`);
+        
+        let deployments;
+        try {
+            deployments = await getCH2Deployments(context, activeAccount.organizationId, environmentId);
+            outputChannel.appendLine(`📝 REST API returned ${deployments?.length || 0} deployments`);
+        } catch (error: any) {
+            outputChannel.appendLine(`❌ Error fetching deployments: ${error.message}`);
+            
+            if (error.message.includes('403') || error.message.includes('Access denied')) {
+                outputChannel.appendLine('🚫 Access denied to CloudHub 2.0 for this environment');
+                const action = await vscode.window.showWarningMessage(
+                    `CloudHub 2.0 access denied for this environment. This might be because:
+
+• CloudHub 2.0 is not licensed for this environment
+• Your account doesn't have CloudHub 2.0 permissions
+• This environment only supports CloudHub 1.0
+
+The Application Diagram feature requires CloudHub 2.0 API access to download JAR files. You can try:`,
+                    'Select Local JAR File',
+                    'Try Different Environment',
+                    'Cancel'
+                );
+                
+                if (action === 'Select Local JAR File') {
+                    return {
+                        label: '📁 Select Local JAR File',
+                        description: 'Choose a Mule application JAR file from your computer',
+                        detail: 'Generate diagram from a local JAR file',
+                        deploymentId: '__LOCAL_JAR__',
+                        raw: null,
+                    };
+                }
+                
+                return undefined;
+            } else {
+                vscode.window.showErrorMessage(`Error fetching deployments: ${error.message}`);
+                return undefined;
+            }
+        }
         
         if (!deployments || deployments.length === 0) {
             outputChannel.appendLine('❌ No deployments found in environment');
-            vscode.window.showWarningMessage('No CloudHub 2.0 deployments found for the selected environment.');
+            const action = await vscode.window.showWarningMessage(
+                'No CloudHub 2.0 deployments found for the selected environment. Would you like to select a local JAR file instead?',
+                'Select Local JAR File',
+                'Cancel'
+            );
+            
+            if (action === 'Select Local JAR File') {
+                return {
+                    label: '📁 Select Local JAR File',
+                    description: 'Choose a Mule application JAR file from your computer',
+                    detail: 'Generate diagram from a local JAR file',
+                    deploymentId: '__LOCAL_JAR__',
+                    raw: null,
+                };
+            }
+            
             return undefined;
         }
 
@@ -256,11 +329,21 @@ async function fetchDeploymentArtifact(
     deployment: any,
     outputChannel?: vscode.OutputChannel
 ): Promise<JSZip | undefined> {
-    const accessToken = await context.secrets.get('anypoint.accessToken');
-    if (!accessToken) {
-        vscode.window.showErrorMessage('Access token missing. Please log in first.');
+    // Use multi-account authentication system
+    const { AccountService } = await import('../controllers/accountService.js');
+    const { ApiHelper } = await import('../controllers/apiHelper.js');
+    const accountService = new AccountService(context);
+    
+    const activeAccount = await accountService.getActiveAccount();
+    if (!activeAccount) {
+        outputChannel?.appendLine('❌ No active account found for artifact download');
+        vscode.window.showErrorMessage('No active account found. Please log in first.');
         return undefined;
     }
+    
+    const apiHelper = new ApiHelper(context);
+    outputChannel?.appendLine(`🔐 Using account: ${activeAccount.userEmail} for artifact download`);
+    outputChannel?.appendLine(`🏢 Organization: ${activeAccount.organizationName} (${activeAccount.organizationId})`);
 
     // IMMEDIATE GRAPHQL TEST: Try GraphQL approach for any manually deployed app
     const deploymentName = deployment?.name || deployment?.application?.name || deployment?.applicationName;
@@ -275,7 +358,7 @@ async function fetchDeploymentArtifact(
         
         try {
             // Make the GraphQL query using the REAL asset coordinates
-            const graphqlResponse = await axios.post(`${BASE_URL}/graph/api/v2/graphql`, {
+            const graphqlResponse = await apiHelper.post(`${BASE_URL}/graph/api/v2/graphql`, {
                 query: `
                     query asset {
                         asset(groupId:"${groupId}", assetId:"${artifactId}", version:"${version}" ) {
@@ -299,12 +382,6 @@ async function fetchDeploymentArtifact(
                         }
                     }
                 `
-            }, {
-                headers: {
-                    'Authorization': `Bearer ${accessToken}`,
-                    'Content-Type': 'application/json',
-                    'X-ANYPNT-ORG-ID': orgId,
-                }
             });
             
             outputChannel?.appendLine(`🧪 TEST GraphQL Status: ${graphqlResponse.status}`);
@@ -350,23 +427,14 @@ async function fetchDeploymentArtifact(
     } else {
         outputChannel?.appendLine('📋 No asset coordinates found in deployment metadata, using traditional endpoint approach...');
     }
-
+    
     const candidateUrls = buildArtifactUrlCandidates(orgId, environmentId, deploymentId, deployment, outputChannel);
     outputChannel?.appendLine(`📋 Generated ${candidateUrls.length} direct download URL candidates:`);
     candidateUrls.forEach((url, index) => {
         outputChannel?.appendLine(`   ${index + 1}. ${url}`);
     });
 
-    const runDownload = async (token: string): Promise<JSZip> => {
-        const headers = {
-            Authorization: `Bearer ${token}`,
-            Accept: 'application/java-archive, application/zip, application/octet-stream',
-            'Content-Type': 'application/json',
-            'X-ANYPNT-ORG-ID': orgId,
-            'X-ANYPNT-ENV-ID': environmentId,
-            'User-Agent': 'Anypoint-Monitor-VSCode-Extension',
-        };
-
+    const runDownload = async (): Promise<JSZip> => {
         let lastNotFound: AxiosError | undefined;
 
         for (let i = 0; i < candidateUrls.length; i++) {
@@ -375,8 +443,14 @@ async function fetchDeploymentArtifact(
                 outputChannel?.appendLine(`🔄 Trying direct download ${i + 1}/${candidateUrls.length}:`);
                 outputChannel?.appendLine(`   ${url}`);
                 
-                const response = await axios.get<ArrayBuffer>(url, {
-                    headers,
+                // Use ApiHelper for authenticated requests with proper multi-account support
+                const response = await apiHelper.get(url, {
+                    headers: {
+                        'Accept': 'application/java-archive, application/zip, application/octet-stream',
+                        'X-ANYPNT-ORG-ID': activeAccount.organizationId,
+                        'X-ANYPNT-ENV-ID': environmentId,
+                        'User-Agent': 'Anypoint-Monitor-VSCode-Extension',
+                    },
                     responseType: 'arraybuffer',
                     validateStatus: status => (status ?? 0) < 500,
                 });
@@ -431,6 +505,36 @@ async function fetchDeploymentArtifact(
                 }
 
                 outputChannel?.appendLine(`   ✅ Successfully downloaded artifact (${dataSize} bytes, content-type: ${contentType})`);
+                
+                // Check if content-type indicates HTML response (error page)
+                if (contentType?.includes('text/html')) {
+                    outputChannel?.appendLine(`   ❌ Server returned HTML instead of binary data - likely an error page`);
+                    let htmlContent = '';
+                    try {
+                        if (typeof response.data === 'string') {
+                            htmlContent = response.data;
+                        } else {
+                            htmlContent = new TextDecoder('utf-8').decode(dataBuffer);
+                        }
+                        outputChannel?.appendLine(`   📄 HTML Response content (first 1000 chars):`);
+                        outputChannel?.appendLine(`      ${htmlContent.substring(0, 1000)}${htmlContent.length > 1000 ? '...' : ''}`);
+                        
+                        // Look for common error indicators in HTML
+                        if (htmlContent.toLowerCase().includes('access denied') || 
+                            htmlContent.toLowerCase().includes('unauthorized') ||
+                            htmlContent.toLowerCase().includes('forbidden')) {
+                            outputChannel?.appendLine(`   🚫 HTML indicates access/permission error`);
+                        } else if (htmlContent.toLowerCase().includes('not found') || 
+                                   htmlContent.toLowerCase().includes('404')) {
+                            outputChannel?.appendLine(`   🔍 HTML indicates resource not found`);
+                        } else {
+                            outputChannel?.appendLine(`   ❓ HTML content doesn't match common error patterns`);
+                        }
+                    } catch (error) {
+                        outputChannel?.appendLine(`   ❌ Failed to decode HTML content: ${error}`);
+                    }
+                    continue; // Skip trying to parse as ZIP, move to next URL
+                }
                 
                 // Examine the response data before attempting to parse as ZIP
                 if (dataSize > 0) {
@@ -526,8 +630,7 @@ async function fetchDeploymentArtifact(
                                 outputChannel?.appendLine(`   🔄 Attempting download from redirect URL...`);
                                 const redirectResponse = await axios.get<ArrayBuffer>(possibleRedirectUrl, {
                                     headers: {
-                                        // Remove auth headers for S3 URLs as they use presigned access
-                                        ...(possibleRedirectUrl.includes('s3.amazonaws.com') ? {} : headers),
+                                        // S3 URLs use presigned access, no auth needed
                                         'User-Agent': 'Anypoint-Monitor-VSCode-Extension',
                                     },
                                     responseType: 'arraybuffer',
@@ -562,7 +665,7 @@ async function fetchDeploymentArtifact(
             }
         }
 
-        // IMMEDIATE TEST: Try direct GraphQL approach for moran-data-generator-api before anything else
+        /* DISABLED: Try direct GraphQL approach for moran-data-generator-api before anything else
         if (deployment?.application?.ref?.artifactId === 'moran-data-generator-api') {
             outputChannel?.appendLine('🧪 TESTING: Direct GraphQL approach for moran-data-generator-api...');
             
@@ -594,7 +697,7 @@ async function fetchDeploymentArtifact(
                     `
                 }, {
                     headers: {
-                        'Authorization': `Bearer ${token}`,
+                        'Authorization': `Bearer ${accessToken}`,
                         'Content-Type': 'application/json',
                         'X-ANYPNT-ORG-ID': orgId,
                     }
@@ -632,16 +735,49 @@ async function fetchDeploymentArtifact(
                 outputChannel?.appendLine(`🧪 TEST FAILED: ${testError}`);
             }
         }
+        */
 
         // For CloudHub 2.0, try Exchange GraphQL API first to get S3 presigned URLs
         outputChannel?.appendLine('🔍 Extracting artifact coordinates from deployment metadata...');
+        console.log('🔍 DEPLOYMENT DATA FOR COORDINATE EXTRACTION:', JSON.stringify(deployment, null, 2));
         const coords = extractArtifactCoordinates(deployment, outputChannel);
-        if (coords) {
-            try {
-                outputChannel?.appendLine(`🎯 Found artifact coordinates: ${JSON.stringify(coords, null, 2)}`);
+        console.log('🎯 EXTRACTED COORDINATES:', coords);
+        
+        // Enhanced coordinate extraction with intelligent fallbacks
+        let finalCoords = coords;
+        
+        // Smart coordinate inference for known deployment patterns
+        if (!finalCoords) {
+            const deploymentName = deployment?.name || deployment?.application?.name;
+            outputChannel?.appendLine(`🤔 No coordinates extracted, trying smart inference for deployment: ${deploymentName}`);
+            
+            if (deploymentName) {
+                // Remove common suffixes to get asset name
+                const assetName = deploymentName
+                    .replace(/-sbx$/, '')  // Remove sandbox suffix
+                    .replace(/-prod$/, '') // Remove production suffix
+                    .replace(/-dev$/, '')  // Remove development suffix
+                    .replace(/-test$/, '') // Remove test suffix
+                    .replace(/-v\d+$/, ''); // Remove version suffix
                 
-                // Original GraphQL approach (if test above didn't work)
-                if (coords.assetId === 'moran-data-generator-api' && coords.groupId === '37c16704-6187-4f8f-87eb-e3263c3852fa') {
+                // Use organization ID as groupId (common pattern)
+                finalCoords = {
+                    groupId: activeAccount.organizationId,
+                    assetId: assetName,
+                    version: '1.0.0' // Default version
+                };
+                
+                outputChannel?.appendLine(`💡 Inferred coordinates: ${JSON.stringify(finalCoords, null, 2)}`);
+                console.log('💡 SMART INFERRED COORDINATES:', finalCoords);
+            }
+        }
+        
+        if (finalCoords) {
+            try {
+                outputChannel?.appendLine(`🎯 Using artifact coordinates: ${JSON.stringify(finalCoords, null, 2)}`);
+                
+                /* DISABLED: Original GraphQL approach (if test above didn't work)
+                if (finalCoords.assetId === 'moran-data-generator-api' && finalCoords.groupId === '37c16704-6187-4f8f-87eb-e3263c3852fa') {
                     outputChannel?.appendLine('🧪 TESTING: Using hardcoded approach for moran-data-generator-api...');
                     
                     try {
@@ -672,7 +808,7 @@ async function fetchDeploymentArtifact(
                             `
                         }, {
                             headers: {
-                                'Authorization': `Bearer ${token}`,
+                                'Authorization': `Bearer ${accessToken}`,
                                 'Content-Type': 'application/json',
                                 'X-ANYPNT-ORG-ID': orgId,
                             }
@@ -706,11 +842,14 @@ async function fetchDeploymentArtifact(
                         outputChannel?.appendLine(`🧪 TEST FAILED: ${testError}`);
                     }
                 }
+                */
 
                 // Try GraphQL approach to get S3 presigned download URL
                 outputChannel?.appendLine('🔗 Attempting GraphQL asset download URL retrieval...');
-                outputChannel?.appendLine(`📍 Using coordinates: groupId=${coords.groupId}, assetId=${coords.assetId}, version=${coords.version}`);
-                const s3DownloadUrl = await getAssetDownloadUrlFromGraphQL(coords, token, orgId, outputChannel);
+                outputChannel?.appendLine(`📍 Using coordinates: groupId=${finalCoords.groupId}, assetId=${finalCoords.assetId}, version=${finalCoords.version}`);
+                console.log('🔗 CALLING GraphQL asset download with coordinates:', finalCoords);
+                const s3DownloadUrl = await getAssetDownloadUrlFromGraphQL(finalCoords, activeAccount.organizationId, context, outputChannel);
+                console.log('📍 GraphQL asset download result:', s3DownloadUrl);
                 outputChannel?.appendLine(`📍 GraphQL result: ${s3DownloadUrl ? 'SUCCESS - URL found' : 'FAILED - No URL returned'}`);
                 if (s3DownloadUrl) {
                     outputChannel?.appendLine(`🎯 Found S3 download URL from GraphQL: ${s3DownloadUrl}`);
@@ -736,11 +875,24 @@ async function fetchDeploymentArtifact(
                 
                 // Fallback to traditional Exchange download
                 outputChannel?.appendLine('📥 Attempting traditional Exchange artifact download...');
-                const exchangeData = await downloadArtifactFromExchange(coords, token, orgId, outputChannel);
+                const exchangeData = await downloadArtifactFromExchange(finalCoords, activeAccount.organizationId, context, outputChannel);
                 if (exchangeData) {
                     outputChannel?.appendLine('✅ Successfully downloaded artifact from Exchange');
                     return await JSZip.loadAsync(exchangeData);
                 }
+                
+                // If both GraphQL and Exchange failed, likely a manually deployed application
+                outputChannel?.appendLine('🔍 No asset found in Exchange - likely a manually deployed application');
+                outputChannel?.appendLine('💡 Skipping 44-endpoint attempts and offering local JAR selection...');
+                
+                // Immediately offer local JAR selection for manually deployed apps
+                const localJarZip = await promptForLocalJarFile(outputChannel);
+                if (localJarZip) {
+                    outputChannel?.appendLine('✅ Using local JAR file for manually deployed application');
+                    return localJarZip;
+                }
+                return undefined;
+                
             } catch (exchangeError) {
                 outputChannel?.appendLine(`❌ Exchange artifact download failed: ${exchangeError}`);
                 outputChannel?.appendLine('🔄 Will try direct deployment endpoints...');
@@ -756,33 +908,124 @@ async function fetchDeploymentArtifact(
             throw lastNotFound;
         }
 
+        // FINAL FALLBACK: Manual deployment detection with JAR filename approach
+        outputChannel?.appendLine('\n--- Manual Deployment Detection (Final Fallback) ---');
+        outputChannel?.appendLine('🔍 All automatic download methods failed, trying manual deployment detection...');
+        
+        const manualDeploymentName = deployment?.name || deployment?.application?.name;
+        if (manualDeploymentName) {
+            outputChannel?.appendLine(`🔍 Application name: ${manualDeploymentName}`);
+            outputChannel?.appendLine('🤔 This might be a manually deployed application, trying JAR filename approach...');
+            
+            // Try to get JAR filename from deployment configuration or runtime
+            let jarFilename: string | undefined;
+            
+            // Look for JAR filename in various possible locations
+            if (deployment?.application?.filename) {
+                jarFilename = deployment.application.filename;
+                outputChannel?.appendLine(`📄 Found JAR filename in deployment.application.filename: ${jarFilename}`);
+            } else if (deployment?.application?.artifactFilename) {
+                jarFilename = deployment.application.artifactFilename;
+                outputChannel?.appendLine(`📄 Found JAR filename in deployment.application.artifactFilename: ${jarFilename}`);
+            } else if (deployment?.application?.fileName) {
+                jarFilename = deployment.application.fileName;
+                outputChannel?.appendLine(`📄 Found JAR filename in deployment.application.fileName: ${jarFilename}`);
+            } else if (deployment?.application?.artifact?.fileName) {
+                jarFilename = deployment.application.artifact.fileName;
+                outputChannel?.appendLine(`📄 Found JAR filename in deployment.application.artifact.fileName: ${jarFilename}`);
+            } else if (deployment?.application?.ref?.artifactId) {
+                jarFilename = deployment.application.ref.artifactId + '.jar';
+                outputChannel?.appendLine(`📄 Constructed JAR filename from deployment.application.ref.artifactId: ${jarFilename}`);
+            } else if (deployment?.target?.deployments?.[0]?.application?.ref?.artifactId) {
+                jarFilename = deployment.target.deployments[0].application.ref.artifactId + '.jar';
+                outputChannel?.appendLine(`📄 Constructed JAR filename from target.deployments.application.ref.artifactId: ${jarFilename}`);
+            } else if (deployment?.target?.artifact?.fileName) {
+                jarFilename = deployment.target.artifact.fileName;
+                outputChannel?.appendLine(`📄 Found JAR filename in deployment.target.artifact.fileName: ${jarFilename}`);
+            } else {
+                // Try to extract from deployment name as last resort
+                if (manualDeploymentName) {
+                    jarFilename = manualDeploymentName + '.jar';
+                    outputChannel?.appendLine(`📄 Fallback: using deployment name as JAR filename: ${jarFilename}`);
+                }
+            }
+            
+            // If we have a JAR filename, try using it as assetId in GraphQL
+            if (jarFilename) {
+                const assetIdFromJar = jarFilename.replace(/\.jar$/, ''); // Remove .jar extension
+                outputChannel?.appendLine(`🧪 Trying GraphQL with JAR filename as assetId: ${assetIdFromJar}`);
+                
+                try {
+                    const graphqlQuery = {
+                        query: `
+                            query asset {
+                                asset(groupId:"${activeAccount.organizationId}", assetId:"${assetIdFromJar}", version:"1.0.0" ) {
+                                    groupId
+                                    assetId
+                                    version
+                                    name
+                                    files {
+                                        md5
+                                        sha1
+                                        classifier
+                                        packaging
+                                        size
+                                        isGenerated
+                                        mainFile
+                                        externalLink
+                                        createdDate
+                                        updatedDate
+                                        downloadURL
+                                    }
+                                }
+                            }
+                        `
+                    };
+                    
+                    const graphqlResponse = await apiHelper.post(`${BASE_URL}/graph/api/v2/graphql`, graphqlQuery);
+                    
+                    if (graphqlResponse.data?.data?.asset?.files) {
+                        const jarFile = graphqlResponse.data.data.asset.files.find((file: any) => 
+                            file.packaging === 'jar' && file.classifier === 'mule-application'
+                        );
+                        
+                        if (jarFile?.downloadURL) {
+                            outputChannel?.appendLine(`✅ Found JAR via GraphQL! Downloading from: ${jarFile.downloadURL}`);
+                            
+                            try {
+                                const jarResponse = await apiHelper.get(jarFile.downloadURL, { responseType: 'arraybuffer' });
+                                if (jarResponse.status === 200 && jarResponse.data.byteLength > 0) {
+                                    outputChannel?.appendLine(`✅ Successfully downloaded JAR (${jarResponse.data.byteLength} bytes)`);
+                                    return await JSZip.loadAsync(jarResponse.data);
+                                }
+                            } catch (downloadError) {
+                                outputChannel?.appendLine(`❌ Failed to download from GraphQL URL: ${downloadError}`);
+                            }
+                        }
+                    }
+                } catch (graphqlError) {
+                    outputChannel?.appendLine(`❌ GraphQL query with JAR filename failed: ${graphqlError}`);
+                }
+            }
+            
+            outputChannel?.appendLine('💡 Manual deployment detection failed, offering local JAR selection...');
+            
+            // Offer local JAR selection as final fallback
+            const localJarZip = await promptForLocalJarFile(outputChannel);
+            if (localJarZip) {
+                outputChannel?.appendLine('✅ Using local JAR file for manually deployed application');
+                return localJarZip;
+            }
+        }
+
         throw new Error('Unable to locate artifact for the selected deployment.');
     };
 
     try {
-        return await runDownload(accessToken);
+        return await runDownload();
     } catch (error: unknown) {
-        if (isUnauthorized(error)) {
-            const refreshed = await refreshAccessToken(context);
-            if (!refreshed) {
-                vscode.window.showErrorMessage('Failed to refresh access token while downloading artifact.');
-                return undefined;
-            }
-
-            const refreshedToken = await context.secrets.get('anypoint.accessToken');
-            if (!refreshedToken) {
-                vscode.window.showErrorMessage('No access token available after refresh. Please log in again.');
-                return undefined;
-            }
-
-            try {
-                return await runDownload(refreshedToken);
-            } catch (retryError: unknown) {
-                reportDownloadError(retryError, candidateUrls);
-                return undefined;
-            }
-        }
-
+        // ApiHelper handles token refresh automatically, so we don't need manual retry logic
+        outputChannel?.appendLine(`❌ Download failed: ${error instanceof Error ? error.message : 'Unknown error'}`);
         reportDownloadError(error, candidateUrls);
         return undefined;
     }
@@ -790,12 +1033,21 @@ async function fetchDeploymentArtifact(
 
 async function getAssetDownloadUrlFromGraphQL(
     coords: ArtifactCoordinates,
-    accessToken: string,
     orgId: string,
+    context: vscode.ExtensionContext,
     outputChannel?: vscode.OutputChannel
 ): Promise<string | undefined> {
     outputChannel?.appendLine(`🚀 STARTING GraphQL asset download URL retrieval`);
     outputChannel?.appendLine(`📊 Input: groupId=${coords.groupId}, assetId=${coords.assetId}, version=${coords.version}, orgId=${orgId}`);
+    
+    // Get access token from active account
+    const { AccountService } = await import('../controllers/accountService.js');
+    const accountService = new AccountService(context);
+    const accessToken = await accountService.getActiveAccountAccessToken();
+    if (!accessToken) {
+        outputChannel?.appendLine('❌ No access token available for GraphQL request');
+        return undefined;
+    }
     
     const graphqlEndpoint = `${BASE_URL}/graph/api/v2/graphql`;
     
@@ -856,6 +1108,7 @@ async function getAssetDownloadUrlFromGraphQL(
         }
 
         const data = response.data;
+        console.log('🎯 ASSET GRAPHQL RESPONSE (contains JAR URLs):', JSON.stringify(data, null, 2));
         outputChannel?.appendLine(`📊 GraphQL Response: ${JSON.stringify(data, null, 2)}`);
 
         if (data.errors && data.errors.length > 0) {
@@ -1431,14 +1684,24 @@ async function fetchDeploymentDetailsGraphQL(
             return undefined;
         }
 
+        console.log('🔍 DEPLOYMENT GRAPHQL RESPONSE:', JSON.stringify(response.data, null, 2));
+        outputChannel?.appendLine(`📨 GraphQL Response Status: ${response.status}`);
+        outputChannel?.appendLine(`📋 GraphQL Response Headers: ${JSON.stringify(response.headers, null, 2)}`);
+        outputChannel?.appendLine(`📄 GraphQL Full Response: ${JSON.stringify(response.data, null, 2)}`);
+        
         const deployment = response.data?.data?.deployment;
         if (deployment) {
-            console.log('✅ Successfully fetched deployment details via GraphQL');
-            console.log('GraphQL deployment data:', JSON.stringify(deployment, null, 2));
+            outputChannel?.appendLine('✅ Successfully fetched deployment details via GraphQL');
+            outputChannel?.appendLine(`📊 GraphQL deployment data: ${JSON.stringify(deployment, null, 2)}`);
             return deployment;
         }
 
-        console.log('No deployment data returned from GraphQL query');
+        // Check for GraphQL errors
+        if (response.data?.errors) {
+            outputChannel?.appendLine(`❌ GraphQL returned errors: ${JSON.stringify(response.data.errors, null, 2)}`);
+        }
+        
+        outputChannel?.appendLine('❌ No deployment data returned from GraphQL query');
         return undefined;
     } catch (error: unknown) {
         console.warn('GraphQL deployment details request failed:', error);
@@ -1527,15 +1790,19 @@ async function fetchDeploymentDetailsGraphQLSimple(
             return undefined;
         }
 
+        console.log('🔍 SIMPLIFIED DEPLOYMENT GRAPHQL RESPONSE:', JSON.stringify(response.data, null, 2));
+        outputChannel?.appendLine(`📨 Simplified GraphQL Response Status: ${response.status}`);
+        outputChannel?.appendLine(`📄 Simplified GraphQL Full Response: ${JSON.stringify(response.data, null, 2)}`);
+        
         if (response.data?.errors) {
-            console.warn('Simplified GraphQL errors:', response.data.errors);
+            outputChannel?.appendLine(`❌ Simplified GraphQL returned errors: ${JSON.stringify(response.data.errors, null, 2)}`);
             return undefined;
         }
 
         const deployment = response.data?.data?.deployment;
         if (deployment) {
             outputChannel?.appendLine('✅ Successfully fetched basic deployment details via simplified GraphQL');
-            outputChannel?.appendLine('Simplified GraphQL deployment data:');
+            outputChannel?.appendLine('📊 Simplified GraphQL deployment data:');
             outputChannel?.appendLine(JSON.stringify(deployment, null, 2));
             
             // For simplified query, we'll use inference based on application name and org
@@ -1752,6 +2019,54 @@ function renderDiagramWebview(
                     padding: 16px;
                     overflow: auto;
                     height: calc(100vh - 120px);
+                    animation: fadeIn 1s ease-out 0.4s both;
+                }
+
+                /* Enhanced animations and emotional design */
+                @keyframes fadeIn {
+                    from { opacity: 0; transform: translateY(20px); }
+                    to { opacity: 1; transform: translateY(0); }
+                }
+                
+                @keyframes pulse {
+                    0%, 100% { transform: scale(1); }
+                    50% { transform: scale(1.05); }
+                }
+                
+                @keyframes glow {
+                    0%, 100% { box-shadow: 0 0 5px rgba(102, 126, 234, 0.3); }
+                    50% { box-shadow: 0 0 20px rgba(102, 126, 234, 0.6), 0 0 30px rgba(102, 126, 234, 0.4); }
+                }
+                
+                /* Enhanced Mermaid styling with animations */
+                #diagram svg {
+                    filter: drop-shadow(0 4px 8px rgba(0, 0, 0, 0.3));
+                    transition: transform 0.3s ease;
+                }
+                
+                #diagram svg:hover {
+                    transform: scale(1.02);
+                }
+                
+                /* Animated nodes */
+                .node rect, .node circle, .node ellipse, .node polygon {
+                    transition: all 0.3s ease;
+                    cursor: pointer;
+                }
+                
+                .node:hover rect, .node:hover circle, .node:hover ellipse, .node:hover polygon {
+                    animation: pulse 1.5s infinite;
+                    filter: brightness(1.2);
+                }
+                
+                /* Animated edges */
+                .edgePath path {
+                    transition: stroke-width 0.3s ease, stroke 0.3s ease;
+                }
+                
+                .edgePath:hover path {
+                    stroke-width: 3px;
+                    filter: drop-shadow(0 0 5px currentColor);
                 }
 
                 pre {
@@ -2516,11 +2831,20 @@ function parseCoordinatesFromUri(uri: string | undefined): ArtifactCoordinates |
 
 async function downloadArtifactFromExchange(
     coordinates: ArtifactCoordinates,
-    accessToken: string,
     orgId: string,
+    context: vscode.ExtensionContext,
     outputChannel?: vscode.OutputChannel
 ): Promise<ArrayBuffer | undefined> {
     const { groupId, assetId, version, classifier, packaging } = coordinates;
+    
+    // Get access token from active account
+    const { AccountService } = await import('../controllers/accountService.js');
+    const accountService = new AccountService(context);
+    const accessToken = await accountService.getActiveAccountAccessToken();
+    if (!accessToken) {
+        outputChannel?.appendLine('❌ No access token available for Exchange download');
+        return undefined;
+    }
 
     outputChannel?.appendLine(`🔍 Exchange Download Parameters:`);
     outputChannel?.appendLine(`   Group ID: ${groupId}`);
