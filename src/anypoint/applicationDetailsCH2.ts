@@ -271,8 +271,6 @@ async function getCH2DeploymentById(
 • CloudHub 2.0 not being available in environment "${envId}"
 • This application being CloudHub 1.0 only
 
-💡 Try running "AM: Check CloudHub 2.0 Environment Compatibility" command to diagnose the issue.
-
 Please contact your Anypoint Platform administrator to verify CloudHub 2.0 licensing and permissions.`);
     }
     

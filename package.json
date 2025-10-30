@@ -77,7 +77,6 @@
     "onCommand:anypoint-monitor.environmentComparison",
     "onCommand:anypoint-monitor.applicationDiagram",
     "onCommand:anypoint-monitor.dataweavePlayground",
-    "onCommand:anypoint-monitor.checkCH2Availability",
     "onCommand:anypoint-monitor.accountManager",
     "onCommand:anypoint-monitor.deleteAllAccounts",
     "onCommand:anypoint-monitor.migrateLegacyAccount"
@@ -177,11 +176,6 @@
       {
         "command": "anypoint-monitor.dataweavePlayground",
         "title": "AM: DataWeave Playground"
-      },
-
-      {
-        "command": "anypoint-monitor.checkCH2Availability",
-        "title": "AM: Check CloudHub 2.0 Environment Compatibility"
       },
 
       {

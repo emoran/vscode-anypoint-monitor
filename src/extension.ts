@@ -16,8 +16,7 @@ import {
     getCH2Applications,
     getCH1Applications,
     retrieveAPIManagerAPIs,
-    getEnvironmentComparison,
-    checkCH2Availability
+    getEnvironmentComparison
 } from "./controllers/anypointService";
 import { auditAPIs } from "./anypoint/apiAudit";
 import { showCommunityEvents } from "./anypoint/communityEvents";
@@ -280,13 +279,6 @@ export function activate(context: vscode.ExtensionContext) {
 		}
 	});
 
-	const checkCH2EnvironmentCompatibility = vscode.commands.registerCommand('anypoint-monitor.checkCH2Availability', async () => {
-		try {
-			await checkCH2Availability(context);
-		} catch (error: any) {
-			vscode.window.showErrorMessage(`Error checking CloudHub 2.0 availability: ${error.message}`);
-		}
-	});
 
 	const subcriptionExpiration = vscode.commands.registerCommand('anypoint-monitor.subscriptionExpiration', async () => {
 		try{
@@ -679,7 +671,6 @@ export function activate(context: vscode.ExtensionContext) {
 
 	context.subscriptions.push(userInfo);
 	context.subscriptions.push(getApplications);
-	context.subscriptions.push(checkCH2EnvironmentCompatibility);
 	context.subscriptions.push(revokeAccessCommand);
 	context.subscriptions.push(loginCommand);
 	context.subscriptions.push(loginCommand);
