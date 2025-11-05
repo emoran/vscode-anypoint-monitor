@@ -301,10 +301,56 @@ export async function refreshAccessToken(context: vscode.ExtensionContext, accou
             }
         }
 
+        console.log('✅ Access token refreshed successfully');
         vscode.window.showInformationMessage('Access token refreshed successfully!');
         return true;
     } catch (err: any) {
-        vscode.window.showErrorMessage(`Failed to refresh token: ${err.message}`);
+        console.error('❌ Token refresh failed:', err);
+        console.error('Status:', err.response?.status);
+        console.error('Data:', err.response?.data);
+
+        // Handle specific error cases
+        if (err.response?.status === 400) {
+            // 400 typically means the refresh token is invalid or expired
+            const { AccountService } = await import('./accountService.js');
+            const accountService = new AccountService(context);
+
+            if (accountId) {
+                await accountService.updateAccountStatus(accountId, 'expired');
+            } else {
+                const activeAccount = await accountService.getActiveAccount();
+                if (activeAccount) {
+                    await accountService.updateAccountStatus(activeAccount.id, 'expired');
+                }
+            }
+
+            console.log('Refresh token expired or invalid (400 error)');
+            vscode.window.showErrorMessage(
+                'Your session has expired. Please log in again using "AM: Login into Anypoint Platform".',
+                'Login Now'
+            ).then(selection => {
+                if (selection === 'Login Now') {
+                    vscode.commands.executeCommand('anypoint-monitor.login');
+                }
+            });
+        } else if (err.response?.status === 401) {
+            // 401 means unauthorized
+            console.log('Refresh token unauthorized (401 error)');
+            vscode.window.showErrorMessage(
+                'Authentication failed. Please log in again using "AM: Login into Anypoint Platform".',
+                'Login Now'
+            ).then(selection => {
+                if (selection === 'Login Now') {
+                    vscode.commands.executeCommand('anypoint-monitor.login');
+                }
+            });
+        } else {
+            // Other errors
+            vscode.window.showErrorMessage(
+                `Failed to refresh token: ${err.message}. Please try logging in again if the issue persists.`
+            );
+        }
+
         return false;
     }
 }

@@ -97,7 +97,7 @@ async function selectEnvironment(context: vscode.ExtensionContext): Promise<stri
 }
 import { provideFeedback } from "./anypoint/feedbackService";
 import { showAccountManagerWebview } from "./anypoint/accountManager";
-import { AccountService } from "./controllers/accountService";
+import { AccountService, AnypointAccount } from "./controllers/accountService";
 
 // Helper function to refresh token with account context
 async function refreshTokenWithAccount(context: vscode.ExtensionContext): Promise<boolean> {
@@ -178,13 +178,124 @@ export function activate(context: vscode.ExtensionContext) {
 	 // Register a command for the login
         const loginCommand = vscode.commands.registerCommand('anypoint-monitor.login', async () => {
                 try {
+                        console.log('=== Login Command Started ===');
+                        const accountService = new AccountService(context);
+
+                        // First, perform OAuth login (stores in legacy location for backward compatibility)
                         await loginToAnypointWithOAuth(context);
+                        console.log('OAuth login completed');
+
+                        // Get user info and environments (these also use legacy storage initially)
                         await getUserInfo(context);
+                        console.log('User info retrieved');
+
                         await getEnvironments(context);
+                        console.log('Environments retrieved');
+
+                        // Now integrate the tokens into the multi-account system
+                        console.log('Integrating tokens into multi-account system...');
+                        const migrationResult = await accountService.migrateLegacyAccount();
+
+                        if (migrationResult.migrated && migrationResult.accountId) {
+                                const account = await accountService.getAccountById(migrationResult.accountId);
+                                console.log(`✅ Account integrated: ${account?.userEmail} (${account?.organizationName})`);
+                                vscode.window.showInformationMessage(
+                                        `Successfully logged in as ${account?.userEmail} (${account?.organizationName})`
+                                );
+                        } else if (migrationResult.error) {
+                                console.warn('Migration warning:', migrationResult.error);
+                                // Account might already exist in multi-account system
+                                // Try to find and activate it
+                                const legacyUserInfo = await context.secrets.get('anypoint.userInfo');
+                                if (legacyUserInfo) {
+                                        const userInfo = JSON.parse(legacyUserInfo);
+                                        const orgId = userInfo.organization.id;
+
+                                        const accounts = await accountService.getAccounts();
+                                        const existingAccount = accounts.find(acc => acc.organizationId === orgId);
+
+                                        if (existingAccount) {
+                                                console.log('Found existing account, updating tokens...');
+                                                // Update existing account with new tokens
+                                                const accessToken = await context.secrets.get('anypoint.accessToken');
+                                                const refreshToken = await context.secrets.get('anypoint.refreshToken');
+                                                const environments = await context.secrets.get('anypoint.environments');
+
+                                                if (accessToken) {
+                                                        await accountService.setAccountData(existingAccount.id, 'accessToken', accessToken);
+                                                }
+                                                if (refreshToken) {
+                                                        await accountService.setAccountData(existingAccount.id, 'refreshToken', refreshToken);
+                                                }
+                                                if (legacyUserInfo) {
+                                                        await accountService.setAccountData(existingAccount.id, 'userInfo', legacyUserInfo);
+                                                }
+                                                if (environments) {
+                                                        await accountService.setAccountData(existingAccount.id, 'environments', environments);
+                                                }
+
+                                                // Update account status to authenticated
+                                                await accountService.updateAccountStatus(existingAccount.id, 'authenticated');
+
+                                                // Set as active account
+                                                await accountService.setActiveAccount(existingAccount.id);
+
+                                                console.log(`✅ Updated existing account: ${existingAccount.userEmail}`);
+                                                vscode.window.showInformationMessage(
+                                                        `Successfully logged in as ${existingAccount.userEmail} (${existingAccount.organizationName})`
+                                                );
+                                        } else {
+                                                // Create new account if it doesn't exist
+                                                console.log('Creating new account in multi-account system...');
+                                                const accountId = `account_${orgId}_${Date.now()}`;
+
+                                                const newAccount: AnypointAccount = {
+                                                        id: accountId,
+                                                        organizationId: orgId,
+                                                        organizationName: userInfo.organization.name || 'Unknown Organization',
+                                                        userEmail: userInfo.email || 'unknown@email.com',
+                                                        userName: userInfo.username || userInfo.firstName + ' ' + userInfo.lastName || 'Unknown User',
+                                                        isActive: true,
+                                                        lastUsed: new Date().toISOString(),
+                                                        status: 'authenticated'
+                                                };
+
+                                                // Store tokens and data for new account
+                                                const accessToken = await context.secrets.get('anypoint.accessToken');
+                                                const refreshToken = await context.secrets.get('anypoint.refreshToken');
+                                                const environments = await context.secrets.get('anypoint.environments');
+
+                                                if (accessToken) {
+                                                        await accountService.setAccountData(accountId, 'accessToken', accessToken);
+                                                }
+                                                if (refreshToken) {
+                                                        await accountService.setAccountData(accountId, 'refreshToken', refreshToken);
+                                                }
+                                                if (legacyUserInfo) {
+                                                        await accountService.setAccountData(accountId, 'userInfo', legacyUserInfo);
+                                                }
+                                                if (environments) {
+                                                        await accountService.setAccountData(accountId, 'environments', environments);
+                                                }
+
+                                                await accountService.addAccount(newAccount);
+                                                await accountService.setActiveAccount(accountId);
+
+                                                console.log(`✅ Created new account: ${newAccount.userEmail}`);
+                                                vscode.window.showInformationMessage(
+                                                        `Successfully logged in as ${newAccount.userEmail} (${newAccount.organizationName})`
+                                                );
+                                        }
+                                }
+                        }
+
                         // Update status bar after successful login
                         await updateAccountStatusBar(context);
+                        console.log('=== Login Command Completed Successfully ===');
                 }
                 catch (error: any) {
+                        console.error('=== Login Command Failed ===');
+                        console.error('Error:', error);
                         vscode.window.showErrorMessage(`Login failed: ${error.message || error}`);
                         // Update status bar to show error state
                         await updateAccountStatusBar(context);
