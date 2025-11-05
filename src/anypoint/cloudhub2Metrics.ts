@@ -34,8 +34,18 @@ export async function showCloudHub2Metrics(
             return;
         }
 
+        // Verify we have a valid access token
+        const accessToken = await accountService.getActiveAccountAccessToken();
+        if (!accessToken) {
+            vscode.window.showErrorMessage('No access token found. Please log in again.');
+            return;
+        }
+
         const organizationID = activeAccount.organizationId;
         const apiHelper = new ApiHelper(context);
+
+        console.log(`CloudHub 2.0 Metrics: Fetching applications for org ${organizationID}, env ${environmentId}`);
+        console.log(`CloudHub 2.0 Metrics: Active account: ${activeAccount.userEmail} (${activeAccount.organizationName})`);
 
         // Fetch CloudHub 2.0 applications
         const ch2Response = await apiHelper.get(
@@ -48,6 +58,8 @@ export async function showCloudHub2Metrics(
         } else if (ch2Response.data?.data) {
             ch2Apps = ch2Response.data.data;
         }
+
+        console.log(`CloudHub 2.0 Metrics: Found ${ch2Apps.length} applications`);
 
         if (ch2Apps.length === 0) {
             vscode.window.showErrorMessage('No CloudHub 2.0 applications found in this environment.');
@@ -122,7 +134,9 @@ export async function showCloudHub2Metrics(
         activeSessions.set(sessionKey, session);
 
         // Fetch initial metrics
+        console.log('CloudHub 2.0 Metrics: Fetching initial metrics...');
         const initialMetrics = await fetchApplicationMetrics(context, session);
+        console.log('CloudHub 2.0 Metrics: Initial metrics fetched');
 
         panel.webview.html = getMetricsDashboardHtml(
             panel.webview,
@@ -130,6 +144,8 @@ export async function showCloudHub2Metrics(
             selectedApp.name,
             initialMetrics
         );
+
+        console.log('CloudHub 2.0 Metrics: Dashboard initialized successfully');
 
         // Handle messages from webview
         panel.webview.onDidReceiveMessage(async (message) => {
@@ -165,7 +181,22 @@ export async function showCloudHub2Metrics(
         await startMetricsStreaming(context, session);
 
     } catch (error: any) {
-        vscode.window.showErrorMessage(`Error showing CloudHub 2.0 metrics: ${error.message}`);
+        console.error('CloudHub 2.0 Metrics: Error occurred:', error);
+        console.error('CloudHub 2.0 Metrics: Error message:', error.message);
+        console.error('CloudHub 2.0 Metrics: Error stack:', error.stack);
+
+        // Provide helpful error message based on error type
+        let errorMessage = `Error showing CloudHub 2.0 metrics: ${error.message}`;
+
+        if (error.message.includes('Authentication failed') || error.message.includes('401')) {
+            errorMessage = 'Authentication failed. Your session may have expired. Please try logging in again using "AM: Login into Anypoint Platform".';
+        } else if (error.message.includes('Access denied') || error.message.includes('403')) {
+            errorMessage = 'Access denied. Your account may not have Anypoint Monitoring enabled or you may lack the required permissions. Please check with your Anypoint Platform administrator.';
+        } else if (error.message.includes('No active account')) {
+            errorMessage = 'No active account found. Please log in using "AM: Login into Anypoint Platform".';
+        }
+
+        vscode.window.showErrorMessage(errorMessage);
     }
 }
 
@@ -177,12 +208,13 @@ async function fetchApplicationMetrics(
     session: MetricsSession
 ): Promise<any> {
     try {
-        const apiHelper = new ApiHelper(context);
         const now = Date.now();
         const oneHourAgo = now - (60 * 60 * 1000);
 
         // Anypoint Monitoring Metrics API endpoint
         const metricsEndpoint = 'https://anypoint.mulesoft.com/observability/api/v1/metrics:search';
+
+        console.log(`Fetching metrics for resource: ${session.resourceId}`);
 
         // Fetch multiple metric types in parallel
         const [
@@ -193,30 +225,39 @@ async function fetchApplicationMetrics(
             errorMetrics
         ] = await Promise.allSettled([
             // Performance Metrics
-            fetchMetricData(apiHelper, metricsEndpoint, session.resourceId,
+            fetchMetricData(context, metricsEndpoint, session.resourceId,
                 'mulesoft.application.performance.response_time',
                 oneHourAgo, now),
 
             // JVM Metrics
-            fetchMetricData(apiHelper, metricsEndpoint, session.resourceId,
+            fetchMetricData(context, metricsEndpoint, session.resourceId,
                 'mulesoft.application.jvm.memory.heap.used',
                 oneHourAgo, now),
 
             // Infrastructure Metrics
-            fetchMetricData(apiHelper, metricsEndpoint, session.resourceId,
+            fetchMetricData(context, metricsEndpoint, session.resourceId,
                 'mulesoft.application.infrastructure.cpu.usage',
                 oneHourAgo, now),
 
             // Request Count
-            fetchMetricData(apiHelper, metricsEndpoint, session.resourceId,
+            fetchMetricData(context, metricsEndpoint, session.resourceId,
                 'mulesoft.application.inbound.request.count',
                 oneHourAgo, now),
 
             // Error Count
-            fetchMetricData(apiHelper, metricsEndpoint, session.resourceId,
+            fetchMetricData(context, metricsEndpoint, session.resourceId,
                 'mulesoft.application.failures.count',
                 oneHourAgo, now)
         ]);
+
+        // Log results
+        console.log('Metrics fetch results:', {
+            performance: performanceMetrics.status,
+            jvm: jvmMetrics.status,
+            infrastructure: infrastructureMetrics.status,
+            requests: requestMetrics.status,
+            errors: errorMetrics.status
+        });
 
         // Also fetch deployment details for additional context
         const deploymentDetails = await fetchDeploymentDetails(context, session);
@@ -238,10 +279,10 @@ async function fetchApplicationMetrics(
 }
 
 /**
- * Fetch metric data from Anypoint Monitoring API
+ * Fetch metric data from Anypoint Monitoring API with proper authentication handling
  */
 async function fetchMetricData(
-    apiHelper: ApiHelper,
+    context: vscode.ExtensionContext,
     endpoint: string,
     resourceId: string,
     metricName: string,
@@ -249,6 +290,19 @@ async function fetchMetricData(
     endTime: number
 ): Promise<any> {
     try {
+        const accountService = new AccountService(context);
+        const activeAccount = await accountService.getActiveAccount();
+
+        if (!activeAccount) {
+            throw new Error('No active account found. Please log in first.');
+        }
+
+        let accessToken = await accountService.getActiveAccountAccessToken();
+
+        if (!accessToken) {
+            throw new Error('No access token found for active account');
+        }
+
         const query = {
             resourceId: resourceId,
             metric: metricName,
@@ -260,10 +314,69 @@ async function fetchMetricData(
             }
         };
 
-        const response = await apiHelper.post(endpoint, query);
+        console.log(`Fetching metric ${metricName} for resource ${resourceId}`);
+
+        // Use fetch for Anypoint Monitoring API (similar to CH2 logs pattern)
+        const response = await fetch(endpoint, {
+            method: 'POST',
+            headers: {
+                'Authorization': `Bearer ${accessToken}`,
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify(query)
+        });
+
+        console.log(`Metric ${metricName} response status: ${response.status}`);
+
+        if (!response.ok) {
+            const errorText = await response.text();
+            console.error(`Metric ${metricName} error response:`, errorText);
+
+            // Handle 401 - token expired, try to refresh
+            if (response.status === 401) {
+                console.log(`Metric ${metricName}: Token expired, refreshing...`);
+
+                const { refreshAccessToken } = await import('../controllers/oauthService.js');
+                const didRefresh = await refreshAccessToken(context, activeAccount.id);
+
+                if (!didRefresh) {
+                    throw new Error('Unable to refresh token');
+                }
+
+                const newAccessToken = await accountService.getActiveAccountAccessToken();
+                if (!newAccessToken) {
+                    throw new Error('Failed to get refreshed access token');
+                }
+
+                // Retry with new token
+                const retryResponse = await fetch(endpoint, {
+                    method: 'POST',
+                    headers: {
+                        'Authorization': `Bearer ${newAccessToken}`,
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify(query)
+                });
+
+                if (!retryResponse.ok) {
+                    throw new Error(`Failed to fetch metric after token refresh: ${retryResponse.status} ${retryResponse.statusText}`);
+                }
+
+                const data = await retryResponse.json();
+                return {
+                    name: metricName,
+                    data: data,
+                    query: query
+                };
+            } else {
+                throw new Error(`Failed to fetch metric ${metricName}: ${response.status} ${response.statusText}`);
+            }
+        }
+
+        const data = await response.json();
         return {
             name: metricName,
-            data: response.data,
+            data: data,
             query: query
         };
     } catch (error: any) {
@@ -287,10 +400,14 @@ async function fetchDeploymentDetails(
         const apiHelper = new ApiHelper(context);
         const url = `${BASE_URL}/amc/application-manager/api/v2/organizations/${session.organizationId}/environments/${session.environmentId}/deployments/${session.deploymentId}`;
 
+        console.log(`Fetching deployment details from: ${url}`);
         const response = await apiHelper.get(url);
+        console.log('Deployment details fetched successfully');
         return response.data;
     } catch (error: any) {
         console.error('Error fetching deployment details:', error);
+        console.error('Error details:', error.message);
+        // Return null instead of throwing to allow metrics dashboard to still display
         return null;
     }
 }
@@ -803,6 +920,17 @@ function getMetricsDashboardHtml(
     </div>
 
     <div class="container">
+        <!-- Info Banner -->
+        <div style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); border-radius: 12px; padding: 16px 24px; margin-bottom: 24px; display: flex; align-items: center; gap: 12px;">
+            <span style="font-size: 24px;">ℹ️</span>
+            <div>
+                <strong style="color: white; font-size: 14px;">Anypoint Monitoring Required</strong>
+                <p style="color: rgba(255,255,255,0.9); font-size: 13px; margin: 4px 0 0 0;">
+                    This feature requires Anypoint Monitoring to be enabled for your organization. If metrics are not loading, please verify your subscription includes Anypoint Monitoring.
+                </p>
+            </div>
+        </div>
+
         <!-- Controls -->
         <div class="controls">
             <div class="control-group">
@@ -1032,32 +1160,52 @@ function getMetricsDashboardHtml(
 
         // Update metrics display
         function updateMetricsDisplay(metrics) {
-            if (!metrics) return;
+            if (!metrics) {
+                console.log('No metrics data received');
+                return;
+            }
 
-            // Update key metrics
-            if (metrics.performance?.data) {
+            console.log('Updating metrics display with:', metrics);
+
+            // Update key metrics with fallback for no data
+            if (metrics.performance?.data && !metrics.performance.error) {
                 const avgResponseTime = calculateAverage(metrics.performance.data);
-                document.getElementById('avgResponseTime').textContent = avgResponseTime.toFixed(2) + ' ms';
+                document.getElementById('avgResponseTime').textContent = avgResponseTime > 0 ? avgResponseTime.toFixed(2) + ' ms' : 'No data';
+            } else {
+                document.getElementById('avgResponseTime').textContent = 'No data';
+                console.log('Performance metric error:', metrics.performance?.error);
             }
 
-            if (metrics.requests?.data) {
+            if (metrics.requests?.data && !metrics.requests.error) {
                 const totalRequests = calculateSum(metrics.requests.data);
-                document.getElementById('totalRequests').textContent = totalRequests.toLocaleString();
+                document.getElementById('totalRequests').textContent = totalRequests > 0 ? totalRequests.toLocaleString() : 'No data';
+            } else {
+                document.getElementById('totalRequests').textContent = 'No data';
+                console.log('Requests metric error:', metrics.requests?.error);
             }
 
-            if (metrics.errors?.data) {
+            if (metrics.errors?.data && !metrics.errors.error) {
                 const errorRate = calculateErrorRate(metrics.errors.data, metrics.requests?.data);
-                document.getElementById('errorRate').textContent = errorRate.toFixed(2) + '%';
+                document.getElementById('errorRate').textContent = errorRate >= 0 ? errorRate.toFixed(2) + '%' : 'No data';
+            } else {
+                document.getElementById('errorRate').textContent = 'No data';
+                console.log('Errors metric error:', metrics.errors?.error);
             }
 
-            if (metrics.infrastructure?.data) {
+            if (metrics.infrastructure?.data && !metrics.infrastructure.error) {
                 const cpuUsage = calculateAverage(metrics.infrastructure.data);
-                document.getElementById('cpuUsage').textContent = cpuUsage.toFixed(2) + '%';
+                document.getElementById('cpuUsage').textContent = cpuUsage > 0 ? cpuUsage.toFixed(2) + '%' : 'No data';
+            } else {
+                document.getElementById('cpuUsage').textContent = 'No data';
+                console.log('Infrastructure metric error:', metrics.infrastructure?.error);
             }
 
-            if (metrics.jvm?.data) {
+            if (metrics.jvm?.data && !metrics.jvm.error) {
                 const memoryUsage = calculateAverage(metrics.jvm.data);
-                document.getElementById('memoryUsage').textContent = (memoryUsage / 1024 / 1024).toFixed(2) + ' MB';
+                document.getElementById('memoryUsage').textContent = memoryUsage > 0 ? (memoryUsage / 1024 / 1024).toFixed(2) + ' MB' : 'No data';
+            } else {
+                document.getElementById('memoryUsage').textContent = 'No data';
+                console.log('JVM metric error:', metrics.jvm?.error);
             }
 
             // Update deployment info
