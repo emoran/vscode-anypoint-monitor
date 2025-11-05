@@ -74,6 +74,7 @@
     "onCommand:anypoint-monitor.logout",
     "onCommand:anypoint-monitor.auditAPIs",
     "onCommand:anypoint-monitor.realTimeLogs",
+    "onCommand:anypoint-monitor.cloudHub2Metrics",
     "onCommand:anypoint-monitor.environmentComparison",
     "onCommand:anypoint-monitor.applicationDiagram",
     "onCommand:anypoint-monitor.dataweavePlayground",
@@ -191,6 +192,11 @@
       {
         "command": "anypoint-monitor.migrateLegacyAccount",
         "title": "AM: Migrate Legacy Account to Multi-Account"
+      },
+
+      {
+        "command": "anypoint-monitor.cloudHub2Metrics",
+        "title": "AM: CloudHub 2.0 Metrics Dashboard"
       }
     ]
   },

@@ -21,6 +21,7 @@ import {
 import { auditAPIs } from "./anypoint/apiAudit";
 import { showCommunityEvents } from "./anypoint/communityEvents";
 import { showRealTimeLogs } from "./anypoint/realTimeLogs";
+import { showCloudHub2Metrics } from "./anypoint/cloudhub2Metrics";
 import { BASE_URL } from "./constants";
 import { showApplicationDiagram } from "./anypoint/applicationDiagram";
 import { showDataWeavePlayground } from "./anypoint/dataweavePlayground";
@@ -574,6 +575,18 @@ export function activate(context: vscode.ExtensionContext) {
 		}
 	});
 
+	const cloudHub2MetricsCmd = vscode.commands.registerCommand('anypoint-monitor.cloudHub2Metrics', async () => {
+		try {
+			const selectedEnvironmentId = await selectEnvironment(context);
+			if (!selectedEnvironmentId) {
+				return;
+			}
+			await showCloudHub2Metrics(context, selectedEnvironmentId);
+		} catch (error: any) {
+			vscode.window.showErrorMessage(`Error opening CloudHub 2.0 Metrics Dashboard: ${error.message}`);
+		}
+	});
+
 	const accountManagerCmd = vscode.commands.registerCommand('anypoint-monitor.accountManager', async () => {
 		try {
 			await showAccountManagerWebview(context);
@@ -687,6 +700,7 @@ export function activate(context: vscode.ExtensionContext) {
 	context.subscriptions.push(realTimeLogsCmd);
 	context.subscriptions.push(environmentComparisonCmd);
 	context.subscriptions.push(dataweavePlaygroundCmd);
+	context.subscriptions.push(cloudHub2MetricsCmd);
 	context.subscriptions.push(accountManagerCmd);
 	context.subscriptions.push(deleteAllAccountsCmd);
 	context.subscriptions.push(migrateLegacyAccountCmd);
