@@ -22,7 +22,7 @@ interface DeploymentOption extends vscode.QuickPickItem {
     raw: any;
 }
 
-export async function showApplicationDiagram(context: vscode.ExtensionContext, environmentId: string): Promise<void> {
+export async function showApplicationDiagram(context: vscode.ExtensionContext, environmentId: string, preselectedDeploymentId?: string): Promise<void> {
     // Create a dedicated output channel for debugging
     const outputChannel = vscode.window.createOutputChannel('Anypoint Application Diagram');
     outputChannel.show();
@@ -54,7 +54,7 @@ export async function showApplicationDiagram(context: vscode.ExtensionContext, e
         }
     }
 
-    const deploymentChoice = await pickDeployment(context, activeAccount.organizationId, environmentId, outputChannel);
+    const deploymentChoice = await pickDeployment(context, activeAccount.organizationId, environmentId, outputChannel, preselectedDeploymentId);
     if (!deploymentChoice) {
         outputChannel.appendLine('❌ No deployment selected or available');
         return;
@@ -202,7 +202,8 @@ async function pickDeployment(
     context: vscode.ExtensionContext,
     orgId: string,
     environmentId: string,
-    outputChannel: vscode.OutputChannel
+    outputChannel: vscode.OutputChannel,
+    preselectedDeploymentId?: string
 ): Promise<DeploymentOption | undefined> {
     try {
         outputChannel.appendLine('\n--- Fetching Deployments ---');
@@ -307,6 +308,18 @@ The Application Diagram feature requires CloudHub 2.0 API access to download JAR
             deploymentId: '__LOCAL_JAR__',
             raw: null,
         });
+
+        // If preselected deployment ID is provided, find and return it directly
+        if (preselectedDeploymentId) {
+            outputChannel.appendLine(`🎯 Preselected deployment ID: ${preselectedDeploymentId}`);
+            const preselected = items.find(item => item.deploymentId === preselectedDeploymentId);
+            if (preselected) {
+                outputChannel.appendLine(`✅ Found preselected deployment: ${preselected.label}`);
+                return preselected;
+            } else {
+                outputChannel.appendLine(`⚠️  Preselected deployment not found, showing picker...`);
+            }
+        }
 
         const pick = await vscode.window.showQuickPick(items, {
             placeHolder: 'Select a CloudHub 2.0 application or local JAR file',
@@ -750,23 +763,25 @@ async function fetchDeploymentArtifact(
         if (!finalCoords) {
             const deploymentName = deployment?.name || deployment?.application?.name;
             outputChannel?.appendLine(`🤔 No coordinates extracted, trying smart inference for deployment: ${deploymentName}`);
-            
+
             if (deploymentName) {
                 // Remove common suffixes to get asset name
                 const assetName = deploymentName
+                    .replace(/-ch2$/, '')  // Remove CloudHub 2.0 suffix
+                    .replace(/-ch1$/, '')  // Remove CloudHub 1.0 suffix
                     .replace(/-sbx$/, '')  // Remove sandbox suffix
                     .replace(/-prod$/, '') // Remove production suffix
                     .replace(/-dev$/, '')  // Remove development suffix
                     .replace(/-test$/, '') // Remove test suffix
                     .replace(/-v\d+$/, ''); // Remove version suffix
-                
+
                 // Use organization ID as groupId (common pattern)
                 finalCoords = {
                     groupId: activeAccount.organizationId,
                     assetId: assetName,
                     version: '1.0.0' // Default version
                 };
-                
+
                 outputChannel?.appendLine(`💡 Inferred coordinates: ${JSON.stringify(finalCoords, null, 2)}`);
                 console.log('💡 SMART INFERRED COORDINATES:', finalCoords);
             }
@@ -775,7 +790,24 @@ async function fetchDeploymentArtifact(
         if (finalCoords) {
             try {
                 outputChannel?.appendLine(`🎯 Using artifact coordinates: ${JSON.stringify(finalCoords, null, 2)}`);
-                
+
+                // PRIORITY 1: Try Maven Facade API first (CloudHub 2.0 specific, direct download)
+                outputChannel?.appendLine('\n=== PRIORITY 1: Maven Facade API ===');
+                const mavenZip = await downloadFromMavenFacade(
+                    finalCoords,
+                    activeAccount.organizationId,
+                    environmentId,
+                    context,
+                    outputChannel
+                );
+
+                if (mavenZip) {
+                    outputChannel?.appendLine('✅ SUCCESS: Downloaded artifact from Maven Facade API');
+                    return mavenZip;
+                } else {
+                    outputChannel?.appendLine('⚠️  Maven Facade API download failed, trying alternative methods...');
+                }
+
                 /* DISABLED: Original GraphQL approach (if test above didn't work)
                 if (finalCoords.assetId === 'moran-data-generator-api' && finalCoords.groupId === '37c16704-6187-4f8f-87eb-e3263c3852fa') {
                     outputChannel?.appendLine('🧪 TESTING: Using hardcoded approach for moran-data-generator-api...');
@@ -1361,6 +1393,115 @@ interface ArtifactCoordinates {
     packaging?: string;
 }
 
+/**
+ * Builds the Maven Facade API download URL for CloudHub 2.0 applications
+ * @param organizationId - The organization ID
+ * @param groupId - Maven group ID (often the organization ID or custom group)
+ * @param artifactId - Maven artifact ID (application name)
+ * @param version - Application version
+ * @returns Complete Maven download URL
+ */
+function buildMavenDownloadUrl(
+    organizationId: string,
+    groupId: string,
+    artifactId: string,
+    version: string
+): string {
+    // Convert Group ID dots to slashes for Maven path format
+    const groupPath = groupId.replace(/\./g, '/');
+
+    // Build the JAR filename: {artifactId}-{version}-mule-application.jar
+    const jarFileName = `${artifactId}-${version}-mule-application.jar`;
+
+    // Construct the complete Maven Facade URL
+    // Format: https://maven.anypoint.mulesoft.com/api/v3/organizations/{ORG_ID}/maven/{GROUP_PATH}/{ARTIFACT_ID}/{VERSION}/{JAR_FILENAME}
+    return `https://maven.anypoint.mulesoft.com/api/v3/organizations/${organizationId}/maven/${groupPath}/${artifactId}/${version}/${jarFileName}`;
+}
+
+/**
+ * Downloads application JAR from Maven Facade API (CloudHub 2.0)
+ * @param coordinates - Artifact coordinates (groupId, artifactId, version)
+ * @param organizationId - Organization ID
+ * @param environmentId - Environment ID
+ * @param context - VSCode extension context for authentication
+ * @param outputChannel - Output channel for logging
+ * @returns JSZip object if successful, undefined otherwise
+ */
+async function downloadFromMavenFacade(
+    coordinates: ArtifactCoordinates,
+    organizationId: string,
+    environmentId: string,
+    context: vscode.ExtensionContext,
+    outputChannel?: vscode.OutputChannel
+): Promise<JSZip | undefined> {
+    const { groupId, assetId, version } = coordinates;
+
+    outputChannel?.appendLine('\n--- Maven Facade API Download ---');
+    outputChannel?.appendLine('🔗 Attempting CloudHub 2.0 Maven Facade API download...');
+    outputChannel?.appendLine(`📋 Coordinates: groupId=${groupId}, artifactId=${assetId}, version=${version}`);
+
+    // Build the Maven download URL
+    const mavenUrl = buildMavenDownloadUrl(organizationId, groupId, assetId, version);
+    outputChannel?.appendLine(`🎯 Maven URL: ${mavenUrl}`);
+
+    try {
+        // Use ApiHelper for authenticated requests with proper multi-account support
+        const { ApiHelper } = await import('../controllers/apiHelper.js');
+        const apiHelper = new ApiHelper(context);
+
+        outputChannel?.appendLine('📥 Downloading from Maven Facade API...');
+        const response = await apiHelper.get(mavenUrl, {
+            headers: {
+                'Accept': 'application/java-archive, application/zip, application/octet-stream',
+                'X-ANYPNT-ORG-ID': organizationId,
+                'X-ANYPNT-ENV-ID': environmentId,
+            },
+            responseType: 'arraybuffer',
+            validateStatus: status => (status ?? 0) < 500,
+        });
+
+        outputChannel?.appendLine(`📨 Response Status: ${response.status}`);
+
+        if (response.status === 200 && response.data) {
+            const dataSize = response.data.byteLength || response.data.length;
+            outputChannel?.appendLine(`✅ Successfully downloaded from Maven (${dataSize} bytes)`);
+
+            // Verify it's a valid ZIP/JAR file
+            if (dataSize > 0) {
+                try {
+                    const zip = await JSZip.loadAsync(response.data);
+                    outputChannel?.appendLine(`✅ Successfully loaded JAR/ZIP with ${Object.keys(zip.files).length} files`);
+                    return zip;
+                } catch (zipError) {
+                    outputChannel?.appendLine(`❌ Downloaded file is not a valid ZIP/JAR: ${zipError}`);
+                }
+            } else {
+                outputChannel?.appendLine('❌ Downloaded file is empty');
+            }
+        } else if (response.status === 404) {
+            outputChannel?.appendLine('❌ Artifact not found in Maven repository (404)');
+            outputChannel?.appendLine('💡 This might be a manually deployed application not stored in Exchange');
+        } else if (response.status === 401 || response.status === 403) {
+            outputChannel?.appendLine(`❌ Access denied (${response.status})`);
+            outputChannel?.appendLine('💡 Check if your account has permissions to access this artifact');
+        } else {
+            outputChannel?.appendLine(`❌ Maven download failed with status ${response.status}`);
+        }
+    } catch (error: any) {
+        outputChannel?.appendLine(`❌ Maven download error: ${error.message || error}`);
+
+        if (axios.isAxiosError(error)) {
+            if (error.response?.status === 404) {
+                outputChannel?.appendLine('💡 Artifact not found in Maven - likely manually deployed');
+            } else if (error.response?.status === 401 || error.response?.status === 403) {
+                outputChannel?.appendLine('💡 Access denied - check account permissions');
+            }
+        }
+    }
+
+    return undefined;
+}
+
 async function enrichDeploymentDetails(
     context: vscode.ExtensionContext,
     orgId: string,
@@ -1396,10 +1537,29 @@ async function enrichDeploymentDetails(
     }
 
     // Fallback to REST API
+    outputChannel?.appendLine('\n--- REST API Enrichment (Fallback) ---');
+    outputChannel?.appendLine('🔍 GraphQL did not provide artifact details, trying REST API...');
     console.log('GraphQL API did not provide artifact details, trying REST API');
-    const details = await fetchDeploymentDetails(context, orgId, environmentId, deploymentId);
+
+    const details = await fetchDeploymentDetails(context, orgId, environmentId, deploymentId, outputChannel);
     if (!details) {
+        outputChannel?.appendLine('❌ REST API enrichment failed - no data returned');
         return current;
+    }
+
+    outputChannel?.appendLine('✅ REST API returned deployment details');
+    outputChannel?.appendLine('📊 REST API response data:');
+    outputChannel?.appendLine(JSON.stringify(details, null, 2));
+
+    // Check if REST API has artifact reference
+    if (details?.application?.ref) {
+        outputChannel?.appendLine('🎯 Found artifact reference in REST API response!');
+        outputChannel?.appendLine(`   groupId: ${details.application.ref.groupId}`);
+        outputChannel?.appendLine(`   artifactId: ${details.application.ref.artifactId}`);
+        outputChannel?.appendLine(`   version: ${details.application.ref.version}`);
+        outputChannel?.appendLine(`   packaging: ${details.application.ref.packaging}`);
+    } else {
+        outputChannel?.appendLine('⚠️  No artifact reference found in REST API response');
     }
 
     // Also try to get application-specific details that might have more artifact info
@@ -1422,6 +1582,10 @@ async function enrichDeploymentDetails(
             ...(appDetails?.artifact ?? {}),
         },
     };
+
+    outputChannel?.appendLine('\n--- Merged Deployment Data ---');
+    outputChannel?.appendLine('📦 Final merged deployment data:');
+    outputChannel?.appendLine(JSON.stringify(merged, null, 2));
 
     return merged;
 }
@@ -1809,12 +1973,16 @@ async function fetchDeploymentDetails(
     context: vscode.ExtensionContext,
     orgId: string,
     environmentId: string,
-    deploymentId: string
+    deploymentId: string,
+    outputChannel?: vscode.OutputChannel
 ): Promise<any | undefined> {
     const baseUrl = `${BASE_URL}/amc/application-manager/api/v2/organizations/${orgId}/environments/${environmentId}/deployments/${deploymentId}`;
 
+    outputChannel?.appendLine(`📡 Calling REST API: ${baseUrl}`);
+
     let accessToken = await context.secrets.get('anypoint.accessToken');
     if (!accessToken) {
+        outputChannel?.appendLine('❌ No access token available for REST API call');
         return undefined;
     }
 
@@ -1831,14 +1999,21 @@ async function fetchDeploymentDetails(
     };
 
     try {
+        outputChannel?.appendLine('📤 Sending REST API request...');
         let response = await issueRequest(accessToken);
+        outputChannel?.appendLine(`📨 REST API Response Status: ${response.status}`);
+
         if (response.status === 401) {
+            outputChannel?.appendLine('🔒 Unauthorized (401) - attempting token refresh...');
             throw createUnauthorizedError(baseUrl);
         }
         if (response.status >= 400) {
+            outputChannel?.appendLine(`❌ REST API request failed with status ${response.status}`);
             console.warn(`Deployment details lookup failed with status ${response.status}`);
             return undefined;
         }
+
+        outputChannel?.appendLine('✅ REST API request successful');
         return response.data;
     } catch (error: unknown) {
         if (!isUnauthorized(error)) {
@@ -2470,12 +2645,18 @@ function buildArtifactUrlCandidates(
 
     // Exchange API endpoints that may return S3 presigned URLs
     outputChannel?.appendLine(`🔗 Adding Exchange API endpoints for S3 presigned URLs...`);
-    
+
     // Extract artifact coordinates for Exchange endpoints
     const coords = extractArtifactCoordinates(deployment, outputChannel);
     if (coords) {
         const { groupId, assetId, version } = coords;
-        
+
+        // PRIORITY: Maven Facade API endpoints (CloudHub 2.0 direct download)
+        outputChannel?.appendLine(`🔗 Adding Maven Facade API endpoint (CloudHub 2.0)...`);
+        const mavenUrl = buildMavenDownloadUrl(orgId, groupId, assetId, version);
+        add(mavenUrl);
+        outputChannel?.appendLine(`   Maven URL: ${mavenUrl}`);
+
         // Exchange artifact download endpoints
         add(`${BASE_URL}/exchange/api/v2/organizations/${orgId}/assets/${groupId}/${assetId}/${version}/artifact/download`);
         add(`${BASE_URL}/exchange/api/v2/organizations/${orgId}/assets/${groupId}/${assetId}/${version}/artifact`);

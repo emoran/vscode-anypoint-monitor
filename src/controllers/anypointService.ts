@@ -2,7 +2,6 @@ import * as vscode from 'vscode';
 import axios from 'axios';
 import { BASE_URL } from '../constants';
 import { refreshAccessToken } from './oauthService';
-
 // Helper function to refresh token with account context
 async function refreshTokenWithAccount(context: vscode.ExtensionContext): Promise<boolean> {
     const { AccountService } = await import('./accountService.js');
@@ -24,150 +23,11 @@ async function getRefreshedToken(context: vscode.ExtensionContext): Promise<stri
 }
 import { showApplicationsWebview } from '../anypoint/cloudhub2Applications';
 import { showApplicationsWebview1 } from '../anypoint/cloudhub1Applications';
-import { showDashboardWebview } from '../anypoint/ApplicationDetails';
 import { getUserInfoWebviewContent } from '../anypoint/userInfoContent';
 import { getOrgInfoWebviewContent } from '../anypoint/organizationInfo';
 import { showEnvironmentAndOrgPanel } from '../anypoint/DeveloperInfo';
 import { showAPIManagerWebview } from '../anypoint/apiMananagerAPIs';
 import { showEnvironmentComparisonWebview } from '../anypoint/environmentComparison';
-
-export async function retrieveApplications(context: vscode.ExtensionContext, selectedEnvironmentId: string) {
-    const { AccountService } = await import('./accountService.js');
-    const accountService = new AccountService(context);
-    
-    let accessToken = await accountService.getActiveAccountAccessToken();
-    const userInfoStr = await accountService.getActiveAccountUserInfo();
-
-    if (!accessToken) {
-        accessToken = await context.secrets.get('anypoint.accessToken');
-    }
-    let finalUserInfoStr = userInfoStr;
-    if (!finalUserInfoStr) {
-        finalUserInfoStr = await context.secrets.get('anypoint.userInfo');
-        if (!accessToken || !finalUserInfoStr) {
-            vscode.window.showErrorMessage('No access token or user info found. Please log in first.');
-            return;
-        }
-    }
-
-    const userInfoData = JSON.parse(finalUserInfoStr);
-    const organizationID = userInfoData.organization.id;
-
-    const appsUrl = BASE_URL + '/cloudhub/api/applications';
-    let appsList: any[] = [];
-    try {
-        const { ApiHelper } = await import('./apiHelper.js');
-        const apiHelper = new ApiHelper(context);
-        const response = await apiHelper.get(appsUrl, {
-            headers: {
-                'X-ANYPNT-ENV-ID': selectedEnvironmentId,
-                'X-ANYPNT-ORG-ID': organizationID,
-            },
-        });
-        appsList = response.data;
-    } catch (error: any) {
-        vscode.window.showErrorMessage(`Error fetching environment apps: ${error.message}`);
-        return;
-    }
-
-    if (!Array.isArray(appsList) || appsList.length === 0) {
-        vscode.window.showErrorMessage('No applications found in this environment.');
-        return;
-    }
-
-    const applicationOptions = appsList.map(app => ({
-        label: app.domain || app.name || 'Unknown',
-        domain: app.domain,
-    }));
-
-    const selectedAppLabel = await vscode.window.showQuickPick(
-        applicationOptions.map(opt => opt.label),
-        { placeHolder: 'Select an application' }
-    );
-
-    if (!selectedAppLabel) {
-        vscode.window.showInformationMessage('No application selected.');
-        return;
-    }
-
-    const selectedAppDomain = applicationOptions.find(opt => opt.label === selectedAppLabel)?.domain;
-    if (!selectedAppDomain) {
-        vscode.window.showErrorMessage('Failed to determine selected application domain.');
-        return;
-    }
-
-    const appDetailsUrl = BASE_URL + `/cloudhub/api/applications/${selectedAppDomain}`;
-    let singleAppData: any = null;
-    try {
-        const detailsResp = await axios.get(appDetailsUrl, {
-            headers: {
-                Authorization: `Bearer ${accessToken}`,
-                'X-ANYPNT-ENV-ID': selectedEnvironmentId,
-                'X-ANYPNT-ORG-ID': organizationID,
-            },
-        });
-        if (detailsResp.status !== 200) {
-            throw new Error(`Application details request failed with status ${detailsResp.status}`);
-        }
-        singleAppData = detailsResp.data;
-    } catch (error: any) {
-        vscode.window.showErrorMessage(`Error fetching application details: ${error.message}`);
-        return;
-    }
-
-    const schedulesURL = BASE_URL + `/cloudhub/api/applications/${selectedAppDomain}/schedules`;
-    const deploymentsURL = BASE_URL + `/cloudhub/api/v2/applications/${selectedAppDomain}/deployments?orderByDate=DESC`;
-    
-    const headers = {
-        Authorization: `Bearer ${accessToken}`,
-        'X-ANYPNT-ENV-ID': selectedEnvironmentId,
-        'X-ANYPNT-ORG-ID': organizationID,
-    };
-
-    let schedules: any = null;
-    let deploymentId: any = null;
-    let instanceId: any = null;
-    let logs: any = null;
-
-    try {
-        const [schedulesResponse, deploymentsResponse] = await Promise.all([
-            axios.get(schedulesURL, { headers }),
-            axios.get(deploymentsURL, { headers })
-        ]);
-
-        if (schedulesResponse.status !== 200) {
-            throw new Error(`Schedules request failed with status ${schedulesResponse.status}`);
-        }
-        if (deploymentsResponse.status !== 200) {
-            throw new Error(`Deployments request failed with status ${deploymentsResponse.status}`);
-        }
-
-        schedules = schedulesResponse.data;
-        deploymentId = deploymentsResponse.data.data[0].deploymentId;
-        instanceId = deploymentsResponse.data.data[0].instances[0].instanceId;
-
-        const logsURL = BASE_URL + `/cloudhub/api/v2/applications/${selectedAppDomain}/deployments/${deploymentId}/logs?limit=10000`;
-        const logsResponse = await axios.get(logsURL, { headers });
-        
-        if (logsResponse.status !== 200) {
-            throw new Error(`Logs request failed with status ${logsResponse.status}`);
-        }
-        logs = logsResponse.data;
-    } catch (error: any) {
-        vscode.window.showErrorMessage(`Error fetching application details: ${error.message}`);
-        return;
-    }
-
-    const dashboardData = {
-        application: singleAppData,
-        schedulers: schedules,
-        alerts: [],
-        analytics: [],
-        logs: logs,
-    };
-
-    showDashboardWebview(context, singleAppData.domain, dashboardData, selectedEnvironmentId);
-}
 
 export async function getUserInfo(context: vscode.ExtensionContext, isNewAccount: boolean = false) {
     const { AccountService } = await import('./accountService.js');
@@ -543,15 +403,30 @@ export async function getCH1Applications(context: vscode.ExtensionContext, envir
     const { AccountService } = await import('./accountService.js');
     const { ApiHelper } = await import('./apiHelper.js');
     const accountService = new AccountService(context);
-    
+
     const activeAccount = await accountService.getActiveAccount();
     if (!activeAccount) {
         throw new Error('No active account found. Please log in first.');
     }
-    
+
     const organizationID = activeAccount.organizationId;
     console.log(`CloudHub 1.0: Fetching applications for org ${organizationID}, env ${environmentId}`);
     console.log(`CloudHub 1.0: Active account: ${activeAccount.userName} (${activeAccount.organizationName})`);
+
+    // Get environment name from stored environments
+    const storedEnvironments = await accountService.getActiveAccountEnvironments();
+    let environmentName = 'Unknown';
+    if (storedEnvironments) {
+        try {
+            const environments = JSON.parse(storedEnvironments);
+            const env = environments.data?.find((e: any) => e.id === environmentId);
+            if (env) {
+                environmentName = env.name;
+            }
+        } catch (error) {
+            console.error('Error parsing environments:', error);
+        }
+    }
 
     const apiUrl = BASE_URL + '/cloudhub/api/applications';
 
@@ -564,16 +439,16 @@ export async function getCH1Applications(context: vscode.ExtensionContext, envir
                 'X-ANYPNT-ORG-ID': organizationID,
             },
         });
-        
+
         console.log(`CloudHub 1.0: API response status: ${response.status}`);
         console.log(`CloudHub 1.0: Found ${Array.isArray(response.data) ? response.data.length : 0} applications`);
-        
+
         if (response.status !== 200) {
             throw new Error(`API request failed with status ${response.status}`);
         }
-        
+
         const data = response.data;
-        showApplicationsWebview1(context, data);
+        showApplicationsWebview1(context, data, environmentId, environmentName);
     } catch (error: any) {
         console.error(`CloudHub 1.0: Error fetching applications:`, error);
         if (error.message.includes('Access denied') || error.message.includes('403')) {
@@ -935,4 +810,3 @@ export async function getEnvironmentComparison(context: vscode.ExtensionContext)
 
     showEnvironmentComparisonWebview(context, comparisonData);
 }
-

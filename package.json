@@ -60,7 +60,6 @@
   ],
   "activationEvents": [
     "onCommand:anypoint-monitor.userInfo",
-    "onCommand:anypoint-monitor.applicationDetails",
     "onCommand:anypoint-monitor.organizationInfo",
     "onCommand:anypoint-monitor.login",
     "onCommand:anypoint-monitor.cloudhub2Apps",
@@ -79,7 +78,8 @@
     "onCommand:anypoint-monitor.dataweavePlayground",
     "onCommand:anypoint-monitor.accountManager",
     "onCommand:anypoint-monitor.deleteAllAccounts",
-    "onCommand:anypoint-monitor.migrateLegacyAccount"
+    "onCommand:anypoint-monitor.migrateLegacyAccount",
+    "onCommand:anypoint-monitor.applicationCommandCenter"
   ],
   "main": "./out/extension.js",
   "files": [
@@ -92,12 +92,6 @@
         "command": "anypoint-monitor.userInfo",
         "title": "AM: My Information"
       },
-
-      {
-        "command": "anypoint-monitor.applicationDetails",
-        "title": "AM: Application Details"
-      },
-
       {
         "command": "anypoint-monitor.organizationInfo",
         "title": "AM: Organization Details"
@@ -191,6 +185,11 @@
       {
         "command": "anypoint-monitor.migrateLegacyAccount",
         "title": "AM: Migrate Legacy Account to Multi-Account"
+      },
+
+      {
+        "command": "anypoint-monitor.applicationCommandCenter",
+        "title": "AM: Application Command Center"
       }
     ]
   },

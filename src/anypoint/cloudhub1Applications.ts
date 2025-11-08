@@ -6,7 +6,12 @@ import * as fs from 'fs';
  * with a single CSV download option. This version has a dark theme
  * and a more “techy” vibe, plus styling for the DataTables length menu.
  */
-export function showApplicationsWebview1(context: vscode.ExtensionContext, data: any[]) {
+export function showApplicationsWebview1(
+  context: vscode.ExtensionContext,
+  data: any[],
+  environmentId?: string,
+  environmentName?: string
+) {
   // Ensure the data is an array
   const appsArray = Array.isArray(data) ? data : [];
 
@@ -19,11 +24,26 @@ export function showApplicationsWebview1(context: vscode.ExtensionContext, data:
   );
 
   // Build the HTML
-  panel.webview.html = getApplicationsHtml(appsArray, panel.webview, context.extensionUri);
+  panel.webview.html = getApplicationsHtml(appsArray, panel.webview, context.extensionUri, environmentName);
 
   // Listen for messages (for CSV download)
   panel.webview.onDidReceiveMessage(async (message) => {
-    if (message.command === 'downloadAllCsv') {
+    if (message.command === 'openApplicationDetails') {
+      console.log('🚀 Opening Application Command Center for CH1 app...');
+      console.log('📱 App data:', JSON.stringify(message.appData, null, 2));
+
+      // Import and call the Application Command Center with preselected data
+      const { showApplicationCommandCenter } = await import('./applicationCommandCenter.js');
+      await showApplicationCommandCenter(
+        context,
+        environmentId,
+        environmentName,
+        message.appName,
+        message.appData
+      );
+
+      console.log('✅ Application Command Center opened');
+    } else if (message.command === 'downloadAllCsv') {
       const csvContent = generateAllApplicationsCsv(appsArray);
 
       // Prompt for save location
@@ -47,7 +67,8 @@ export function showApplicationsWebview1(context: vscode.ExtensionContext, data:
 function getApplicationsHtml(
   apps: any[],
   webview: vscode.Webview,
-  extensionUri: vscode.Uri
+  extensionUri: vscode.Uri,
+  environmentName?: string
 ): string {
   // URIs for resources
   const logoPath = vscode.Uri.joinPath(extensionUri, 'logo.png');
@@ -395,6 +416,20 @@ function getApplicationsHtml(
               width: 100%;
             }
           }
+
+          /* Clickable app name links */
+          .app-name-link {
+            color: var(--text-link);
+            text-decoration: none;
+            cursor: pointer;
+            font-weight: 500;
+            transition: color 0.2s ease;
+          }
+
+          .app-name-link:hover {
+            color: var(--text-link-hover);
+            text-decoration: underline;
+          }
         </style>
       </head>
       <body>
@@ -499,6 +534,7 @@ function getApplicationsHtml(
         <script>
           const vscode = acquireVsCodeApi();
           const appsData = ${JSON.stringify(apps)};
+          const environmentName = ${JSON.stringify(environmentName || 'Unknown')};
           let filteredData = [...appsData];
           let currentPage = 1;
           let entriesPerPage = 10;
@@ -523,9 +559,9 @@ function getApplicationsHtml(
             const pageData = filteredData.slice(startIndex, endIndex);
 
             const tbody = document.getElementById('appTableBody');
-            tbody.innerHTML = pageData.map(app => \`
+            tbody.innerHTML = pageData.map((app, index) => \`
               <tr>
-                <td>\${app.domain || 'N/A'}</td>
+                <td><a href="#" class="app-name-link" data-app-name="\${app.domain || ''}" data-app-index="\${index}">\${app.domain || 'N/A'}</a></td>
                 <td>\${app.fullDomain || 'N/A'}</td>
                 <td>\${renderStatus(app.status)}</td>
                 <td>\${app.workers || 'N/A'}</td>
@@ -591,6 +627,25 @@ function getApplicationsHtml(
 
           document.getElementById('downloadAllCsv').addEventListener('click', () => {
             vscode.postMessage({ command: 'downloadAllCsv' });
+          });
+
+          // Handle app name clicks to open Command Center
+          document.addEventListener('click', (e) => {
+            if (e.target.classList.contains('app-name-link')) {
+              e.preventDefault();
+              const appName = e.target.dataset.appName;
+              const appIndex = parseInt(e.target.dataset.appIndex);
+              if (appIndex >= 0 && appIndex < filteredData.length) {
+                const appData = filteredData[appIndex];
+                console.log('Opening Command Center for app:', appName, 'in environment:', environmentName);
+                vscode.postMessage({
+                  command: 'openApplicationDetails',
+                  appName: appName,
+                  appData: appData,
+                  environment: environmentName
+                });
+              }
+            }
           });
 
           // Initial render

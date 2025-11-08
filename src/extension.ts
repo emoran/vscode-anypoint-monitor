@@ -8,11 +8,10 @@ import {
     revokeAnypointToken
 } from "./controllers/oauthService";
 import {
-    retrieveApplications,
-    getUserInfo,
-    getOrganizationInfo,
-    developerInfo,
-    getEnvironments,
+	getUserInfo,
+	getOrganizationInfo,
+	developerInfo,
+	getEnvironments,
     getCH2Applications,
     getCH1Applications,
     retrieveAPIManagerAPIs,
@@ -24,6 +23,7 @@ import { showRealTimeLogs } from "./anypoint/realTimeLogs";
 import { BASE_URL } from "./constants";
 import { showApplicationDiagram } from "./anypoint/applicationDiagram";
 import { showDataWeavePlayground } from "./anypoint/dataweavePlayground";
+import { showApplicationCommandCenter } from "./anypoint/applicationCommandCenter";
 
 interface EnvironmentOption {
 	label: string;
@@ -243,18 +243,6 @@ export function activate(context: vscode.ExtensionContext) {
 		}
 	});
 
-	const applicationDetails = vscode.commands.registerCommand('anypoint-monitor.applicationDetails', async () => {
-		try {
-			const selectedEnvironmentId = await selectEnvironment(context);
-			if (!selectedEnvironmentId) {
-				return;
-			}
-			await retrieveApplications(context, selectedEnvironmentId);
-		} catch (error: any) {
-			vscode.window.showErrorMessage(`Error: ${error.message || error}`);
-		}
-	});
-	  
 	const getCH1Apps = vscode.commands.registerCommand('anypoint-monitor.cloudhub1Apps', async () => {
 		try {
 			const selectedEnvironmentId = await selectEnvironment(context);
@@ -636,15 +624,15 @@ export function activate(context: vscode.ExtensionContext) {
 	const migrateLegacyAccountCmd = vscode.commands.registerCommand('anypoint-monitor.migrateLegacyAccount', async () => {
 		try {
 			const accountService = new AccountService(context);
-			
+
 			vscode.window.showInformationMessage('Checking for legacy account data to migrate...');
-			
+
 			const migrationResult = await accountService.migrateLegacyAccount();
-			
+
 			if (migrationResult.migrated && migrationResult.accountId) {
 				const account = await accountService.getAccountById(migrationResult.accountId);
 				await updateAccountStatusBar(context);
-				
+
 				vscode.window.showInformationMessage(
 					`✅ Successfully migrated legacy account: ${account?.userEmail} (${account?.organizationName}). ` +
 					`Your account is now using the new multi-account system!`
@@ -669,6 +657,14 @@ export function activate(context: vscode.ExtensionContext) {
 		}
 	});
 
+	const applicationCommandCenterCmd = vscode.commands.registerCommand('anypoint-monitor.applicationCommandCenter', async () => {
+		try {
+			await showApplicationCommandCenter(context);
+		} catch (error: any) {
+			vscode.window.showErrorMessage(`Error opening Application Command Center: ${error.message}`);
+		}
+	});
+
 	context.subscriptions.push(userInfo);
 	context.subscriptions.push(getApplications);
 	context.subscriptions.push(revokeAccessCommand);
@@ -676,7 +672,6 @@ export function activate(context: vscode.ExtensionContext) {
 	context.subscriptions.push(loginCommand);
 	context.subscriptions.push(getCH1Apps);
 	context.subscriptions.push(organizationInformation);
-	context.subscriptions.push(applicationDetails);
 	context.subscriptions.push(applicationDiagramCmd);
 	context.subscriptions.push(subcriptionExpiration);
 	context.subscriptions.push(retrieveAccessToken);
@@ -690,6 +685,7 @@ export function activate(context: vscode.ExtensionContext) {
 	context.subscriptions.push(accountManagerCmd);
 	context.subscriptions.push(deleteAllAccountsCmd);
 	context.subscriptions.push(migrateLegacyAccountCmd);
+	context.subscriptions.push(applicationCommandCenterCmd);
 }
 
 // This method is called when your extension is deactivated

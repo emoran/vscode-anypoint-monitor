@@ -100,17 +100,19 @@ panel.webview.onDidReceiveMessage(async (message) => {
         }
         
         console.log('🎯 Final environment ID to use:', environmentInfo.id);
-        console.log('📱 About to call showApplicationDetailsCH2Webview...');
-        
-        // Import the function if not already imported
-        // const { showApplicationDetailsCH2Webview } = await import('.//applicationDetailsCH2');
-        
-        // Open the new ApplicationDetailsCH2 webview with environment info
-        await showApplicationDetailsCH2Webview(
-          context, 
-          message.appName, 
-          message.appData, 
-          environmentInfo.id
+        console.log('📱 About to call showApplicationCommandCenter...');
+        console.log('📱 App data:', JSON.stringify(message.appData, null, 2));
+
+        // Import and call the Application Command Center with preselected data
+        const { showApplicationCommandCenter } = await import('./applicationCommandCenter.js');
+
+        // Open the Application Command Center with preselected environment and app
+        await showApplicationCommandCenter(
+          context,
+          environmentInfo.id,
+          environmentInfo.name,
+          message.appName,
+          message.appData
         );
         
         console.log('✅ Application details webview call completed');

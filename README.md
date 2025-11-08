@@ -45,7 +45,7 @@ A comprehensive Visual Studio Code extension for MuleSoft Anypoint Platform mana
 
 - **CloudHub 1.0 Applications**: Complete visibility into your CH1 deployments with start/stop/restart capabilities
 - **CloudHub 2.0 Applications**: Modern CH2 application management and monitoring with scaling information
-- **Application Details**: Deep dive into individual application configurations, properties, and status
+- **Application Command Center**: Unified operational hub for CH1/CH2 apps with AI insights, metrics, and quick actions
 - **Real-time Status**: Instant application health and performance indicators across environments
 - **Cross-Account Access**: View applications from multiple organizations in a unified interface
 
@@ -112,8 +112,8 @@ Access all commands through the Command Palette (`Ctrl+Shift+P` / `Cmd+Shift+P`)
 | ------------------------------------ | --------------------------------------------- | --------------------------------------------------------------------- |
 | `AM: Show CloudHub 1.0 Applications` | List all CloudHub 1.0 applications            | Application names, status, environment, workers, and runtime versions |
 | `AM: Show CloudHub 2.0 Applications` | Display CloudHub 2.0 applications             | Modern CH2 apps with scaling info, replicas, and deployment status    |
-| `AM: Application Details`            | Get detailed view of specific CH1 application | Full configuration, logs access, properties, and monitoring data      |
 | `AM: Application Diagram`            | Visualize CloudHub 2.0 or local JAR flows     | Interactive Mermaid diagram outlining flow and sub-flow connections   |
+| `AM: Application Command Center` | Unified control room for CH1 & CH2 apps | Environment-aware KPIs, AI insights, and lifecycle tooling in one view |
 | `AM: Real-Time Logs`                 | **Premium** Live log streaming for CH1 & CH2  | Real-time log tailing with filtering, search, and multi-format export |
 | `AM: Environment Comparison Table`   | Compare environments side-by-side             | Environment details, configurations, and application status comparison |
 
