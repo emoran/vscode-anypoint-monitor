@@ -2043,7 +2043,7 @@ function getCommandCenterHtml(webview: vscode.Webview, extensionUri: vscode.Uri,
 	const supportsApplicationDiagram = (data.cloudhubVersion || '').toUpperCase() === 'CH2';
 
     // Get MuleSoft logo URI
-    const logoPath = vscode.Uri.joinPath(extensionUri, 'src', 'resources', 'logo.png');
+    const logoPath = vscode.Uri.joinPath(extensionUri, 'mulelogo.png');
     const logoSrc = webview.asWebviewUri(logoPath);
 
     // Get actual running status (checks replicas for CH2)
