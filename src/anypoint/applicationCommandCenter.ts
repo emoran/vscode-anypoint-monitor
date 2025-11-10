@@ -1,5 +1,5 @@
 import * as vscode from 'vscode';
-import { BASE_URL } from '../constants';
+import { BASE_URL, ARM_BASE, HYBRID_APPLICATIONS_ENDPOINT } from '../constants';
 import { ApiHelper } from '../controllers/apiHelper';
 import { AccountService } from '../controllers/accountService';
 import { showRealTimeLogs } from './realTimeLogs';
@@ -16,7 +16,7 @@ interface CommandCenterData {
     alerts?: any[];
     healthScore: number;
     healthBreakdown?: string[];
-    cloudhubVersion: 'CH1' | 'CH2';
+    cloudhubVersion: 'CH1' | 'CH2' | 'HYBRID';
     environmentId: string;
     environmentName: string;
     accountInfo: {
@@ -32,6 +32,9 @@ interface CommandCenterData {
         cpu: number[];
         memory: number[];
         timestamps: number[];
+        source?: 'monitoring' | 'observability' | 'simulated';
+        cpuLabel?: string;
+        memoryLabel?: string;
     };
     networkTopology?: {
         externalEndpoints: string[];
@@ -204,6 +207,31 @@ function calculateCost(app: any, cloudhubVersion: 'CH1' | 'CH2'): { monthly: num
     };
 }
 
+function formatBytes(bytes?: number): string {
+    if (typeof bytes !== 'number' || Number.isNaN(bytes) || bytes <= 0) {
+        return 'N/A';
+    }
+    const units = ['B', 'KB', 'MB', 'GB'];
+    let index = 0;
+    let value = bytes;
+    while (value >= 1024 && index < units.length - 1) {
+        value /= 1024;
+        index++;
+    }
+    return `${value.toFixed(index === 0 ? 0 : 1)} ${units[index]}`;
+}
+
+function formatDateTime(value?: number | string): string {
+    if (value === undefined || value === null) {
+        return 'N/A';
+    }
+    const date = typeof value === 'number' ? new Date(value) : new Date(value);
+    if (Number.isNaN(date.getTime())) {
+        return 'N/A';
+    }
+    return date.toLocaleString();
+}
+
 /**
  * Generate AI insights based on application data and REAL log analysis
  */
@@ -324,6 +352,81 @@ function generateAIInsights(data: any): string[] {
     return insights;
 }
 
+function matchesHybridApplicationCandidate(app: any, appIdentifier?: string, applicationDomain?: string): boolean {
+    if (!app) {
+        return false;
+    }
+
+    const normalize = (value: any) => value !== undefined && value !== null ? String(value).toLowerCase() : '';
+    const candidates = [
+        normalize(app.id),
+        normalize(app.name),
+        normalize(app.domain),
+        normalize(app.application?.id),
+        normalize(app.application?.name),
+        normalize(app.application?.domain),
+        normalize(app.artifact?.name)
+    ];
+    const targets = [normalize(appIdentifier), normalize(applicationDomain)].filter(Boolean);
+
+    if (targets.length === 0) {
+        return false;
+    }
+
+    return targets.some(target => candidates.includes(target));
+}
+
+function extractHybridApplication(payload: any, appIdentifier?: string, applicationDomain?: string): any | undefined {
+    const match = (candidate: any) => matchesHybridApplicationCandidate(candidate, appIdentifier, applicationDomain);
+
+    if (!payload) {
+        return undefined;
+    }
+
+    if (Array.isArray(payload)) {
+        return payload.find(match);
+    }
+
+    if (payload.data && payload.data !== payload) {
+        const nested = extractHybridApplication(payload.data, appIdentifier, applicationDomain);
+        if (nested) {
+            return nested;
+        }
+    }
+
+    if (payload.items && payload.items !== payload) {
+        const nested = extractHybridApplication(payload.items, appIdentifier, applicationDomain);
+        if (nested) {
+            return nested;
+        }
+    }
+
+    if (match(payload)) {
+        return payload;
+    }
+
+    return undefined;
+}
+
+function normalizeHybridApplication(app: any, fallbackDomain: string): any {
+    if (!app) {
+        return app;
+    }
+
+    const normalized = { ...app };
+    if (!normalized.domain) {
+        normalized.domain = normalized.name || normalized.application?.name || fallbackDomain;
+    }
+    if (!normalized.name && normalized.domain) {
+        normalized.name = normalized.domain;
+    }
+    if (!normalized.status && normalized.lastReportedStatus) {
+        normalized.status = normalized.lastReportedStatus;
+    }
+    normalized.cloudhubVersion = 'HYBRID';
+    return normalized;
+}
+
 /**
  * Fetch comprehensive application data from multiple APIs
  */
@@ -332,9 +435,10 @@ async function fetchApplicationData(
     environmentId: string,
     environmentName: string,
     applicationDomain: string,
-    cloudhubVersion: 'CH1' | 'CH2',
+    cloudhubVersion: 'CH1' | 'CH2' | 'HYBRID',
     deploymentId?: string,
-    metricsRangeMinutes: number = METRIC_LOOKBACK_MINUTES
+    metricsRangeMinutes: number = METRIC_LOOKBACK_MINUTES,
+    fallbackAppData?: any
 ): Promise<CommandCenterData> {
     const apiHelper = new ApiHelper(context);
     const accountService = new AccountService(context);
@@ -421,7 +525,7 @@ async function fetchApplicationData(
             if (schedulers.status === 'fulfilled') dataPromises.schedulers = schedulers.value.data || [];
             if (logs.status === 'fulfilled') dataPromises.logs = logs.value.data?.data || [];
 
-        } else {
+        } else if (cloudhubVersion === 'CH2') {
             // CloudHub 2.0 data fetching
             if (!deploymentId) {
                 throw new Error('Deployment ID required for CloudHub 2.0 applications');
@@ -450,6 +554,112 @@ async function fetchApplicationData(
             if (schedulers.status === 'fulfilled') {
                 dataPromises.schedulers = schedulers.value || [];
             }
+        } else if (cloudhubVersion === 'HYBRID') {
+            // Hybrid application data fetching
+            const { HYBRID_APPLICATIONS_ENDPOINT, HYBRID_SERVERS_ENDPOINT } = await import('../constants.js');
+
+            console.log(`🔧 Fetching Hybrid app data for: ${applicationDomain}, deploymentId: ${deploymentId}`);
+
+            // Use deploymentId if available (it's actually the app ID), otherwise use applicationDomain
+            const appIdentifier = deploymentId ? String(deploymentId) : applicationDomain;
+
+            const [appData, servers, logs] = await Promise.allSettled([
+                // Application details - try with ID first, then name
+                apiHelper.get(`${HYBRID_APPLICATIONS_ENDPOINT}/${appIdentifier}`, {
+                    headers: {
+                        'X-ANYPNT-ENV-ID': environmentId,
+                        'X-ANYPNT-ORG-ID': organizationID,
+                    },
+                }),
+                // Try to fetch all servers and filter later, or get specific server if we have target info
+                apiHelper.get(`${HYBRID_SERVERS_ENDPOINT}`, {
+                    headers: {
+                        'X-ANYPNT-ENV-ID': environmentId,
+                        'X-ANYPNT-ORG-ID': organizationID,
+                    },
+                }),
+                // Application logs - Note: ARM API may not support app-specific logs endpoint
+                // We'll handle this gracefully
+                Promise.resolve({ status: 404, data: [] })
+            ]);
+
+            let hybridApplication: any;
+
+            if (appData.status === 'fulfilled') {
+                hybridApplication = extractHybridApplication(appData.value, appIdentifier, applicationDomain);
+                if (hybridApplication) {
+                    console.log('✅ Hybrid app data fetched successfully');
+                } else {
+                    console.warn('⚠️ Hybrid app response received but no matching application found');
+                }
+            } else {
+                console.warn('⚠️ Failed to fetch Hybrid app data via direct endpoint:', appData.reason || appData);
+            }
+
+            if (!hybridApplication) {
+                console.log('🔄 Falling back to Hybrid applications collection lookup');
+                try {
+                    const fallbackResponse = await apiHelper.get(HYBRID_APPLICATIONS_ENDPOINT, {
+                        headers: {
+                            'X-ANYPNT-ENV-ID': environmentId,
+                            'X-ANYPNT-ORG-ID': organizationID,
+                        },
+                    });
+                    if (fallbackResponse.status === 200) {
+                        hybridApplication = extractHybridApplication(fallbackResponse.data, appIdentifier, applicationDomain);
+                    }
+                } catch (fallbackError: any) {
+                    console.warn('⚠️ Unable to retrieve Hybrid applications list for fallback:', fallbackError.message || fallbackError);
+                }
+            }
+
+            if (!hybridApplication && fallbackAppData) {
+                console.log('ℹ️ Using provided Hybrid app data fallback');
+                hybridApplication = fallbackAppData;
+            }
+
+            if (hybridApplication) {
+                dataPromises.application = normalizeHybridApplication(hybridApplication, applicationDomain);
+
+                // Store server/target info for later use
+                if (dataPromises.application?.target) {
+                    dataPromises.networkInfo = {
+                        targetType: dataPromises.application.target.type,
+                        targetName: dataPromises.application.target.name,
+                        targetId: dataPromises.application.target.id
+                    };
+
+                    if (servers.status === 'fulfilled') {
+                        const allServers = Array.isArray(servers.value.data) ? servers.value.data : servers.value.data?.data || [];
+                        const targetServer = allServers.find((s: any) => s.id === dataPromises.application.target.id);
+                        if (targetServer) {
+                            dataPromises.replicas = [targetServer];
+                            console.log('📡 Found target server:', targetServer.name);
+                        }
+                    }
+                }
+            } else {
+                console.warn(`⚠️ Unable to resolve Hybrid application details for ${applicationDomain}`);
+                dataPromises.application = normalizeHybridApplication({
+                    domain: applicationDomain,
+                    name: applicationDomain,
+                    status: 'UNKNOWN'
+                }, applicationDomain);
+            }
+
+            if (logs.status === 'fulfilled' && logs.value && logs.value.data) {
+                const logsValue: any = logs.value;
+                dataPromises.logs = Array.isArray(logsValue.data) ? logsValue.data : logsValue.data?.data || [];
+            }
+
+            dataPromises.schedulers = await fetchHybridSchedulers(
+                apiHelper,
+                appIdentifier,
+                organizationID,
+                environmentId,
+                dataPromises.application,
+                HYBRID_APPLICATIONS_ENDPOINT
+            );
         }
     } catch (error: any) {
         console.error('Error fetching application data:', error);
@@ -463,8 +673,8 @@ async function fetchApplicationData(
     const healthScore = healthResult.score;
     const healthBreakdown = healthResult.breakdown;
 
-    // Calculate cost estimate
-    const costEstimate = calculateCost(dataPromises.application, cloudhubVersion);
+    // Calculate cost estimate (only for CloudHub, not Hybrid)
+    const costEstimate = cloudhubVersion === 'HYBRID' ? { monthly: 0, daily: 0, currency: 'USD', isEstimate: true } : calculateCost(dataPromises.application, cloudhubVersion);
 
     // Generate AI insights
     const aiInsights = generateAIInsights({ ...dataPromises, cloudhubVersion, costEstimate });
@@ -474,22 +684,32 @@ async function fetchApplicationData(
         context,
         environmentId,
         organizationID,
-        applicationDomain
+        applicationDomain,
+        cloudhubVersion,
+        {
+            deploymentId,
+            applicationData: dataPromises.application,
+            replicas: dataPromises.replicas
+        }
     );
 
-    // Fetch Visualizer metrics if application data is available
-    const visualizerMetrics = dataPromises.application ? await fetchVisualizerMetrics(
+    // Fetch Visualizer metrics if application data is available (CloudHub only, not Hybrid)
+    const visualizerMetrics = dataPromises.application && cloudhubVersion !== 'HYBRID' ? await fetchVisualizerMetrics(
         context,
         environmentId,
         organizationID,
         applicationDomain,
         dataPromises.application,
-        cloudhubVersion,
+        cloudhubVersion as 'CH1' | 'CH2',
         metricsRangeMinutes
     ) : undefined;
 
     // Parse network topology from application data
-    const networkTopology = parseNetworkTopology(dataPromises.application, cloudhubVersion);
+    const networkTopology = cloudhubVersion !== 'HYBRID' ? parseNetworkTopology(dataPromises.application, cloudhubVersion as 'CH1' | 'CH2') : {
+        externalEndpoints: [],
+        vpnConnections: [],
+        dependencies: []
+    };
 
     return {
         ...dataPromises,
@@ -516,22 +736,83 @@ async function fetchApplicationData(
 /**
  * Fetch real performance metrics from Anypoint Monitoring API
  */
+interface MonitoringResourceIdentifier {
+    type: string;
+    id: string;
+}
+
+interface PerformanceMetricOptions {
+    deploymentId?: string;
+    applicationData?: any;
+    replicas?: any[];
+}
+
 async function fetchPerformanceMetrics(
     context: vscode.ExtensionContext,
     environmentId: string,
     organizationId: string,
-    applicationName: string
-): Promise<{ cpu: number[]; memory: number[]; timestamps: number[] }> {
+    applicationName: string,
+    cloudhubVersion: 'CH1' | 'CH2' | 'HYBRID',
+    options: PerformanceMetricOptions = {}
+): Promise<{ cpu: number[]; memory: number[]; timestamps: number[]; source: 'monitoring' | 'observability' | 'simulated'; cpuLabel?: string; memoryLabel?: string }> {
     const apiHelper = new ApiHelper(context);
+    const resource = determineMonitoringResourceIdentifier(
+        cloudhubVersion,
+        options.applicationData,
+        applicationName,
+        options.deploymentId
+    );
+    const workerId = determineMonitoringWorkerId(cloudhubVersion, options.applicationData, options.replicas);
 
-    // Try to fetch real metrics from Anypoint Monitoring API
+    if (cloudhubVersion === 'HYBRID') {
+        const queryMetricsFirst = await tryFetchMonitoringQueryMetrics(
+            apiHelper,
+            organizationId,
+            environmentId,
+            pickFirstString(
+                options.applicationData?.id,
+                options.applicationData?.application?.id,
+                options.deploymentId,
+                applicationName
+            )
+        );
+        if (queryMetricsFirst) {
+            return queryMetricsFirst;
+        }
+    }
+
+    const monitoringMetrics = await tryFetchMonitoringMetrics(
+        apiHelper,
+        organizationId,
+        environmentId,
+        resource,
+        workerId
+    );
+    if (monitoringMetrics) {
+        return monitoringMetrics;
+    }
+
+    if (cloudhubVersion !== 'HYBRID') {
+        const queryMetrics = await tryFetchMonitoringQueryMetrics(
+            apiHelper,
+            organizationId,
+            environmentId,
+            pickFirstString(
+                options.applicationData?.id,
+                options.applicationData?.application?.id,
+                options.deploymentId,
+                applicationName
+            )
+        );
+        if (queryMetrics) {
+            return queryMetrics;
+        }
+    }
+
     try {
         const endTime = Date.now();
-        const startTime = endTime - (24 * 60 * 60 * 1000); // Last 24 hours
-
-        // Attempt to call Metrics API (requires Anypoint Monitoring subscription)
-        const metricsUrl = `https://anypoint.mulesoft.com/observability/api/v1/metrics:search?offset=0&limit=100`;
-
+        const startTime = endTime - (24 * 60 * 60 * 1000);
+        const metricsUrl = `${BASE_URL}/observability/api/v1/metrics:search?offset=0&limit=100`;
         const response = await apiHelper.post(metricsUrl, {
             query: {
                 metrics: ['app.cpu', 'app.memory'],
@@ -547,12 +828,9 @@ async function fetchPerformanceMetrics(
         });
 
         if (response.status === 200 && response.data) {
-            // Parse real metrics from API response
             const cpu: number[] = [];
             const memory: number[] = [];
             const timestamps: number[] = [];
-
-            // Process the response (structure depends on actual API)
             const data = response.data.data || response.data.results || [];
             data.forEach((point: any) => {
                 timestamps.push(point.timestamp || Date.now());
@@ -561,15 +839,487 @@ async function fetchPerformanceMetrics(
             });
 
             if (cpu.length > 0) {
-                console.log('✅ Successfully fetched real performance metrics');
-                return { cpu, memory, timestamps };
+                console.log('✅ Successfully fetched Observability metrics');
+                return {
+                    cpu,
+                    memory,
+                    timestamps,
+                    source: 'observability',
+                    cpuLabel: 'CPU Usage (%)',
+                    memoryLabel: 'Heap Usage (MB)'
+                };
             }
         }
     } catch (error: any) {
-        console.log('⚠️  Could not fetch real metrics (requires Anypoint Monitoring subscription):', error.message);
+        console.warn('⚠️ Unable to fetch Observability metrics, using simulated data:', error.message);
     }
 
-    // Fallback to simulated data
+    return buildSimulatedPerformanceMetrics();
+}
+
+async function tryFetchMonitoringMetrics(
+    apiHelper: ApiHelper,
+    organizationId: string,
+    environmentId: string,
+    resource: MonitoringResourceIdentifier | undefined,
+    workerId?: string
+): Promise<{ cpu: number[]; memory: number[]; timestamps: number[]; source: 'monitoring'; cpuLabel?: string; memoryLabel?: string } | undefined> {
+    if (!resource?.id) {
+        return undefined;
+    }
+
+    try {
+        const queryWindow = {
+            from: 'now()-1d',
+            to: 'now()',
+            workerId
+        };
+
+        const [cpuResponse, memoryResponse] = await Promise.allSettled([
+            apiHelper.get(buildMonitoringMetricsUrl(
+                organizationId,
+                environmentId,
+                resource,
+                'jvm.cpu.operatingsystem',
+                'cpu',
+                queryWindow
+            )),
+            apiHelper.get(buildMonitoringMetricsUrl(
+                organizationId,
+                environmentId,
+                resource,
+                'jvm.memory',
+                'heap_used',
+                queryWindow
+            ))
+        ]);
+
+        const cpuSeries = cpuResponse.status === 'fulfilled'
+            ? extractMonitoringTimeseries(cpuResponse.value.data, 'cpu')
+            : [];
+        const memorySeries = memoryResponse.status === 'fulfilled'
+            ? extractMonitoringTimeseries(memoryResponse.value.data, 'heap_used')
+            : [];
+
+        if (cpuSeries.length === 0 && memorySeries.length === 0) {
+            return undefined;
+        }
+
+        const merged = mergeMonitoringTimeseries(cpuSeries, memorySeries);
+        if (!merged) {
+            return undefined;
+        }
+
+        return {
+            ...merged,
+            source: 'monitoring',
+            cpuLabel: 'CPU Usage (%)',
+            memoryLabel: 'Heap Usage (MB)'
+        };
+    } catch (error: any) {
+        console.warn('⚠️ Monitoring metrics endpoint unavailable:', error?.message || error);
+        return undefined;
+    }
+}
+
+async function tryFetchMonitoringQueryMetrics(
+    apiHelper: ApiHelper,
+    organizationId: string,
+    environmentId: string,
+    applicationId?: string
+): Promise<{ cpu: number[]; memory: number[]; timestamps: number[]; source: 'monitoring'; cpuLabel?: string; memoryLabel?: string } | undefined> {
+    if (!applicationId) {
+        return undefined;
+    }
+
+    try {
+        const to = new Date();
+        const from = new Date(to.getTime() - 24 * 60 * 60 * 1000);
+        const params = new URLSearchParams({
+            from: from.toISOString(),
+            to: to.toISOString(),
+            detailed: 'true'
+        });
+        const url = `${BASE_URL}/monitoring/query/api/v1/organizations/${organizationId}/environments/${environmentId}/applications/${encodeURIComponent(applicationId)}?${params.toString()}`;
+        console.log(`Command Center: Fetching Monitoring Query metrics for app ${applicationId}`);
+        const response = await apiHelper.get(url, {
+            headers: {
+                'X-ANYPNT-ENV-ID': environmentId,
+                'X-ANYPNT-ORG-ID': organizationId
+            }
+        });
+        console.log('Command Center: Monitoring Query response status:', response.status);
+
+        const metricsNode = extractMonitoringQueryMetricsNode(response.data, applicationId);
+        if (!metricsNode) {
+            console.warn('Command Center: Monitoring query payload missing metrics');
+            return undefined;
+        }
+
+        const cpuMetric = pickMonitoringQueryMetricSeries(metricsNode, [
+            { key: 'cpu-usage', label: 'CPU Usage (%)', transform: convertCpuValue },
+            { key: 'cpu', label: 'CPU Usage (%)', transform: convertCpuValue },
+            { key: 'system.cpu', label: 'CPU Usage (%)', transform: convertCpuValue },
+            { key: 'message-count', label: 'Message Count (avg)', preferredValueKeys: ['avg', 'sum', 'count'], transform: passthroughValue }
+        ]);
+
+        const memoryMetric = pickMonitoringQueryMetricSeries(metricsNode, [
+            { key: 'memory-usage', label: 'Memory Usage (MB)', transform: convertMemoryValue },
+            { key: 'heap-usage', label: 'Heap Usage (MB)', transform: convertMemoryValue },
+            { key: 'memory', label: 'Memory Usage (MB)', transform: convertMemoryValue },
+            { key: 'response-time', label: 'Response Time (ms)', preferredValueKeys: ['avg', 'sum', 'max', 'min'], transform: passthroughValue },
+            { key: 'error-count', label: 'Error Count', preferredValueKeys: ['sum', 'count'], transform: passthroughValue }
+        ]);
+
+        if (!cpuMetric.series.length && !memoryMetric.series.length) {
+            console.warn('Command Center: Monitoring query metrics did not include supported series');
+            return undefined;
+        }
+
+        console.log(`Command Center: Monitoring query metrics points -> cpu: ${cpuMetric.series.length}, memory: ${memoryMetric.series.length}`);
+
+        const merged = mergeMonitoringTimeseries(
+            cpuMetric.series,
+            memoryMetric.series,
+            {
+                cpu: cpuMetric.transform,
+                memory: memoryMetric.transform
+            }
+        );
+
+        return merged ? {
+            ...merged,
+            source: 'monitoring',
+            cpuLabel: cpuMetric.label,
+            memoryLabel: memoryMetric.label
+        } : undefined;
+    } catch (error: any) {
+        console.warn('⚠️ Monitoring query API unavailable:', error?.message || error);
+        return undefined;
+    }
+}
+
+function buildMonitoringMetricsUrl(
+    organizationId: string,
+    environmentId: string,
+    resource: MonitoringResourceIdentifier,
+    metricId: string,
+    field: string,
+    params: { from: string; to: string; workerId?: string }
+): string {
+    const query = new URLSearchParams();
+    query.set('from', params.from);
+    query.set('to', params.to);
+    query.set('_', Date.now().toString());
+    if (params.workerId) {
+        query.set('worker_id', params.workerId);
+    }
+    const encodedResource = encodeURIComponent(resource.id);
+    return `${BASE_URL}/monitoring/api/metrics/organizations/${organizationId}/environments/${environmentId}/resources/${resource.type}/${encodedResource}/metrics/${metricId}/fields/${field}?${query.toString()}`;
+}
+
+interface MonitoringMetricPoint {
+    timestamp: number;
+    value: number;
+}
+
+function extractMonitoringTimeseries(payload: any, field: string): MonitoringMetricPoint[] {
+    if (!payload) {
+        return [];
+    }
+
+    const rows = Array.isArray(payload.items)
+        ? payload.items
+        : Array.isArray(payload.data)
+            ? payload.data
+            : Array.isArray(payload.values)
+                ? payload.values
+                : Array.isArray(payload)
+                    ? payload
+                    : [];
+
+    return rows
+        .map((row: any) => {
+            if (Array.isArray(row)) {
+                const timestamp = typeof row[0] === 'number' ? row[0] : Date.parse(row[0]);
+                const value = Number(row[1]);
+                return { timestamp, value };
+            }
+
+            const rawTimestamp = row.timestamp || row.time || row[0];
+            const timestamp = typeof rawTimestamp === 'number' ? rawTimestamp : Date.parse(rawTimestamp);
+            const rawValue = row[field] ?? row.value ?? row[1];
+            const value = Number(rawValue);
+            return { timestamp, value };
+        })
+        .filter(point => Number.isFinite(point.timestamp) && Number.isFinite(point.value))
+        .sort((a, b) => a.timestamp - b.timestamp);
+}
+
+function mergeMonitoringTimeseries(
+    cpuSeries: MonitoringMetricPoint[],
+    memorySeries: MonitoringMetricPoint[],
+    transforms?: { cpu?: (value?: number) => number; memory?: (value?: number) => number }
+): { cpu: number[]; memory: number[]; timestamps: number[] } | undefined {
+    const timestampSet = new Set<number>();
+    cpuSeries.forEach(point => timestampSet.add(point.timestamp));
+    memorySeries.forEach(point => timestampSet.add(point.timestamp));
+    const timestamps = Array.from(timestampSet).sort((a, b) => a - b);
+
+    if (!timestamps.length) {
+        return undefined;
+    }
+
+    const cpuTransform = transforms?.cpu || convertCpuValue;
+    const memoryTransform = transforms?.memory || convertMemoryValue;
+
+    const cpuValues = timestamps.map(ts => cpuTransform(resolveNearestValue(cpuSeries, ts)));
+    const memoryValues = timestamps.map(ts => memoryTransform(resolveNearestValue(memorySeries, ts)));
+
+    return { cpu: cpuValues, memory: memoryValues, timestamps };
+}
+
+function convertHistoryEntriesToPoints(records: any[] | undefined, valueKeys: string[]): MonitoringMetricPoint[] {
+    if (!records || !records.length) {
+        return [];
+    }
+
+    return records
+        .map((entry: any) => {
+            if (Array.isArray(entry)) {
+                const ts = typeof entry[0] === 'number' ? entry[0] : Date.parse(entry[0]);
+                const value = Number(entry[1]);
+                return { timestamp: ts, value };
+            }
+
+            const rawTimestamp = entry?.timestamp || entry?.time || entry?.ts || entry?.[0];
+            const timestamp = typeof rawTimestamp === 'number' ? rawTimestamp : Date.parse(rawTimestamp);
+            let rawValue: any = undefined;
+            for (const key of valueKeys) {
+                if (entry && Object.prototype.hasOwnProperty.call(entry, key)) {
+                    rawValue = entry[key];
+                    break;
+                }
+            }
+            if (rawValue === undefined && typeof entry?.value === 'number') {
+                rawValue = entry.value;
+            }
+            const value = Number(rawValue);
+            return { timestamp, value };
+        })
+        .filter(point => Number.isFinite(point.timestamp) && Number.isFinite(point.value));
+}
+
+interface MonitoringQueryMetricCandidate {
+    key: string;
+    label: string;
+    preferredValueKeys?: string[];
+    transform?: (value?: number) => number;
+}
+
+function extractMonitoringQueryMetricsNode(payload: any, applicationId?: string): any {
+    if (!payload) {
+        return undefined;
+    }
+
+    const root = payload?.data && typeof payload.data === 'object'
+        ? payload.data
+        : payload;
+
+    const appsArray = Array.isArray(root?.applications)
+        ? root.applications
+        : Array.isArray(root?.applications?.items)
+            ? root.applications.items
+            : Array.isArray(root?.applications?.data)
+                ? root.applications.data
+                : [];
+
+    if (appsArray.length) {
+        const matched = applicationId
+            ? appsArray.find((app: any) => String(app.id) === String(applicationId))
+            : appsArray[0];
+        if (matched?.metrics) {
+            return matched.metrics;
+        }
+    }
+
+    if (root?.metrics) {
+        return root.metrics;
+    }
+
+    return undefined;
+}
+
+function pickMonitoringQueryMetricSeries(metrics: any, candidates: MonitoringQueryMetricCandidate[]): { series: MonitoringMetricPoint[]; label?: string; transform?: (value?: number) => number } {
+    if (!metrics) {
+        return { series: [] };
+    }
+
+    for (const candidate of candidates) {
+        const metricEntry = resolveMetricEntry(metrics, candidate.key);
+        const series = convertMetricValuesFromMetric(metricEntry, candidate.preferredValueKeys);
+        if (series.length) {
+            return {
+                series,
+                label: candidate.label,
+                transform: candidate.transform
+            };
+        }
+    }
+
+    return { series: [] };
+}
+
+function resolveMetricEntry(metrics: any, key: string): any {
+    if (!metrics || !key) {
+        return undefined;
+    }
+
+    if (Object.prototype.hasOwnProperty.call(metrics, key)) {
+        return metrics[key];
+    }
+
+    if (key.includes('.')) {
+        const parts = key.split('.');
+        let cursor = metrics;
+        for (const part of parts) {
+            cursor = cursor?.[part];
+            if (cursor === undefined || cursor === null) {
+                return undefined;
+            }
+        }
+        return cursor;
+    }
+
+    return undefined;
+}
+
+function convertMetricValuesFromMetric(metric: any, preferredValueKeys: string[] = ['avg', 'value', 'sum', 'min', 'max', 'count']): MonitoringMetricPoint[] {
+    if (!metric) {
+        return [];
+    }
+
+    const valuesArray = Array.isArray(metric?.values)
+        ? metric.values
+        : Array.isArray(metric)
+            ? metric
+            : [];
+
+    return convertHistoryEntriesToPoints(valuesArray, preferredValueKeys);
+}
+
+function passthroughValue(value?: number): number {
+    return typeof value === 'number' && !Number.isNaN(value) ? value : 0;
+}
+
+function resolveNearestValue(series: MonitoringMetricPoint[], timestamp: number): number | undefined {
+    if (!series.length) {
+        return undefined;
+    }
+    let closest = series[0];
+    let delta = Math.abs(timestamp - closest.timestamp);
+    for (const point of series) {
+        const currentDelta = Math.abs(timestamp - point.timestamp);
+        if (currentDelta < delta) {
+            closest = point;
+            delta = currentDelta;
+        }
+    }
+    return closest.value;
+}
+
+function convertCpuValue(value?: number): number {
+    if (typeof value !== 'number' || Number.isNaN(value)) {
+        return 0;
+    }
+    const normalized = value <= 1 ? value * 100 : value;
+    return Math.max(0, Math.min(100, normalized));
+}
+
+function convertMemoryValue(value?: number): number {
+    if (typeof value !== 'number' || Number.isNaN(value)) {
+        return 0;
+    }
+    if (value > 1024 * 1024) {
+        return value / (1024 * 1024);
+    }
+    if (value > 1024) {
+        return value / 1024;
+    }
+    return value;
+}
+
+function determineMonitoringResourceIdentifier(
+    cloudhubVersion: 'CH1' | 'CH2' | 'HYBRID',
+    applicationData: any,
+    fallbackName: string,
+    deploymentId?: string
+): MonitoringResourceIdentifier | undefined {
+    const fallback = pickFirstString(fallbackName, applicationData?.domain, applicationData?.name);
+
+    if (cloudhubVersion === 'HYBRID') {
+        const serverName = pickFirstString(
+            applicationData?.target?.name,
+            applicationData?.name,
+            applicationData?.artifact?.name,
+            fallback
+        );
+        return serverName ? { type: 'server', id: serverName } : undefined;
+    }
+
+    if (cloudhubVersion === 'CH2') {
+        const deploymentIdentifier = pickFirstString(
+            deploymentId,
+            applicationData?.id,
+            applicationData?.application?.id,
+            applicationData?.application?.name,
+            applicationData?.target?.deploymentSettings?.applicationName,
+            fallback
+        );
+        return deploymentIdentifier ? { type: 'deployment', id: deploymentIdentifier } : undefined;
+    }
+
+    const applicationIdentifier = pickFirstString(
+        applicationData?.domain,
+        applicationData?.name,
+        fallback
+    );
+    return applicationIdentifier ? { type: 'application', id: applicationIdentifier } : undefined;
+}
+
+function determineMonitoringWorkerId(
+    cloudhubVersion: 'CH1' | 'CH2' | 'HYBRID',
+    applicationData?: any,
+    replicas?: any[]
+): string | undefined {
+    const replicaIds = replicas?.flatMap(rep => [rep?.workerId, rep?.id]) || [];
+    const candidates = [
+        ...replicaIds,
+        applicationData?.workers?.[0]?.workerId,
+        applicationData?.workers?.[0]?.id,
+        applicationData?.application?.workers?.[0]?.id,
+        applicationData?.target?.id,
+        applicationData?.targetId,
+        cloudhubVersion === 'HYBRID' ? applicationData?.target?.serverId : undefined
+    ];
+
+    const workerCandidate = pickFirstString(...candidates);
+    return workerCandidate || undefined;
+}
+
+function pickFirstString(...values: any[]): string | undefined {
+    for (const value of values) {
+        if (typeof value === 'string' && value.trim().length > 0) {
+            return value.trim();
+        }
+        if ((typeof value === 'number' || typeof value === 'bigint') && !Number.isNaN(Number(value))) {
+            return String(value);
+        }
+    }
+    return undefined;
+}
+
+function buildSimulatedPerformanceMetrics(): { cpu: number[]; memory: number[]; timestamps: number[]; source: 'simulated'; cpuLabel: string; memoryLabel: string } {
     console.log('📊 Using simulated performance metrics');
     const points = 20;
     const cpu: number[] = [];
@@ -578,12 +1328,19 @@ async function fetchPerformanceMetrics(
     const now = Date.now();
 
     for (let i = 0; i < points; i++) {
-        timestamps.push(now - ((points - i) * 60 * 60 * 1000)); // Hourly data points
-        cpu.push(Math.random() * 80 + 10); // 10-90%
-        memory.push(Math.random() * 70 + 20); // 20-90%
+        timestamps.push(now - ((points - i) * 60 * 60 * 1000));
+        cpu.push(Math.random() * 80 + 10);
+        memory.push(Math.random() * 70 + 20);
     }
 
-    return { cpu, memory, timestamps };
+    return {
+        cpu,
+        memory,
+        timestamps,
+        source: 'simulated',
+        cpuLabel: 'CPU Usage (%)',
+        memoryLabel: 'Heap Usage (MB)'
+    };
 }
 
 interface VisualizerMetricQuery {
@@ -893,6 +1650,130 @@ async function fetchCH2Schedulers(
     }
 }
 
+async function fetchHybridSchedulers(
+    apiHelper: ApiHelper,
+    applicationId: string,
+    organizationId: string,
+    environmentId: string,
+    applicationData: any,
+    hybridApplicationsEndpoint: string
+): Promise<any[]> {
+    const headers = {
+        'X-ANYPNT-ENV-ID': environmentId,
+        'X-ANYPNT-ORG-ID': organizationId
+    };
+
+    const serverArtifactId = applicationData?.serverArtifacts?.[0]?.id;
+    const deploymentId = applicationData?.deploymentId || applicationData?.id || applicationId;
+    const candidateUrls: string[] = [
+        `${hybridApplicationsEndpoint}/${applicationId}/schedules`,
+        `${hybridApplicationsEndpoint}/${applicationId}/schedulers`,
+        `${ARM_BASE}/applications/${applicationId}/schedules`,
+        `${ARM_BASE}/applications/${applicationId}/schedulers`,
+        `${ARM_BASE}/environments/${environmentId}/applications/${applicationId}/schedules`,
+        `${ARM_BASE}/environments/${environmentId}/applications/${applicationId}/schedulers`,
+        `${ARM_BASE}/environment/${environmentId}/applications/${applicationId}/schedules`,
+        `${ARM_BASE}/environment/${environmentId}/applications/${applicationId}/schedulers`,
+        `${ARM_BASE}/organizations/${organizationId}/environments/${environmentId}/applications/${applicationId}/schedules`,
+        `${ARM_BASE}/organizations/${organizationId}/environments/${environmentId}/applications/${applicationId}/schedulers`,
+        `${ARM_BASE}/organizations/${organizationId}/environment/${environmentId}/applications/${applicationId}/schedules`,
+        `${ARM_BASE}/organizations/${organizationId}/environment/${environmentId}/applications/${applicationId}/schedulers`
+    ];
+
+    if (deploymentId && deploymentId !== applicationId) {
+        candidateUrls.push(`${ARM_BASE}/deployments/${deploymentId}/schedules`);
+        candidateUrls.push(`${ARM_BASE}/deployments/${deploymentId}/schedulers`);
+        candidateUrls.push(`${ARM_BASE}/environments/${environmentId}/deployments/${deploymentId}/schedules`);
+        candidateUrls.push(`${ARM_BASE}/environments/${environmentId}/deployments/${deploymentId}/schedulers`);
+        candidateUrls.push(`${ARM_BASE}/environment/${environmentId}/deployments/${deploymentId}/schedules`);
+        candidateUrls.push(`${ARM_BASE}/environment/${environmentId}/deployments/${deploymentId}/schedulers`);
+    }
+
+    if (serverArtifactId) {
+        candidateUrls.push(`${ARM_BASE}/serverArtifacts/${serverArtifactId}/schedules`);
+        candidateUrls.push(`${ARM_BASE}/serverArtifacts/${serverArtifactId}/schedulers`);
+    }
+
+    for (const url of candidateUrls) {
+        try {
+            console.log(`🔍 Hybrid schedulers: calling ${url}`);
+            const response = await apiHelper.get(url, { headers });
+            if (response.status === 200) {
+                const rawEntries = normalizeSchedulerResponse(response.data);
+                if (rawEntries.length > 0) {
+                    console.log(`✅ Hybrid schedulers fetched (${rawEntries.length}) from ${url}`);
+                    return rawEntries.map(normalizeHybridSchedulerEntry);
+                }
+            }
+        } catch (error: any) {
+            console.log(`⚠️ Hybrid schedulers endpoint ${url} returned ${error?.response?.status || error?.message}`);
+        }
+    }
+
+    try {
+        console.log('🔍 Hybrid schedulers: attempting include query on application endpoint');
+        const includeResponse = await apiHelper.get(`${hybridApplicationsEndpoint}/${applicationId}?include=schedules`, { headers });
+        const candidate = includeResponse?.data?.schedules || includeResponse?.data?.data?.schedules;
+        if (Array.isArray(candidate) && candidate.length > 0) {
+            console.log(`✅ Hybrid schedulers found via include param (${candidate.length})`);
+            return candidate.map(normalizeHybridSchedulerEntry);
+        }
+    } catch (error: any) {
+        console.log('⚠️ Hybrid schedulers include call failed:', error?.response?.status || error?.message);
+    }
+
+    console.log('ℹ️ No Hybrid schedulers were found across available endpoints.');
+    return [];
+}
+
+function normalizeSchedulerResponse(payload: any): any[] {
+    if (!payload) {
+        return [];
+    }
+    if (Array.isArray(payload)) {
+        return payload;
+    }
+    if (Array.isArray(payload?.data)) {
+        return payload.data;
+    }
+    if (Array.isArray(payload?.items)) {
+        return payload.items;
+    }
+    if (Array.isArray(payload?.schedules)) {
+        return payload.schedules;
+    }
+    return [];
+}
+
+function normalizeHybridSchedulerEntry(entry: any): any {
+    if (!entry || typeof entry !== 'object') {
+        return entry;
+    }
+
+    const normalized: any = { ...entry };
+
+    normalized.name = entry.name || entry.flowName || entry.flow || entry.jobName || 'Scheduler';
+    normalized.flow = entry.flow || entry.flowName;
+    normalized.type = entry.type || entry.jobType || entry.schedulerType || 'Scheduler';
+    normalized.expression = entry.cronExpression || entry.expression || entry.scheduleExpression;
+    normalized.frequency = entry.frequency || entry.intervalValue;
+    normalized.timeUnit = entry.timeUnit || entry.intervalUnit;
+    normalized.lastRun = entry.lastRun || entry.lastFireTime || entry.lastExecution || entry.lastExecutionTime || entry.lastRunTime;
+    normalized.nextRunTime = entry.nextRun || entry.nextFireTime || entry.nextExecution || entry.nextExecutionTime || entry.nextRunTime;
+    normalized.status = entry.status || entry.state;
+
+    if (typeof entry.enabled === 'boolean') {
+        normalized.enabled = entry.enabled;
+    } else if (entry.active !== undefined) {
+        normalized.enabled = !!entry.active;
+    } else {
+        const state = (entry.state || entry.status || '').toString().toUpperCase();
+        normalized.enabled = state === 'ENABLED' || state === 'ACTIVE';
+    }
+
+    return normalized;
+}
+
 function buildDatasourceUrl(datasourceId: number, database: string, query: string): string {
     const params = new URLSearchParams();
     params.append('db', `"${database}"`);
@@ -1102,26 +1983,50 @@ function normalizeRegion(value?: string): string | undefined {
 
 const METRIC_COLORS = ['#58a6ff', '#3fb950', '#f85149', '#d29922', '#a371f7', '#79c0ff', '#ffa657'];
 
-function renderMetricsTab(metrics?: VisualizerMetricsData, options?: { active: boolean; selectedRange: number }): string {
-    const infoBanner = metrics?.status === 'live'
-        ? `🟢 Live metrics from Visualizer • Last updated ${metrics.lastUpdated ? new Date(metrics.lastUpdated).toLocaleString() : 'just now'} • Window ${metrics?.rangeMinutes || METRIC_LOOKBACK_MINUTES}m`
-        : metrics?.status === 'error'
-            ? `🚫 ${metrics.errorMessage || 'Unable to load metrics from Visualizer.'}`
-            : metrics?.errorMessage || 'Metrics will appear here once Visualizer access is enabled for this org/environment.';
+function renderMetricsTab(
+    metrics?: VisualizerMetricsData,
+    options?: { active: boolean; selectedRange: number; performanceMetrics?: CommandCenterData['performanceMetrics']; cloudhubVersion?: string }
+): string {
+    const performanceMetrics = options?.performanceMetrics;
+    const hasMonitoringFallback = performanceMetrics && performanceMetrics.source === 'monitoring';
+    const hasVisualizerData = metrics?.status === 'live' && metrics.panels.length > 0;
 
-    const statusClass = metrics?.status === 'live' ? 'success' : metrics?.status === 'error' ? 'error' : 'warning';
+    const infoBanner = hasVisualizerData
+        ? `🟢 Live metrics from Visualizer • Last updated ${metrics?.lastUpdated ? new Date(metrics.lastUpdated).toLocaleString() : 'just now'} • Window ${metrics?.rangeMinutes || METRIC_LOOKBACK_MINUTES}m`
+        : hasMonitoringFallback
+            ? `🟢 Monitoring Query metrics for Hybrid deployments • Window last 24h`
+            : metrics?.status === 'error'
+                ? `🚫 ${metrics?.errorMessage || 'Unable to load metrics from Visualizer.'}`
+                : metrics?.errorMessage || 'Metrics will appear here once Visualizer access is enabled for this org/environment.';
+
+    const statusClass = hasVisualizerData
+        ? 'success'
+        : hasMonitoringFallback
+            ? 'success'
+            : metrics?.status === 'error'
+                ? 'error'
+                : 'warning';
+
     const selectedRange = options?.selectedRange || metrics?.rangeMinutes || METRIC_LOOKBACK_MINUTES;
     const rangeOptions = METRIC_RANGE_OPTIONS.map(option => `
         <option value="${option}" ${option === selectedRange ? 'selected' : ''}>Last ${option} min</option>
     `).join('');
 
-    const metricsGrid = metrics?.status === 'live' && metrics.panels.length > 0
+    const visualizerGrid = hasVisualizerData
         ? `<div class="metrics-grid">
-                ${metrics.panels.map((panel, index) => renderMetricPanel(panel, index)).join('')}
+                ${metrics?.panels.map((panel, index) => renderMetricPanel(panel, index)).join('')}
            </div>`
-        : `<div class="metrics-empty">
+        : '';
+
+    const monitoringFallbackGrid = !hasVisualizerData && hasMonitoringFallback
+        ? renderMonitoringPerformancePanels(performanceMetrics!, options?.cloudhubVersion)
+        : '';
+
+    const emptyState = !hasVisualizerData && !hasMonitoringFallback
+        ? `<div class="metrics-empty">
                 <p>${metrics?.errorMessage || 'No metric panels available for this application in the selected time window.'}</p>
-           </div>`;
+           </div>`
+        : '';
 
     return `
     <div id="tab-metrics" class="tab-content ${options?.active ? 'active' : ''}">
@@ -1133,7 +2038,7 @@ function renderMetricsTab(metrics?: VisualizerMetricsData, options?: { active: b
             <div class="metrics-controls">
                 <div class="metrics-filter">
                     <label for="metrics-range-select">Time range</label>
-                    <select id="metrics-range-select" onchange="onMetricsRangeChange(event)">
+                    <select id="metrics-range-select" onchange="onMetricsRangeChange(event)" ${hasMonitoringFallback && !hasVisualizerData ? 'disabled' : ''}>
                         ${rangeOptions}
                     </select>
                 </div>
@@ -1145,8 +2050,92 @@ function renderMetricsTab(metrics?: VisualizerMetricsData, options?: { active: b
             <div class="metrics-status metrics-status-${statusClass}">
                 <div>${infoBanner}</div>
                 ${metrics?.datasource ? `<div>Datasource #${metrics.datasource.id}${metrics.datasource.name ? ` • ${metrics.datasource.name}` : ''}${metrics.datasource.database ? ` • ${metrics.datasource.database}` : ''}</div>` : ''}
+                ${hasMonitoringFallback ? `<div>Source: Monitoring Query API</div>` : ''}
             </div>
-            ${metricsGrid}
+            ${visualizerGrid || monitoringFallbackGrid || emptyState}
+        </div>
+    </div>`;
+}
+
+function renderMonitoringPerformancePanels(perf: CommandCenterData['performanceMetrics'], cloudhubVersion?: string): string {
+    if (!perf || !perf.timestamps || perf.timestamps.length === 0) {
+        return `<div class="metrics-empty"><p>No monitoring data returned for this application.</p></div>`;
+    }
+
+    const cpuCard = renderSimpleTimeseriesCard({
+        label: perf.cpuLabel || (cloudhubVersion === 'HYBRID' ? 'Message Count (avg)' : 'CPU Usage (%)'),
+        color: '#58a6ff',
+        values: perf.cpu,
+        timestamps: perf.timestamps,
+        unit: '',
+        formatter: value => value.toFixed(2)
+    });
+
+    const memoryCard = renderSimpleTimeseriesCard({
+        label: perf.memoryLabel || (cloudhubVersion === 'HYBRID' ? 'Response Time (ms)' : 'Memory Usage (MB)'),
+        color: '#3fb950',
+        values: perf.memory,
+        timestamps: perf.timestamps,
+        unit: '',
+        formatter: value => value.toFixed(2)
+    });
+
+    return `<div class="metrics-grid">
+        ${cpuCard}
+        ${memoryCard}
+    </div>`;
+}
+
+function renderSimpleTimeseriesCard(params: { label: string; color: string; values: number[]; timestamps: number[]; unit?: string; formatter?: (value: number) => string }): string {
+    const values = params.values || [];
+    const timestamps = params.timestamps || [];
+    if (!values.length || !timestamps.length) {
+        return `<div class="metrics-card"><div class="metrics-header"><div><div class="metrics-title">${params.label}</div></div><div class="metrics-value">—</div></div><div class="metrics-empty"><p>No data points returned.</p></div></div>`;
+    }
+
+    const latest = values[values.length - 1];
+    const avg = values.reduce((sum, val) => sum + val, 0) / values.length;
+    const max = Math.max(...values);
+    const min = Math.min(...values);
+    const formatter = params.formatter || ((val: number) => val.toFixed(1));
+
+    const width = 320;
+    const height = 120;
+    const padding = { top: 10, bottom: 30, left: 20, right: 10 };
+    const chartWidth = width - padding.left - padding.right;
+    const chartHeight = height - padding.top - padding.bottom;
+    const maxValue = max <= 0 ? 1 : max;
+    const path = values.map((value, index) => {
+        const ratioX = values.length > 1 ? index / (values.length - 1) : 0;
+        const ratioY = value / maxValue;
+        const x = padding.left + ratioX * chartWidth;
+        const y = padding.top + (1 - ratioY) * chartHeight;
+        return `${index === 0 ? 'M' : 'L'} ${x} ${y}`;
+    }).join(' ');
+
+    const dotX = padding.left + ((values.length - 1) / Math.max(values.length - 1, 1)) * chartWidth;
+    const dotY = padding.top + (1 - (latest / maxValue)) * chartHeight;
+
+    return `
+    <div class="metrics-card">
+        <div class="metrics-header">
+            <div>
+                <div class="metrics-title">${params.label}</div>
+                <div class="metrics-subtitle">Latest ${formatter(latest)}${params.unit || ''} • Avg ${formatter(avg)}</div>
+            </div>
+            <div class="metrics-value">${formatter(latest)}${params.unit || ''}</div>
+        </div>
+        <div class="metrics-chart">
+            <svg width="${width}" height="${height}">
+                <path d="${path}" fill="none" stroke="${params.color}" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"></path>
+                <circle cx="${dotX}" cy="${dotY}" r="4" fill="${params.color}"></circle>
+                <text x="${dotX}" y="${dotY - 8}" fill="${params.color}" font-size="10" text-anchor="end">${formatter(latest)}${params.unit || ''}</text>
+            </svg>
+        </div>
+        <div class="metrics-footer">
+            <span>Min ${formatter(min)}</span>
+            <span>Max ${formatter(max)}</span>
+            <span>Samples ${values.length}</span>
         </div>
     </div>`;
 }
@@ -1289,6 +2278,9 @@ function formatSchedulerDescription(scheduler: any): string {
     if (scheduler?.expression) {
         return scheduler.expression;
     }
+    if (scheduler?.scheduleExpression) {
+        return scheduler.scheduleExpression;
+    }
     if (scheduler?.cronExpression) {
         return scheduler.cronExpression;
     }
@@ -1302,12 +2294,12 @@ function formatSchedulerDescription(scheduler: any): string {
 }
 
 function formatSchedulerLastRun(scheduler: any): string {
-    const lastRun = scheduler?.lastRun || scheduler?.lastExecutionTime || scheduler?.lastRunTime;
+    const lastRun = scheduler?.lastRun || scheduler?.lastExecutionTime || scheduler?.lastRunTime || scheduler?.lastFireTime;
     return lastRun ? new Date(lastRun).toLocaleString() : 'Never run';
 }
 
 function formatSchedulerNextRun(scheduler: any): string {
-    const nextRun = scheduler?.nextRunTime || scheduler?.nextExecutionTime;
+    const nextRun = scheduler?.nextRunTime || scheduler?.nextExecutionTime || scheduler?.nextFireTime;
     return nextRun ? new Date(nextRun).toLocaleString() : 'Unknown';
 }
 
@@ -1426,7 +2418,7 @@ function parseNetworkTopology(app: any, cloudhubVersion: 'CH1' | 'CH2'): {
  * Get actual application running status
  * For CH2, checks replica states; for CH1, uses application status
  */
-function getActualStatus(app: any, replicas: any[] | undefined, cloudhubVersion: 'CH1' | 'CH2'): string {
+function getActualStatus(app: any, replicas: any[] | undefined, cloudhubVersion: 'CH1' | 'CH2' | 'HYBRID'): string {
     const baseStatus = normalizeStatus(app?.application?.status || app?.status);
 
     if (cloudhubVersion === 'CH2' && replicas && replicas.length > 0) {
@@ -1568,31 +2560,33 @@ export async function showApplicationCommandCenter(
         // Fetch both CH1 and CH2 applications
         const apiHelper = new ApiHelper(context);
         const organizationID = activeAccount.organizationId;
+        const envHeaders = {
+            'X-ANYPNT-ENV-ID': environmentId,
+            'X-ANYPNT-ORG-ID': organizationID
+        };
 
         let allApplications: any[] = [];
 
         // Fetch CloudHub 1.0 applications
         try {
             const ch1Response = await apiHelper.get(`${BASE_URL}/cloudhub/api/applications`, {
-                headers: {
-                    'X-ANYPNT-ENV-ID': environmentId,
-                    'X-ANYPNT-ORG-ID': organizationID,
-                },
+                headers: envHeaders,
             });
 
-            if (ch1Response.status === 200) {
-                const ch1Apps = Array.isArray(ch1Response.data) ? ch1Response.data : [];
-                allApplications.push(...ch1Apps.map(app => ({
-                    label: `📦 CH1: ${app.domain} (${app.status})`,
-                    domain: app.domain,
-                    cloudhubVersion: 'CH1' as const,
-                    status: app.status,
-                    applicationStatus: app.status // CH1 uses status directly for application status
-                })));
+                if (ch1Response.status === 200) {
+                    const ch1Apps = Array.isArray(ch1Response.data) ? ch1Response.data : [];
+                    allApplications.push(...ch1Apps.map(app => ({
+                        label: `📦 CH1: ${app.domain} (${app.status})`,
+                        domain: app.domain,
+                        cloudhubVersion: 'CH1' as const,
+                        status: app.status,
+                        applicationStatus: app.status, // CH1 uses status directly for application status
+                        rawData: app
+                    })));
+                }
+            } catch (error) {
+                console.log('CloudHub 1.0 applications not available or error:', error);
             }
-        } catch (error) {
-            console.log('CloudHub 1.0 applications not available or error:', error);
-        }
 
         // Fetch CloudHub 2.0 applications
         try {
@@ -1644,7 +2638,8 @@ export async function showApplicationCommandCenter(
                         status: app.status,
                         applicationStatus: appStatus,
                         deploymentId: app.id,
-                        specificationId: specificationId
+                        specificationId: specificationId,
+                        rawData: app
                     };
                 }));
 
@@ -1664,6 +2659,43 @@ export async function showApplicationCommandCenter(
             }
         }
 
+        // Fetch Hybrid applications
+        try {
+            console.log('🖥 Command Center: Fetching Hybrid apps...');
+            const hybridResponse = await apiHelper.get(HYBRID_APPLICATIONS_ENDPOINT, {
+                headers: envHeaders
+            });
+
+            if (hybridResponse.status === 200) {
+                const hybridData = Array.isArray(hybridResponse.data)
+                    ? hybridResponse.data
+                    : Array.isArray(hybridResponse.data?.data)
+                        ? hybridResponse.data.data
+                        : [];
+
+                console.log(`🖥 Command Center: Hybrid apps found: ${hybridData.length}`);
+
+                const hybridEntries = hybridData.map((app: any) => {
+                    const appName = app.name || app.artifact?.name || app.domain || app.id;
+                    const appStatus = normalizeStatus(app.lastReportedStatus || app.desiredStatus || app.status) || 'UNKNOWN';
+                    return {
+                        label: `🖥 HYBRID: ${appName} (${appStatus})`,
+                        domain: appName,
+                        cloudhubVersion: 'HYBRID' as const,
+                        status: appStatus,
+                        applicationStatus: appStatus,
+                        deploymentId: app.id,
+                        specificationId: undefined,
+                        rawData: { ...app, cloudhubVersion: 'HYBRID' }
+                    };
+                });
+
+                allApplications.push(...hybridEntries);
+            }
+        } catch (error: any) {
+            console.warn('⚠️ Command Center: Unable to fetch Hybrid applications:', error?.message || error);
+        }
+
         console.log(`📊 Command Center: Total applications found: ${allApplications.length}`);
         console.log(`📊 Command Center: Applications breakdown:`, allApplications.map(a => a.label));
 
@@ -1676,15 +2708,22 @@ export async function showApplicationCommandCenter(
 
             if (!appInfo) {
                 // Create appInfo from preselected data
+                // Check if it's a Hybrid app by looking for cloudhubVersion or deploymentType
+                const isHybrid = preselectedAppData.cloudhubVersion === 'HYBRID' ||
+                                 preselectedAppData.deploymentType === 'HYBRID';
+
                 appInfo = {
-                    label: preselectedAppData.name || preselectedAppName,
-                    domain: preselectedAppData.name || preselectedAppName,
-                    cloudhubVersion: preselectedAppData.target ? 'CH2' : 'CH1',
-                    deploymentId: preselectedAppData.id,
-                    specificationId: preselectedAppData.specificationId
+                    label: preselectedAppData.name || preselectedAppData.domain || preselectedAppName,
+                    domain: preselectedAppData.domain || preselectedAppData.name || preselectedAppName,
+                    cloudhubVersion: isHybrid ? 'HYBRID' as const : (preselectedAppData.target ? 'CH2' as const : 'CH1' as const),
+                    deploymentId: preselectedAppData.id || preselectedAppData.target?.id || preselectedAppData.targetId,
+                    specificationId: preselectedAppData.specificationId,
+                    status: preselectedAppData.status || preselectedAppData.lastReportedStatus,
+                    applicationStatus: preselectedAppData.status || preselectedAppData.lastReportedStatus,
+                    rawData: preselectedAppData
                 };
             }
-            console.log(`🎯 Using preselected app: ${preselectedAppName}`);
+            console.log(`🎯 Using preselected app: ${preselectedAppName}`, appInfo);
         } else {
             if (allApplications.length === 0) {
                 vscode.window.showErrorMessage(
@@ -1731,7 +2770,8 @@ export async function showApplicationCommandCenter(
                 appInfo.domain,
                 appInfo.cloudhubVersion,
                 appInfo.deploymentId,
-                metricsRangeMinutes
+                metricsRangeMinutes,
+                appInfo.rawData
             );
 
             // Add spec ID to data
@@ -1774,7 +2814,8 @@ export async function showApplicationCommandCenter(
                             appInfo.domain,
                             appInfo.cloudhubVersion,
                             appInfo.deploymentId,
-                            metricsRangeMinutes
+                            metricsRangeMinutes,
+                            appInfo.rawData
                         );
                         if (appInfo.specificationId) {
                             refreshedData.specificationId = appInfo.specificationId;
@@ -1794,7 +2835,8 @@ export async function showApplicationCommandCenter(
                             appInfo.domain,
                             appInfo.cloudhubVersion,
                             appInfo.deploymentId,
-                            metricsRangeMinutes
+                            metricsRangeMinutes,
+                            appInfo.rawData
                         );
                         if (appInfo.specificationId) {
                             metricsOnlyData.specificationId = appInfo.specificationId;
@@ -1815,7 +2857,8 @@ export async function showApplicationCommandCenter(
                             appInfo.domain,
                             appInfo.cloudhubVersion,
                             appInfo.deploymentId,
-                            metricsRangeMinutes
+                            metricsRangeMinutes,
+                            appInfo.rawData
                         );
                         if (appInfo.specificationId) {
                             rangeUpdatedData.specificationId = appInfo.specificationId;
@@ -1834,7 +2877,16 @@ export async function showApplicationCommandCenter(
                         vscode.window.showInformationMessage(`Restart initiated for ${appInfo.domain}`);
                         // Refresh data after action
                         setTimeout(async () => {
-                            const updatedData = await fetchApplicationData(context, environmentId, environmentName, appInfo.domain, appInfo.cloudhubVersion, appInfo.deploymentId, metricsRangeMinutes);
+                            const updatedData = await fetchApplicationData(
+                                context,
+                                environmentId,
+                                environmentName,
+                                appInfo.domain,
+                                appInfo.cloudhubVersion,
+                                appInfo.deploymentId,
+                                metricsRangeMinutes,
+                                appInfo.rawData
+                            );
                             renderDashboard(updatedData);
                         }, 2000);
                         break;
@@ -1843,7 +2895,16 @@ export async function showApplicationCommandCenter(
                         await handleStopApplication(context, appInfo, environmentId, organizationID);
                         vscode.window.showInformationMessage(`Stop initiated for ${appInfo.domain}`);
                         setTimeout(async () => {
-                            const updatedData = await fetchApplicationData(context, environmentId, environmentName, appInfo.domain, appInfo.cloudhubVersion, appInfo.deploymentId, metricsRangeMinutes);
+                            const updatedData = await fetchApplicationData(
+                                context,
+                                environmentId,
+                                environmentName,
+                                appInfo.domain,
+                                appInfo.cloudhubVersion,
+                                appInfo.deploymentId,
+                                metricsRangeMinutes,
+                                appInfo.rawData
+                            );
                             renderDashboard(updatedData);
                         }, 2000);
                         break;
@@ -1852,7 +2913,16 @@ export async function showApplicationCommandCenter(
                         await handleStartApplication(context, appInfo, environmentId, organizationID);
                         vscode.window.showInformationMessage(`Start initiated for ${appInfo.domain}`);
                         setTimeout(async () => {
-                            const updatedData = await fetchApplicationData(context, environmentId, environmentName, appInfo.domain, appInfo.cloudhubVersion, appInfo.deploymentId, metricsRangeMinutes);
+                            const updatedData = await fetchApplicationData(
+                                context,
+                                environmentId,
+                                environmentName,
+                                appInfo.domain,
+                                appInfo.cloudhubVersion,
+                                appInfo.deploymentId,
+                                metricsRangeMinutes,
+                                appInfo.rawData
+                            );
                             renderDashboard(updatedData);
                         }, 2000);
                         break;
@@ -1917,8 +2987,13 @@ async function handleRestartApplication(
                 'X-ANYPNT-ORG-ID': organizationID,
             },
         });
-    } else {
+    } else if (appInfo.cloudhubVersion === 'CH2') {
         await apiHelper.post(`${BASE_URL}/amc/application-manager/api/v2/organizations/${organizationID}/environments/${environmentId}/deployments/${appInfo.deploymentId}/restart`);
+    } else if (appInfo.cloudhubVersion === 'HYBRID') {
+        const hybridId = resolveHybridAppIdentifier(appInfo);
+        const params = new URLSearchParams();
+        params.append('id', hybridId);
+        await patchHybridApplication(apiHelper, hybridId, environmentId, organizationID, params, 'application/x-www-form-urlencoded');
     }
 }
 
@@ -1943,6 +3018,10 @@ async function handleStopApplication(
                 },
             }
         );
+    } else if (appInfo.cloudhubVersion === 'HYBRID') {
+        const hybridId = resolveHybridAppIdentifier(appInfo);
+        await patchHybridApplication(apiHelper, hybridId, environmentId, organizationID,
+            { id: hybridId, desiredStatus: 'STOPPED' }, 'application/json');
     }
 }
 
@@ -1967,7 +3046,37 @@ async function handleStartApplication(
                 },
             }
         );
+    } else if (appInfo.cloudhubVersion === 'HYBRID') {
+        const hybridId = resolveHybridAppIdentifier(appInfo);
+        await patchHybridApplication(apiHelper, hybridId, environmentId, organizationID,
+            { id: hybridId, desiredStatus: 'STARTED' }, 'application/json');
     }
+}
+
+async function patchHybridApplication(
+    apiHelper: ApiHelper,
+    hybridId: string,
+    environmentId: string,
+    organizationID: string,
+    data: any,
+    contentType: string
+): Promise<void> {
+    try {
+        await apiHelper.patch(`${HYBRID_APPLICATIONS_ENDPOINT}/${hybridId}`, data, {
+            headers: {
+                'X-ANYPNT-ENV-ID': environmentId,
+                'X-ANYPNT-ORG-ID': organizationID,
+                'Content-Type': contentType
+            },
+        });
+    } catch (error: any) {
+        console.error('Hybrid action failed:', error?.response?.status, error?.response?.data || error.message);
+        throw error;
+    }
+}
+
+function resolveHybridAppIdentifier(appInfo: any): string {
+    return appInfo.deploymentId || appInfo.rawData?.id || appInfo.domain;
 }
 
 /**
@@ -2037,14 +3146,23 @@ async function handleCompareEnvironments(
  */
 function getCommandCenterHtml(webview: vscode.Webview, extensionUri: vscode.Uri, data: CommandCenterData): string {
 	const app = data.application;
+	const hybridArtifact = data.cloudhubVersion === 'HYBRID' ? (app?.artifact || app?.serverArtifacts?.[0]?.artifact) : undefined;
+	const hybridServer = data.cloudhubVersion === 'HYBRID' ? (data.replicas?.[0] || app?.target) : undefined;
+	const hybridServerArtifact = data.cloudhubVersion === 'HYBRID' ? app?.serverArtifacts?.[0] : undefined;
+	const hybridServerAddresses = Array.isArray(hybridServer?.addresses)
+	    ? hybridServer.addresses.map((addr: any) => addr?.ip || addr?.address || '').filter(Boolean).join(', ')
+	    : undefined;
+	const hybridServerOs = hybridServer?.runtimeInformation?.osInformation;
+	const hybridJvmInfo = hybridServer?.runtimeInformation?.jvmInformation;
 	const healthColor = data.healthScore >= 80 ? '#3fb950' : data.healthScore >= 60 ? '#d29922' : '#f85149';
 	const activeTab = data.activeTab || 'overview';
 	const selectedRange = data.metricsRangeMinutes || data.visualizerMetrics?.rangeMinutes || METRIC_LOOKBACK_MINUTES;
+	// Only CH2 supports application diagrams (not CH1 or HYBRID)
 	const supportsApplicationDiagram = (data.cloudhubVersion || '').toUpperCase() === 'CH2';
 
     // Get MuleSoft logo URI
-    const logoPath = vscode.Uri.joinPath(extensionUri, 'mulelogo.png');
-    const logoSrc = webview.asWebviewUri(logoPath);
+	const logoPath = vscode.Uri.joinPath(extensionUri, 'mulelogo.png');
+	const logoSrc = webview.asWebviewUri(logoPath);
 
     // Get actual running status (checks replicas for CH2)
     const actualStatus = getActualStatus(app, data.replicas, data.cloudhubVersion);
@@ -2052,41 +3170,56 @@ function getCommandCenterHtml(webview: vscode.Webview, extensionUri: vscode.Uri,
                        (actualStatus === 'STARTING') ? '#d29922' : '#f85149';
 
     // Calculate uptime - use different fields based on CloudHub version
-    let uptimeText = 'Unknown';
-    if (data.cloudhubVersion === 'CH1') {
-        const uptimeMs = app?.updateDate ? Date.now() - app.updateDate : app?.lastUpdateTime ? Date.now() - app.lastUpdateTime : 0;
-        if (uptimeMs > 0) {
-            const uptimeDays = Math.floor(uptimeMs / (1000 * 60 * 60 * 24));
-            const uptimeHours = Math.floor((uptimeMs % (1000 * 60 * 60 * 24)) / (1000 * 60 * 60));
-            const uptimeMinutes = Math.floor((uptimeMs % (1000 * 60 * 60)) / (1000 * 60));
-            uptimeText = `${uptimeDays}d ${uptimeHours}h ${uptimeMinutes}m`;
-        }
-    } else {
-        // CH2 - use deployment date
-        if (app?.creationDate) {
-            const deployMs = Date.now() - new Date(app.creationDate).getTime();
-            const deployDays = Math.floor(deployMs / (1000 * 60 * 60 * 24));
-            const deployHours = Math.floor((deployMs % (1000 * 60 * 60 * 24)) / (1000 * 60 * 60));
-            uptimeText = `${deployDays}d ${deployHours}h since deployment`;
-        }
-    }
+	let uptimeText = 'Unknown';
+	if (data.cloudhubVersion === 'CH1') {
+		const uptimeMs = app?.updateDate ? Date.now() - app.updateDate : app?.lastUpdateTime ? Date.now() - app.lastUpdateTime : 0;
+		if (uptimeMs > 0) {
+			const uptimeDays = Math.floor(uptimeMs / (1000 * 60 * 60 * 24));
+			const uptimeHours = Math.floor((uptimeMs % (1000 * 60 * 60 * 24)) / (1000 * 60 * 60));
+			const uptimeMinutes = Math.floor((uptimeMs % (1000 * 60 * 60)) / (1000 * 60));
+			uptimeText = `${uptimeDays}d ${uptimeHours}h ${uptimeMinutes}m`;
+		}
+	} else if (data.cloudhubVersion === 'CH2') {
+		if (app?.creationDate) {
+			const deployMs = Date.now() - new Date(app.creationDate).getTime();
+			const deployDays = Math.floor(deployMs / (1000 * 60 * 60 * 24));
+			const deployHours = Math.floor((deployMs % (1000 * 60 * 60 * 24)) / (1000 * 60 * 60));
+			uptimeText = `${deployDays}d ${deployHours}h since deployment`;
+		}
+	} else {
+		const uptimeMs = typeof app?.uptime === 'number' ? app.uptime : undefined;
+		if (uptimeMs && uptimeMs > 0) {
+			const uptimeDays = Math.floor(uptimeMs / (1000 * 60 * 60 * 24));
+			const uptimeHours = Math.floor((uptimeMs % (1000 * 60 * 60 * 24)) / (1000 * 60 * 60));
+			const uptimeMinutes = Math.floor((uptimeMs % (1000 * 60 * 60)) / (1000 * 60));
+			uptimeText = `${uptimeDays}d ${uptimeHours}h ${uptimeMinutes}m`;
+		}
+	}
 
-    // Get runtime version
-    const runtimeVersion = app?.muleVersion || app?.currentRuntimeVersion || app?.target?.deploymentSettings?.runtimeVersion || 'Unknown';
+	const runtimeVersion = data.cloudhubVersion === 'HYBRID'
+	    ? (hybridServer?.muleVersion || hybridServer?.gatewayVersion || app?.artifact?.muleVersion || 'Unknown')
+	    : (app?.muleVersion || app?.currentRuntimeVersion || app?.target?.deploymentSettings?.runtimeVersion || 'Unknown');
 
-    // Get region
-    const region = app?.region || app?.target?.deploymentSettings?.region || app?.target?.provider || 'Unknown';
+	const region = data.cloudhubVersion === 'HYBRID'
+	    ? (hybridServer?.name ? `${hybridServer.name}${hybridServer?.type ? ` (${hybridServer.type})` : ''}` : 'Hybrid Runtime')
+	    : (app?.region || app?.target?.deploymentSettings?.region || app?.target?.provider || 'Unknown');
 
     // Prepare performance chart data
-    const cpuData = data.performanceMetrics?.cpu.slice(-24) || Array.from({ length: 24 }, () => Math.random() * 80 + 10);
-    const memoryData = data.performanceMetrics?.memory.slice(-24) || Array.from({ length: 24 }, () => Math.random() * 70 + 20);
-    const timestamps = data.performanceMetrics?.timestamps.slice(-24) || Array.from({ length: 24 }, (_, i) => Date.now() - (24 - i) * 60 * 60 * 1000);
+    const cpuData = data.performanceMetrics?.cpu?.slice(-24) || Array.from({ length: 24 }, () => Math.random() * 80 + 10);
+    const memoryData = data.performanceMetrics?.memory?.slice(-24) || Array.from({ length: 24 }, () => Math.random() * 70 + 20);
+    const timestamps = data.performanceMetrics?.timestamps?.slice(-24) || Array.from({ length: 24 }, (_, i) => Date.now() - (24 - i) * 60 * 60 * 1000);
 
-    // Check if metrics are real or simulated
-    const isRealData = data.performanceMetrics?.cpu && data.performanceMetrics.cpu.length > 0;
-    const metricsSource = isRealData ?
-        '📊 Data source: Anypoint Monitoring API' :
-        '⚠️ Simulated data - Requires Anypoint Monitoring subscription to show real metrics';
+    const isRealData = data.performanceMetrics?.source && data.performanceMetrics.source !== 'simulated';
+	const metricsSource = data.performanceMetrics?.source === 'monitoring'
+	    ? (data.cloudhubVersion === 'HYBRID'
+	        ? '📊 Data source: Monitoring Query API'
+	        : '📊 Data source: Runtime Manager metrics API')
+	    : data.performanceMetrics?.source === 'observability'
+	        ? '📊 Data source: Anypoint Observability API'
+	        : '⚠️ Simulated data - Requires Anypoint Monitoring access to display live charts';
+
+	const cpuMetricLabel = data.performanceMetrics?.cpuLabel || (data.cloudhubVersion === 'HYBRID' ? 'Message Count (avg)' : 'CPU Usage (%)');
+	const memoryMetricLabel = data.performanceMetrics?.memoryLabel || (data.cloudhubVersion === 'HYBRID' ? 'Response Time (ms)' : 'Memory Usage (MB)');
 
     // Calculate current values
     const currentCpu = cpuData[cpuData.length - 1].toFixed(1);
@@ -2588,6 +3721,67 @@ function getCommandCenterHtml(webview: vscode.Webview, extensionUri: vscode.Uri,
             color: var(--text-secondary);
             border: 1px dashed var(--border-muted);
             border-radius: 10px;
+        }
+
+        .metrics-footer {
+            display: flex;
+            justify-content: space-between;
+            font-size: 12px;
+            color: var(--text-secondary);
+            border-top: 1px solid var(--border-muted);
+            padding-top: 8px;
+        }
+
+        .confirm-overlay {
+            position: fixed;
+            inset: 0;
+            background: rgba(0, 0, 0, 0.6);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            z-index: 9999;
+        }
+
+        .confirm-dialog {
+            background: var(--surface-primary);
+            border: 1px solid var(--border-primary);
+            border-radius: 12px;
+            padding: 24px;
+            min-width: 320px;
+            box-shadow: 0 20px 60px rgba(0, 0, 0, 0.5);
+        }
+
+        .confirm-dialog h3 {
+            margin: 0 0 12px;
+            color: var(--text-primary);
+            font-size: 16px;
+        }
+
+        .confirm-dialog p {
+            margin: 0 0 20px;
+            color: var(--text-secondary);
+            font-size: 14px;
+        }
+
+        .confirm-actions {
+            display: flex;
+            justify-content: flex-end;
+            gap: 12px;
+        }
+
+        .confirm-btn {
+            padding: 8px 16px;
+            border-radius: 6px;
+            border: 1px solid var(--border-primary);
+            background: var(--surface-secondary);
+            color: var(--text-primary);
+            cursor: pointer;
+        }
+
+        .confirm-btn-primary {
+            background: var(--accent-blue);
+            border-color: var(--accent-blue);
+            color: #fff;
         }
 
         /* Section Title */
@@ -3167,6 +4361,7 @@ function getCommandCenterHtml(webview: vscode.Webview, extensionUri: vscode.Uri,
                     </span>
                     <span>Start</span>
                 </button>
+                ${data.cloudhubVersion !== 'HYBRID' ? `
                 <button class="action-btn" onclick="openLogs()">
                     <span class="action-icon gradient-purple">
                         <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
@@ -3176,6 +4371,7 @@ function getCommandCenterHtml(webview: vscode.Webview, extensionUri: vscode.Uri,
                     </span>
                     <span>View Logs</span>
                 </button>
+                ` : ''}
                 <button class="action-btn" onclick="exportCSV()">
                     <span class="action-icon gradient-gold">
                         <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
@@ -3254,6 +4450,14 @@ function getCommandCenterHtml(webview: vscode.Webview, extensionUri: vscode.Uri,
                         <div class="stat-label">Region</div>
                         <div class="stat-value">${region}</div>
                     </div>
+                    <div class="stat-card">
+                        <div class="stat-label">${cpuMetricLabel} (current)</div>
+                        <div class="stat-value">${currentCpu}</div>
+                    </div>
+                    <div class="stat-card">
+                        <div class="stat-label">${memoryMetricLabel} (current)</div>
+                        <div class="stat-value">${currentMemory}</div>
+                    </div>
                 </div>
             </div>
 
@@ -3303,8 +4507,108 @@ function getCommandCenterHtml(webview: vscode.Webview, extensionUri: vscode.Uri,
                         <span style="color: var(--text-primary); font-weight: 500; font-size: 13px;">${new Date(app.lastUpdateTime || app.lastModifiedDate).toLocaleString()}</span>
                     </div>
                     ` : ''}
+                    ${data.cloudhubVersion === 'HYBRID' ? `
+                    <div class="info-row" style="display: flex; justify-content: space-between; padding: 8px 0;">
+                        <span style="color: var(--text-secondary); font-size: 13px;">Deployment ID</span>
+                        <span style="color: var(--text-primary); font-weight: 500; font-size: 13px;">${app?.id || 'N/A'}</span>
+                    </div>
+                    <div class="info-row" style="display: flex; justify-content: space-between; padding: 8px 0;">
+                        <span style="color: var(--text-secondary); font-size: 13px;">Server ID</span>
+                        <span style="color: var(--text-primary); font-weight: 500; font-size: 13px;">${hybridServer?.id || 'N/A'}</span>
+                    </div>
+                    ` : ''}
                 </div>
             </div>
+
+            ${data.cloudhubVersion === 'HYBRID' ? `
+            <div style="margin-top: 16px; background: var(--surface-primary); border-radius: 8px; border: 1px solid var(--border-primary); padding: 20px;">
+                <h3 style="margin-bottom: 16px; color: var(--text-primary); font-size: 14px; font-weight: 600;">📦 Hybrid Artifact</h3>
+                <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(250px, 1fr)); gap: 12px;">
+                    <div class="info-row" style="display: flex; justify-content: space-between; padding: 8px 0;">
+                        <span style="color: var(--text-secondary); font-size: 13px;">Artifact Name</span>
+                        <span style="color: var(--text-primary); font-weight: 500; font-size: 13px;">${hybridArtifact?.name || app?.name || 'N/A'}</span>
+                    </div>
+                    <div class="info-row" style="display: flex; justify-content: space-between; padding: 8px 0;">
+                        <span style="color: var(--text-secondary); font-size: 13px;">File Name</span>
+                        <span style="color: var(--text-primary); font-weight: 500; font-size: 13px; word-break: break-all;">${hybridArtifact?.fileName || 'N/A'}</span>
+                    </div>
+                    <div class="info-row" style="display: flex; justify-content: space-between; padding: 8px 0;">
+                        <span style="color: var(--text-secondary); font-size: 13px;">File Size</span>
+                        <span style="color: var(--text-primary); font-weight: 500; font-size: 13px;">${formatBytes(hybridArtifact?.fileSize)}</span>
+                    </div>
+                    <div class="info-row" style="display: flex; justify-content: space-between; padding: 8px 0;">
+                        <span style="color: var(--text-secondary); font-size: 13px;">Checksum</span>
+                        <span style="color: var(--text-primary); font-weight: 500; font-size: 13px; word-break: break-all;">${hybridArtifact?.fileChecksum || 'N/A'}</span>
+                    </div>
+                    <div class="info-row" style="display: flex; justify-content: space-between; padding: 8px 0;">
+                        <span style="color: var(--text-secondary); font-size: 13px;">Storage ID</span>
+                        <span style="color: var(--text-primary); font-weight: 500; font-size: 13px;">${hybridArtifact?.storageId || 'N/A'}</span>
+                    </div>
+                    <div class="info-row" style="display: flex; justify-content: space-between; padding: 8px 0;">
+                        <span style="color: var(--text-secondary); font-size: 13px;">Artifact Status</span>
+                        <span style="color: var(--text-primary); font-weight: 500; font-size: 13px;">${hybridServerArtifact?.lastReportedStatus || 'N/A'}</span>
+                    </div>
+                    <div class="info-row" style="display: flex; justify-content: space-between; padding: 8px 0;">
+                        <span style="color: var(--text-secondary); font-size: 13px;">Desired Status</span>
+                        <span style="color: var(--text-primary); font-weight: 500; font-size: 13px;">${hybridServerArtifact?.desiredStatus || app?.desiredStatus || 'N/A'}</span>
+                    </div>
+                    <div class="info-row" style="display: flex; justify-content: space-between; padding: 8px 0;">
+                        <span style="color: var(--text-secondary); font-size: 13px;">Last Updated</span>
+                        <span style="color: var(--text-primary); font-weight: 500; font-size: 13px;">${formatDateTime(hybridServerArtifact?.timeUpdated || hybridArtifact?.timeUpdated)}</span>
+                    </div>
+                </div>
+            </div>
+
+            <div style="margin-top: 16px; background: var(--surface-primary); border-radius: 8px; border: 1px solid var(--border-primary); padding: 20px;">
+                <h3 style="margin-bottom: 16px; color: var(--text-primary); font-size: 14px; font-weight: 600;">🖥️ Runtime Server</h3>
+                <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(250px, 1fr)); gap: 12px;">
+                    <div class="info-row" style="display: flex; justify-content: space-between; padding: 8px 0;">
+                        <span style="color: var(--text-secondary); font-size: 13px;">Server Name</span>
+                        <span style="color: var(--text-primary); font-weight: 500; font-size: 13px;">${hybridServer?.name || 'N/A'}</span>
+                    </div>
+                    <div class="info-row" style="display: flex; justify-content: space-between; padding: 8px 0;">
+                        <span style="color: var(--text-secondary); font-size: 13px;">Server Type</span>
+                        <span style="color: var(--text-primary); font-weight: 500; font-size: 13px;">${hybridServer?.serverType || hybridServer?.type || 'N/A'}</span>
+                    </div>
+                    <div class="info-row" style="display: flex; justify-content: space-between; padding: 8px 0;">
+                        <span style="color: var(--text-secondary); font-size: 13px;">Status</span>
+                        <span style="color: var(--text-primary); font-weight: 500; font-size: 13px;">${hybridServer?.status || 'N/A'}</span>
+                    </div>
+                    <div class="info-row" style="display: flex; justify-content: space-between; padding: 8px 0;">
+                        <span style="color: var(--text-secondary); font-size: 13px;">Mule Version</span>
+                        <span style="color: var(--text-primary); font-weight: 500; font-size: 13px;">${hybridServer?.muleVersion || 'N/A'}</span>
+                    </div>
+                    <div class="info-row" style="display: flex; justify-content: space-between; padding: 8px 0;">
+                        <span style="color: var(--text-secondary); font-size: 13px;">Agent Version</span>
+                        <span style="color: var(--text-primary); font-weight: 500; font-size: 13px;">${hybridServer?.agentVersion || 'N/A'}</span>
+                    </div>
+                    <div class="info-row" style="display: flex; justify-content: space-between; padding: 8px 0;">
+                        <span style="color: var(--text-secondary); font-size: 13px;">License Expires</span>
+                        <span style="color: var(--text-primary); font-weight: 500; font-size: 13px;">${formatDateTime(hybridServer?.licenseExpirationDate)}</span>
+                    </div>
+                    <div class="info-row" style="display: flex; justify-content: space-between; padding: 8px 0;">
+                        <span style="color: var(--text-secondary); font-size: 13px;">Certificate Expires</span>
+                        <span style="color: var(--text-primary); font-weight: 500; font-size: 13px;">${formatDateTime(hybridServer?.certificateExpirationDate)}</span>
+                    </div>
+                    <div class="info-row" style="display: flex; justify-content: space-between; padding: 8px 0;">
+                        <span style="color: var(--text-secondary); font-size: 13px;">IP Address</span>
+                        <span style="color: var(--text-primary); font-weight: 500; font-size: 13px; word-break: break-all;">${hybridServerAddresses || 'N/A'}</span>
+                    </div>
+                    <div class="info-row" style="display: flex; justify-content: space-between; padding: 8px 0;">
+                        <span style="color: var(--text-secondary); font-size: 13px;">Operating System</span>
+                        <span style="color: var(--text-primary); font-weight: 500; font-size: 13px;">${hybridServerOs ? `${hybridServerOs.name || 'OS'} ${hybridServerOs.version || ''}` : 'N/A'}</span>
+                    </div>
+                    <div class="info-row" style="display: flex; justify-content: space-between; padding: 8px 0;">
+                        <span style="color: var(--text-secondary); font-size: 13px;">Architecture</span>
+                        <span style="color: var(--text-primary); font-weight: 500; font-size: 13px;">${hybridServerOs?.architecture || 'N/A'}</span>
+                    </div>
+                    <div class="info-row" style="display: flex; justify-content: space-between; padding: 8px 0;">
+                        <span style="color: var(--text-secondary); font-size: 13px;">JVM</span>
+                        <span style="color: var(--text-primary); font-weight: 500; font-size: 13px;">${hybridJvmInfo?.runtime?.name ? `${hybridJvmInfo.runtime.name} ${hybridJvmInfo.runtime.version || ''}` : 'N/A'}</span>
+                    </div>
+                </div>
+            </div>
+            ` : ''}
 
             <!-- Health Score Breakdown -->
             ${data.healthBreakdown && data.healthBreakdown.length > 0 ? `
@@ -3326,7 +4630,12 @@ function getCommandCenterHtml(webview: vscode.Webview, extensionUri: vscode.Uri,
         </div>
         <!-- End Tab: Overview -->
 
-        ${renderMetricsTab(data.visualizerMetrics, { active: activeTab === 'metrics', selectedRange })}
+		${renderMetricsTab(data.visualizerMetrics, {
+			active: activeTab === 'metrics',
+			selectedRange,
+			performanceMetrics: data.performanceMetrics,
+			cloudhubVersion: data.cloudhubVersion
+		})}
 
         <!-- Tab: Schedulers -->
         <div id="tab-schedulers" class="tab-content ${activeTab === 'schedulers' ? 'active' : ''}">
@@ -3354,8 +4663,10 @@ function getCommandCenterHtml(webview: vscode.Webview, extensionUri: vscode.Uri,
                         ` : ''}
                     </div>
                 `).join('') : `
-                    <div style="padding: 40px; text-align: center; color: var(--text-secondary);">
-                        No schedulers configured for this application.
+                    <div style="padding: 40px; text-align: center; color: var(--text-secondary); line-height: 1.6;">
+                        ${data.cloudhubVersion === 'HYBRID'
+                            ? `Schedulers were not returned by the Hybrid API. Confirm the application uses <strong>Quartz schedulers</strong> on the target runtime and that the <a style="color: var(--accent-blue);" href="https://help.salesforce.com/s/articleView?id=001115435&type=1" target="_blank">Anypoint Runtime Manager schedulers feature</a> is enabled.`
+                            : 'No schedulers configured for this application.'}
                     </div>
                 `}
             </div>
@@ -3528,8 +4839,45 @@ function getCommandCenterHtml(webview: vscode.Webview, extensionUri: vscode.Uri,
             <div class="card">
                 <h2 class="section-title">
                     <span class="section-icon">📋</span>
-                    <span>Real-time Logs</span>
+                    <span>Application Logs</span>
                 </h2>
+                ${data.cloudhubVersion === 'HYBRID' ? `
+                <div style="padding: 40px 20px;">
+                    <div style="background: rgba(88, 166, 255, 0.1); border: 1px solid var(--accent-blue); border-radius: 12px; padding: 32px;">
+                        <div style="text-align: center;">
+                            <div style="font-size: 48px; margin-bottom: 16px;">📋</div>
+                            <h3 style="color: var(--text-primary); margin-bottom: 16px; font-size: 20px;">Hybrid Application Logs</h3>
+                            <p style="color: var(--text-secondary); line-height: 1.6; max-width: 600px; margin: 0 auto 24px;">
+                                Real-time log streaming is not available for Hybrid deployments through the Anypoint API.
+                                Logs for Hybrid applications need to be accessed directly on the Mule Runtime server where the application is deployed.
+                            </p>
+                            <div style="background: var(--surface-primary); border: 1px solid var(--border-primary); border-radius: 8px; padding: 20px; margin: 0 auto; max-width: 500px; text-align: left;">
+                                <div style="font-weight: 600; color: var(--text-primary); margin-bottom: 12px; display: flex; align-items: center; gap: 8px;">
+                                    <span>📁</span>
+                                    <span>Log File Locations:</span>
+                                </div>
+                                <div style="color: var(--text-secondary); font-family: 'Courier New', monospace; font-size: 13px; line-height: 1.8;">
+                                    <div style="margin-bottom: 8px;">
+                                        <strong style="color: var(--accent-blue);">Linux/Mac:</strong><br/>
+                                        <code style="color: var(--text-primary);">$MULE_HOME/logs/</code>
+                                    </div>
+                                    <div>
+                                        <strong style="color: var(--accent-blue);">Windows:</strong><br/>
+                                        <code style="color: var(--text-primary);">%MULE_HOME%\\logs\\</code>
+                                    </div>
+                                </div>
+                            </div>
+                            <div style="margin-top: 24px; padding: 16px; background: rgba(210, 153, 34, 0.1); border: 1px solid var(--warning); border-radius: 8px; max-width: 600px; margin-left: auto; margin-right: auto;">
+                                <div style="font-size: 12px; color: var(--text-secondary); line-height: 1.6;">
+                                    <strong style="color: var(--warning);">💡 Tip:</strong> Use tools like <code style="background: var(--surface-secondary); padding: 2px 6px; border-radius: 4px;">tail -f</code>
+                                    on Linux/Mac or PowerShell's <code style="background: var(--surface-secondary); padding: 2px 6px; border-radius: 4px;">Get-Content -Wait</code>
+                                    on Windows to view logs in real-time from the server.
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                ` : `
                 <div style="text-align: center; padding: 60px 20px;">
                     <div style="font-size: 48px; margin-bottom: 20px;">📋</div>
                     <h3 style="color: var(--text-primary); margin-bottom: 12px;">Open Real-time Logs Viewer</h3>
@@ -3539,6 +4887,7 @@ function getCommandCenterHtml(webview: vscode.Webview, extensionUri: vscode.Uri,
                         <span>Open Logs Viewer</span>
                     </button>
                 </div>
+                `}
             </div>
         </div>
 
@@ -3673,22 +5022,85 @@ function getCommandCenterHtml(webview: vscode.Webview, extensionUri: vscode.Uri,
 
         switchTab('${activeTab}', true);
 
-        function restartApp() {
-            if (confirm('Are you sure you want to restart this application?')) {
+        async function restartApp() {
+            if (await showConfirmationDialog('Restart Application', 'Are you sure you want to restart this application?')) {
                 vscode.postMessage({ command: 'restartApp' });
             }
         }
 
-        function stopApp() {
-            if (confirm('Are you sure you want to stop this application?')) {
+        async function stopApp() {
+            if (await showConfirmationDialog('Stop Application', 'Stopping will terminate the application on the target runtime. Continue?')) {
                 vscode.postMessage({ command: 'stopApp' });
             }
         }
 
-        function startApp() {
-            if (confirm('Are you sure you want to start this application?')) {
+        async function startApp() {
+            if (await showConfirmationDialog('Start Application', 'Start this application on the selected runtime?')) {
                 vscode.postMessage({ command: 'startApp' });
             }
+        }
+
+        function showConfirmationDialog(title, message) {
+            return new Promise(resolve => {
+                const overlay = document.createElement('div');
+                overlay.className = 'confirm-overlay';
+
+                const dialog = document.createElement('div');
+                dialog.className = 'confirm-dialog';
+
+                const titleEl = document.createElement('h3');
+                titleEl.textContent = title;
+                dialog.appendChild(titleEl);
+
+                const messageEl = document.createElement('p');
+                messageEl.textContent = message;
+                dialog.appendChild(messageEl);
+
+                const actions = document.createElement('div');
+                actions.className = 'confirm-actions';
+
+                const cancelBtn = document.createElement('button');
+                cancelBtn.className = 'confirm-btn';
+                cancelBtn.textContent = 'Cancel';
+
+                const okBtn = document.createElement('button');
+                okBtn.className = 'confirm-btn confirm-btn-primary';
+                okBtn.textContent = 'Continue';
+
+                actions.appendChild(cancelBtn);
+                actions.appendChild(okBtn);
+                dialog.appendChild(actions);
+                overlay.appendChild(dialog);
+
+                const cleanup = () => overlay.remove();
+
+                cancelBtn.addEventListener('click', () => {
+                    cleanup();
+                    resolve(false);
+                });
+
+                okBtn.addEventListener('click', () => {
+                    cleanup();
+                    resolve(true);
+                });
+
+                overlay.addEventListener('click', (event) => {
+                    if (event.target === overlay) {
+                        cleanup();
+                        resolve(false);
+                    }
+                });
+
+                document.addEventListener('keydown', function handler(event) {
+                    if (event.key === 'Escape') {
+                        document.removeEventListener('keydown', handler);
+                        cleanup();
+                        resolve(false);
+                    }
+                }, { once: true });
+
+                document.body.appendChild(overlay);
+            });
         }
 
         function openLogs() {

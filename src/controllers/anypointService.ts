@@ -28,6 +28,219 @@ import { getOrgInfoWebviewContent } from '../anypoint/organizationInfo';
 import { showEnvironmentAndOrgPanel } from '../anypoint/DeveloperInfo';
 import { showAPIManagerWebview } from '../anypoint/apiMananagerAPIs';
 import { showEnvironmentComparisonWebview } from '../anypoint/environmentComparison';
+import {
+    HYBRID_APPLICATIONS_ENDPOINT,
+    HYBRID_SERVERS_ENDPOINT,
+    HYBRID_SERVER_GROUPS_ENDPOINT,
+    HYBRID_CLUSTERS_ENDPOINT
+} from '../constants';
+
+// ============================================================================
+// HYBRID / ON-PREMISES RUNTIME MANAGER FUNCTIONS
+// ============================================================================
+
+/**
+ * Fetch all Hybrid applications deployed to on-premises runtimes
+ */
+export async function getHybridApplications(context: vscode.ExtensionContext, environmentId: string) {
+    const { AccountService } = await import('./accountService.js');
+    const { ApiHelper } = await import('./apiHelper.js');
+    const accountService = new AccountService(context);
+
+    const activeAccount = await accountService.getActiveAccount();
+    if (!activeAccount) {
+        throw new Error('No active account found. Please log in first.');
+    }
+
+    const organizationID = activeAccount.organizationId;
+    console.log(`Hybrid Apps: Fetching applications for org ${organizationID}, env ${environmentId}`);
+
+    // Get environment name
+    let storedEnvironments = await accountService.getActiveAccountEnvironments();
+    if (!storedEnvironments) {
+        storedEnvironments = await context.secrets.get('anypoint.environments');
+    }
+
+    let environmentName = environmentId; // fallback
+
+    if (storedEnvironments) {
+        try {
+            const environments = JSON.parse(storedEnvironments);
+            const selectedEnv = environments.data?.find((env: any) => env.id === environmentId);
+            if (selectedEnv) {
+                environmentName = selectedEnv.name;
+            }
+        } catch (error) {
+            console.warn('Failed to parse environments for name lookup');
+        }
+    }
+
+    // Store selected environment
+    await context.secrets.store('anypoint.selectedEnvironment', JSON.stringify({
+        id: environmentId,
+        name: environmentName
+    }));
+
+    try {
+        console.log(`Hybrid Apps: Making API call to ${HYBRID_APPLICATIONS_ENDPOINT}`);
+        const apiHelper = new ApiHelper(context);
+        const response = await apiHelper.get(HYBRID_APPLICATIONS_ENDPOINT, {
+            headers: {
+                'X-ANYPNT-ENV-ID': environmentId,
+                'X-ANYPNT-ORG-ID': organizationID,
+            },
+        });
+
+        console.log(`Hybrid Apps: API response status: ${response.status}`);
+        console.log(`Hybrid Apps: Found ${response.data?.data?.length || 0} applications`);
+
+        if (response.status !== 200) {
+            throw new Error(`API request failed with status ${response.status}`);
+        }
+
+        const data = response.data;
+
+        // Import and show the Hybrid applications webview
+        const { showHybridApplicationsWebview } = await import('../anypoint/hybridApplications.js');
+        showHybridApplicationsWebview(context, data, environmentId, environmentName);
+    } catch (error: any) {
+        console.error(`Hybrid Apps: Error fetching applications:`, error);
+        vscode.window.showErrorMessage(`Error calling Hybrid API: ${error.message}`);
+    }
+}
+
+/**
+ * Fetch all Hybrid servers (Mule Runtimes) registered in Runtime Manager
+ */
+export async function getHybridServers(context: vscode.ExtensionContext, environmentId: string) {
+    const { AccountService } = await import('./accountService.js');
+    const { ApiHelper } = await import('./apiHelper.js');
+    const accountService = new AccountService(context);
+
+    const activeAccount = await accountService.getActiveAccount();
+    if (!activeAccount) {
+        throw new Error('No active account found. Please log in first.');
+    }
+
+    const organizationID = activeAccount.organizationId;
+    console.log(`Hybrid Servers: Fetching servers for org ${organizationID}, env ${environmentId}`);
+
+    try {
+        const apiHelper = new ApiHelper(context);
+        const response = await apiHelper.get(HYBRID_SERVERS_ENDPOINT, {
+            headers: {
+                'X-ANYPNT-ENV-ID': environmentId,
+                'X-ANYPNT-ORG-ID': organizationID,
+            },
+        });
+
+        console.log(`Hybrid Servers: API response status: ${response.status}`);
+        console.log(`Hybrid Servers: Found ${response.data?.data?.length || 0} servers`);
+
+        if (response.status !== 200) {
+            throw new Error(`API request failed with status ${response.status}`);
+        }
+
+        const data = response.data;
+
+        // Import and show the Hybrid servers webview
+        const { showHybridServersWebview } = await import('../anypoint/hybridServers.js');
+        showHybridServersWebview(context, data, environmentId);
+    } catch (error: any) {
+        console.error(`Hybrid Servers: Error fetching servers:`, error);
+        vscode.window.showErrorMessage(`Error calling Hybrid Servers API: ${error.message}`);
+    }
+}
+
+/**
+ * Fetch all Hybrid server groups
+ */
+export async function getHybridServerGroups(context: vscode.ExtensionContext, environmentId: string) {
+    const { AccountService } = await import('./accountService.js');
+    const { ApiHelper } = await import('./apiHelper.js');
+    const accountService = new AccountService(context);
+
+    const activeAccount = await accountService.getActiveAccount();
+    if (!activeAccount) {
+        throw new Error('No active account found. Please log in first.');
+    }
+
+    const organizationID = activeAccount.organizationId;
+    console.log(`Hybrid Server Groups: Fetching for org ${organizationID}, env ${environmentId}`);
+
+    try {
+        const apiHelper = new ApiHelper(context);
+        const response = await apiHelper.get(HYBRID_SERVER_GROUPS_ENDPOINT, {
+            headers: {
+                'X-ANYPNT-ENV-ID': environmentId,
+                'X-ANYPNT-ORG-ID': organizationID,
+            },
+        });
+
+        console.log(`Hybrid Server Groups: API response status: ${response.status}`);
+        console.log(`Hybrid Server Groups: Found ${response.data?.data?.length || 0} groups`);
+
+        if (response.status !== 200) {
+            throw new Error(`API request failed with status ${response.status}`);
+        }
+
+        const data = response.data;
+
+        // Import and show the Hybrid server groups webview
+        const { showHybridServerGroupsWebview } = await import('../anypoint/hybridServerGroups.js');
+        showHybridServerGroupsWebview(context, data, environmentId);
+    } catch (error: any) {
+        console.error(`Hybrid Server Groups: Error:`, error);
+        vscode.window.showErrorMessage(`Error calling Hybrid Server Groups API: ${error.message}`);
+    }
+}
+
+/**
+ * Fetch all Hybrid clusters
+ */
+export async function getHybridClusters(context: vscode.ExtensionContext, environmentId: string) {
+    const { AccountService } = await import('./accountService.js');
+    const { ApiHelper } = await import('./apiHelper.js');
+    const accountService = new AccountService(context);
+
+    const activeAccount = await accountService.getActiveAccount();
+    if (!activeAccount) {
+        throw new Error('No active account found. Please log in first.');
+    }
+
+    const organizationID = activeAccount.organizationId;
+    console.log(`Hybrid Clusters: Fetching for org ${organizationID}, env ${environmentId}`);
+
+    try {
+        const apiHelper = new ApiHelper(context);
+        const response = await apiHelper.get(HYBRID_CLUSTERS_ENDPOINT, {
+            headers: {
+                'X-ANYPNT-ENV-ID': environmentId,
+                'X-ANYPNT-ORG-ID': organizationID,
+            },
+        });
+
+        console.log(`Hybrid Clusters: API response status: ${response.status}`);
+        console.log(`Hybrid Clusters: Found ${response.data?.data?.length || 0} clusters`);
+
+        if (response.status !== 200) {
+            throw new Error(`API request failed with status ${response.status}`);
+        }
+
+        const data = response.data;
+
+        // Import and show the Hybrid clusters webview
+        const { showHybridClustersWebview } = await import('../anypoint/hybridClusters.js');
+        showHybridClustersWebview(context, data, environmentId);
+    } catch (error: any) {
+        console.error(`Hybrid Clusters: Error:`, error);
+        vscode.window.showErrorMessage(`Error calling Hybrid Clusters API: ${error.message}`);
+    }
+}
+
+// ============================================================================
+// END HYBRID FUNCTIONS
+// ============================================================================
 
 export async function getUserInfo(context: vscode.ExtensionContext, isNewAccount: boolean = false) {
     const { AccountService } = await import('./accountService.js');

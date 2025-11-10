@@ -23,7 +23,7 @@ interface RealTimeLogSession {
     logBuffer: LogEntry[];
     context: vscode.ExtensionContext;
     refreshRate: number;
-    cloudhubVersion: 'CH1' | 'CH2';
+    cloudhubVersion: 'CH1' | 'CH2' | 'HYBRID';
     deploymentId?: string;
     specificationId?: string;
 }
@@ -37,7 +37,7 @@ export async function showRealTimeLogs(
     context: vscode.ExtensionContext,
     environmentId: string,
     applicationDomain: string,
-    cloudhubVersion: 'CH1' | 'CH2' = 'CH1',
+    cloudhubVersion: 'CH1' | 'CH2' | 'HYBRID' = 'CH1',
     deploymentId?: string,
     specificationId?: string
 ) {
@@ -213,6 +213,8 @@ async function fetchNewLogs(
 ): Promise<LogEntry[]> {
     if (session.cloudhubVersion === 'CH2') {
         return await fetchCH2Logs(context, session);
+    } else if (session.cloudhubVersion === 'HYBRID') {
+        return await fetchHybridLogs(context, session);
     } else {
         return await fetchCH1Logs(context, session);
     }
@@ -387,6 +389,73 @@ async function fetchCH2Logs(
         return processedLogs;
     } catch (error: any) {
         throw new Error(`CH2 logs fetch error: ${error.message}`);
+    }
+}
+
+/**
+ * Fetch Hybrid application logs
+ * NOTE: The ARM API may not support real-time log streaming for Hybrid applications.
+ * Logs are typically accessed through the Mule Runtime server's log files directly.
+ */
+async function fetchHybridLogs(
+    context: vscode.ExtensionContext,
+    session: RealTimeLogSession
+): Promise<LogEntry[]> {
+    const accountService = new AccountService(context);
+    const apiHelper = new ApiHelper(context);
+
+    const activeAccount = await accountService.getActiveAccount();
+    if (!activeAccount) {
+        throw new Error('No active account found. Please log in.');
+    }
+
+    const organizationID = activeAccount.organizationId;
+    const { ARM_BASE } = await import('../constants.js');
+
+    // Hybrid logs are typically not available through the ARM REST API
+    // They need to be accessed directly from the Mule Runtime server's log files
+    // However, we'll try a few potential ARM endpoints
+
+    // Try ARM monitoring query endpoint for Hybrid logs
+    try {
+        const startTime = session.lastLogTimestamp;
+        const endTime = Date.now();
+
+        // Attempt 1: Try ARM monitoring query API
+        // https://anypoint.mulesoft.com/armui/api/v1/servers/{serverId}/logs
+        console.log(`Real-time logs Hybrid: Attempting to fetch logs from ARM monitoring API`);
+
+        // We would need the server ID to fetch logs, which we might not have here
+        // This is a limitation of the ARM API for Hybrid deployments
+
+        // Show a helpful message to the user
+        try {
+            session.panel.webview.postMessage({
+                command: 'error',
+                message: 'Real-time log streaming is not available for Hybrid deployments through the Anypoint API. ' +
+                         'To view logs for Hybrid applications, please access the log files directly on the Mule Runtime server where the application is deployed. ' +
+                         'Log files are typically located in the $MULE_HOME/logs directory.'
+            });
+        } catch (postError) {
+            console.error('Failed to post message to webview:', postError);
+        }
+
+        // Return empty array - no logs available through API
+        return [];
+
+    } catch (error: any) {
+        console.error('Hybrid logs: API not available:', error.message);
+
+        try {
+            session.panel.webview.postMessage({
+                command: 'error',
+                message: 'Real-time logs are not available for Hybrid deployments via API. Please access logs directly on the Mule Runtime server.'
+            });
+        } catch (postError) {
+            console.error('Failed to post message to webview:', postError);
+        }
+
+        return [];
     }
 }
 
@@ -935,7 +1004,7 @@ function getRealTimeLogsHtml(
     webview: vscode.Webview,
     extensionUri: vscode.Uri,
     applicationDomain: string,
-    cloudhubVersion: 'CH1' | 'CH2' = 'CH1'
+    cloudhubVersion: 'CH1' | 'CH2' | 'HYBRID' = 'CH1'
 ): string {
     const logoPath = vscode.Uri.joinPath(extensionUri, 'logo.png');
     const logoSrc = webview.asWebviewUri(logoPath);

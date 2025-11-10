@@ -3,7 +3,7 @@
   "displayName": "Anypoint Monitor",
   "description": "Monitor, manage, and deploy MuleSoft Anypoint Platform applications directly in VS Code. Real-time CloudHub 1.0/2.0 monitoring, API management, multi-account support, and live log streaming for MuleSoft developers.",
   "publisher": "EdgarMoran",
-  "version": "0.0.46",
+  "version": "0.0.47",
   "engines": {
     "vscode": "^1.96.0"
   },
@@ -100,7 +100,11 @@
     "onCommand:anypoint-monitor.accountManager",
     "onCommand:anypoint-monitor.deleteAllAccounts",
     "onCommand:anypoint-monitor.migrateLegacyAccount",
-    "onCommand:anypoint-monitor.applicationCommandCenter"
+    "onCommand:anypoint-monitor.applicationCommandCenter",
+    "onCommand:anypoint-monitor.hybridApps",
+    "onCommand:anypoint-monitor.hybridServers",
+    "onCommand:anypoint-monitor.hybridServerGroups",
+    "onCommand:anypoint-monitor.hybridClusters"
   ],
   "main": "./out/extension.js",
   "files": [
@@ -212,6 +216,26 @@
       {
         "command": "anypoint-monitor.applicationCommandCenter",
         "title": "AM: Application Command Center"
+      },
+
+      {
+        "command": "anypoint-monitor.hybridApps",
+        "title": "AM: Show Hybrid Applications"
+      },
+
+      {
+        "command": "anypoint-monitor.hybridServers",
+        "title": "AM: Show Hybrid Servers"
+      },
+
+      {
+        "command": "anypoint-monitor.hybridServerGroups",
+        "title": "AM: Show Hybrid Server Groups"
+      },
+
+      {
+        "command": "anypoint-monitor.hybridClusters",
+        "title": "AM: Show Hybrid Clusters"
       }
     ]
   },

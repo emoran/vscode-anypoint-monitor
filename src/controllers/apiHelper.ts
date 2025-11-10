@@ -145,4 +145,8 @@ export class ApiHelper {
     async delete(url: string, config?: AxiosRequestConfig): Promise<AxiosResponse> {
         return this.makeRequest({ ...config, method: 'DELETE', url });
     }
+
+    async patch(url: string, data?: any, config?: AxiosRequestConfig): Promise<AxiosResponse> {
+        return this.makeRequest({ ...config, method: 'PATCH', url, data });
+    }
 }

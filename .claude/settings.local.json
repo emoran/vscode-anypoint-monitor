@@ -36,7 +36,8 @@
       "Bash(do echo \"Found: $file\")",
       "Bash(done)",
       "Bash(for:*)",
-      "Bash(do echo \"File: [$f]\")"
+      "Bash(do echo \"File: [$f]\")",
+      "WebFetch(domain:help.mulesoft.com)"
     ],
     "deny": []
   }
