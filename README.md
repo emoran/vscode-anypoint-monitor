@@ -17,13 +17,6 @@ A comprehensive Visual Studio Code extension for MuleSoft Anypoint Platform mana
 - **Multi-Environment Support**: Complete environment management across Sandbox, Staging, and Production
 - **Intelligent Error Handling**: Automatic permission detection and helpful error messages
 
-## Screenshots
-
-<img width="2009" alt="anypoint-monitor_4" src="https://github.com/user-attachments/assets/3a8eba0d-3773-4d94-b692-deb76cc35f67" />
-<img width="2006" alt="anypoint-monitor_3" src="https://github.com/user-attachments/assets/3a037265-d9b2-454d-9faf-8575367fca3f" />
-<img width="1902" alt="anypoint-monitor_2" src="https://github.com/user-attachments/assets/37eb9dd6-0f9e-4930-8a94-165a4c3e00fb" />
-<img width="2009" alt="anypoint-monitor_1" src="https://github.com/user-attachments/assets/5492f8f5-0f5c-474f-a631-e35a4980b934" />
-
 ## Features
 
 ### 🏢 Multi-Account Management
@@ -33,56 +26,81 @@ A comprehensive Visual Studio Code extension for MuleSoft Anypoint Platform mana
 - **Account Status Monitoring**: Real-time account health with automatic token refresh
 - **Individual Account Configuration**: Each account maintains its own environments, permissions, and settings
 - **Account Refresh**: One-click refresh of account permissions and environments
+- **Bulk Account Operations**: Add, remove, or migrate multiple accounts efficiently
 
-### 🏢 Organization Management
+### 🏢 Organization & User Management
 
-- **View Organization Details**: Get comprehensive information about your Anypoint organization
-- **Monitor Usage Metrics**: Track your organization's resource consumption and limits
-- **Subscription Tracking**: Keep an eye on subscription expiration dates and renewal status
-- **Multi-Environment Access**: Work across Design, Sandbox, Staging, and Production environments
+- **Organization Details**: Comprehensive view of organization name, ID, type, and ownership
+- **User Profile**: View current user details including username, email, roles, and permissions
+- **Subscription Tracking**: Monitor subscription expiration dates and renewal status
+- **Multi-Environment Access**: Work seamlessly across Sandbox, Development, Staging, and Production environments
+- **Developer Utilities**: Access to advanced developer-specific tools and entitlements
 
 ### ☁️ CloudHub Application Monitoring
 
-- **CloudHub 1.0 Applications**: Complete visibility into your CH1 deployments with start/stop/restart capabilities
-- **CloudHub 2.0 Applications**: Modern CH2 application management and monitoring with scaling information
-- **Application Command Center**: Unified operational hub for CH1/CH2 apps with AI insights, metrics, and quick actions
-- **Real-time Status**: Instant application health and performance indicators across environments
-- **Cross-Account Access**: View applications from multiple organizations in a unified interface
+#### CloudHub 1.0 & 2.0 Applications
+- **Unified Application List**: View all CloudHub 1.0 and 2.0 applications in one interface
+- **Application Details**: Deep dive into application configuration, workers, replicas, and runtime versions
+- **Lifecycle Management**: Start, stop, restart applications directly from VSCode
+- **Status Monitoring**: Real-time application status with health indicators
+- **Cross-Account Access**: View and manage applications from multiple organizations
 
-### 👤 User & Security Management
-
-- **User Information**: View current logged-in user details and permissions for each account
-- **Developer Information**: Access developer-specific data and entitlements
-- **Secure Token Management**: Retrieve and manage access tokens safely with automatic refresh
-- **Account-Aware Permissions**: Intelligent permission handling per account and environment
+#### Application Command Center (Premium Feature)
+- **Health Scoring**: Intelligent health score calculation based on logs, replicas, and deployment status
+- **AI Insights**: Automated insights and recommendations based on application performance
+- **Quick Actions**: One-click access to logs, restart, application details, and diagrams
+- **Performance Metrics**: Real-time CPU, memory, and network metrics visualization
+- **Recent Logs**: Quick access to the last 50 application logs with filtering
+- **Application Overview**: Comprehensive dashboard showing runtime, workers, replicas, and environment info
+- **Metrics Visualization**: Interactive charts for application performance over time
 
 ### 📊 Real-Time Monitoring & Logs
 
-- **Live Log Streaming**: Real-time log tailing for CloudHub 1.0 and 2.0 applications
-- **Advanced Filtering**: Search and filter logs by message content, level, or thread
-- **Multi-Format Export**: Export logs to JSON, CSV, or TXT formats with pagination support
+- **Live Log Streaming**: Real-time log tailing for CloudHub 1.0 and 2.0 applications with auto-refresh
+- **Advanced Filtering**: Search and filter logs by message content, log level (INFO, WARN, ERROR), or thread
+- **Priority Highlighting**: Color-coded log levels for quick issue identification
+- **Multi-Format Export**: Export logs to JSON, CSV, or TXT formats with customizable pagination
+- **Log Timestamp Display**: Precise timestamps for all log entries
 - **Cross-Environment Monitoring**: Monitor applications across different environments seamlessly
+- **Error Detection**: Automatic error rate calculation and health impact analysis
 
 ### 🎨 Application Flow Diagrams
 
-- **Visualize Mule Flows**: Fetch a CloudHub 2.0 deployment or select a local JAR file to render flow/sub-flow relationships
-- **Local & Remote Support**: Choose from CloudHub deployments or browse for local Mule application JAR files
-- **Instant Graphs**: Inspect generated Mermaid diagrams directly inside VSCode and reuse in architecture docs
-- **In-Artifact Parsing**: Downloads deployment JARs in-memory, scans Mule XML, and highlights cross-file dependencies
+- **Visualize Mule Flows**: Generate interactive flow diagrams from CloudHub 2.0 deployments or local JAR files
+- **Local & Remote Support**: Browse local Mule application JAR files or select from CloudHub deployments
+- **Mermaid Diagrams**: Inspect generated Mermaid diagrams directly inside VSCode webview
+- **Flow/Sub-Flow Mapping**: Visual representation of flow relationships and dependencies
+- **In-Memory JAR Parsing**: Downloads deployment JARs, scans Mule XML configuration files
+- **Export Capability**: Copy diagram code for use in architecture documentation
+- **Cross-File Dependencies**: Highlights flow references across multiple configuration files
 
 ### 🔌 API Management & Security
 
-- **API Manager Integration**: View and manage your APIs directly from VSCode across multiple accounts
+- **API Manager Integration**: View and manage all APIs across multiple accounts and environments
+- **API Details**: Access API names, versions, endpoints, asset versions, and instance labels
 - **API Security Audit**: Comprehensive security analysis with policy compliance checks
-- **API Catalog Access**: Browse available APIs in your organization with detailed metadata
-- **Cross-Account API Management**: Manage APIs from multiple organizations in one interface
+- **Policy Enforcement**: View applied policies including SLA tiers, rate limiting, and authentication
+- **API Discovery**: Browse available APIs in your organization with detailed metadata
+- **Cross-Account API Management**: Unified API view from multiple organizations
+- **Detailed API Information**: Click through to detailed API configuration and analytics
 
 ### 🛠️ Developer Tools
 
-- **DataWeave Playground**: Interactive DataWeave testing environment
-- **Environment Comparison**: Side-by-side comparison of environment configurations
-- **Developer Utilities**: Comprehensive developer tools and utilities panel
-- **Access Token Management**: Secure token viewing and debugging capabilities
+- **DataWeave Playground**: Interactive DataWeave 2.0 testing and transformation environment
+  - Syntax highlighting and code completion
+  - Input/Output preview panels
+  - Sample data templates
+  - Error validation and debugging
+- **Environment Comparison**: Side-by-side comparison of environment configurations and applications
+- **Developer Utilities Panel**: Comprehensive developer tools dashboard with system information
+- **Access Token Management**: Secure token viewing, copying, and debugging with expiration tracking
+
+### 🌐 Community & Support
+
+- **MuleSoft Community Events**: Access upcoming MuleSoft meetups, webinars, and community events
+- **Event Calendar**: Browse events with dates, locations, and registration links
+- **Feedback System**: Direct feedback channel to extension developers with GitHub integration
+- **Issue Tracking**: Quick access to report bugs and request features
 
 ## Available Commands
 

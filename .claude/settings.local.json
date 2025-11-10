@@ -30,7 +30,13 @@
       "Bash(npm install)",
       "WebFetch(domain:github.com)",
       "Bash(npm run webpack:*)",
-      "WebFetch(domain:docs.mulesoft.com)"
+      "WebFetch(domain:docs.mulesoft.com)",
+      "WebFetch(domain:code.visualstudio.com)",
+      "Bash(while read file)",
+      "Bash(do echo \"Found: $file\")",
+      "Bash(done)",
+      "Bash(for:*)",
+      "Bash(do echo \"File: [$f]\")"
     ],
     "deny": []
   }
