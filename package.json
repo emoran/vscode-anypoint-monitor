@@ -3,7 +3,7 @@
   "displayName": "Anypoint Monitor",
   "description": "Monitor, manage, and deploy MuleSoft Anypoint Platform applications directly in VS Code. Real-time CloudHub 1.0/2.0 monitoring, API management, multi-account support, and live log streaming for MuleSoft developers.",
   "publisher": "EdgarMoran",
-  "version": "0.0.47",
+  "version": "0.0.48",
   "engines": {
     "vscode": "^1.96.0"
   },
@@ -43,7 +43,6 @@
     }
   ],
   "activitybar": [
-
     {
       "id": "chatAI",
       "title": "Chat AI",
@@ -113,7 +112,6 @@
   ],
   "contributes": {
     "commands": [
-
       {
         "command": "anypoint-monitor.userInfo",
         "title": "AM: My Information"
@@ -122,117 +120,94 @@
         "command": "anypoint-monitor.organizationInfo",
         "title": "AM: Organization Details"
       },
-
       {
         "command": "anypoint-monitor.login",
         "title": "AM: Login into Anypoint Platform"
       },
-
       {
         "command": "anypoint-monitor.cloudhub2Apps",
         "title": "AM: Show Cloudhub 2.0 Applications"
       },
-
       {
         "command": "anypoint-monitor.cloudhub1Apps",
         "title": "AM: Show Cloudhub 1.0 Applications"
       },
-
       {
         "command": "anypoint-monitor.subscriptionExpiration",
         "title": "AM: Subscription Expiration"
       },
-
       {
         "command": "anypoint-monitor.developerUtilities",
         "title": "AM: Developer Utilities"
       },
-
       {
         "command": "anypoint-monitor.retrieveAccessToken",
         "title": "AM: Retrieve Access Token"
       },
-
       {
         "command": "anypoint-monitor.retrieveAPIManagerAPIs",
         "title": "AM: Retrieve API Manager APIs"
       },
-
       {
         "command": "anypoint-monitor.communityEvents",
         "title": "AM: MuleSoft Community Events"
       },
-
       {
         "command": "anypoint-monitor.provideFeedback",
         "title": "AM: Provide Feedback"
       },
-
       {
         "command": "anypoint-monitor.logout",
         "title": "AM: Logout"
       },
-
       {
         "command": "anypoint-monitor.auditAPIs",
         "title": "AM: Audit APIs"
       },
-
       {
         "command": "anypoint-monitor.realTimeLogs",
         "title": "AM: Real-Time Logs"
       },
-
       {
         "command": "anypoint-monitor.environmentComparison",
         "title": "AM: Environment Comparison Table"
       },
-
       {
         "command": "anypoint-monitor.applicationDiagram",
         "title": "AM: Application Diagram"
       },
-
       {
         "command": "anypoint-monitor.dataweavePlayground",
         "title": "AM: DataWeave Playground"
       },
-
       {
         "command": "anypoint-monitor.accountManager",
         "title": "AM: Account Manager"
       },
-
       {
         "command": "anypoint-monitor.deleteAllAccounts",
         "title": "AM: Delete All Accounts & Data"
       },
-
       {
         "command": "anypoint-monitor.migrateLegacyAccount",
         "title": "AM: Migrate Legacy Account to Multi-Account"
       },
-
       {
         "command": "anypoint-monitor.applicationCommandCenter",
         "title": "AM: Application Command Center"
       },
-
       {
         "command": "anypoint-monitor.hybridApps",
         "title": "AM: Show Hybrid Applications"
       },
-
       {
         "command": "anypoint-monitor.hybridServers",
         "title": "AM: Show Hybrid Servers"
       },
-
       {
         "command": "anypoint-monitor.hybridServerGroups",
         "title": "AM: Show Hybrid Server Groups"
       },
-
       {
         "command": "anypoint-monitor.hybridClusters",
         "title": "AM: Show Hybrid Clusters"

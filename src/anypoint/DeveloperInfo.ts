@@ -874,8 +874,8 @@ function getEnvironmentOrgHtml(
         <div class="stat-header">
           <h3 class="stat-title">Organization</h3>
         </div>
-        <div class="stat-value" style="font-size: 18px;">${userInfo.orgId}</div>
-        <p class="stat-subtitle">Organization ID</p>
+        <div class="stat-value copyable" style="font-size: 14px; cursor: pointer;" data-copy="${userInfo.orgId}" title="Click to copy Organization ID">${userInfo.orgId}</div>
+        <p class="stat-subtitle">Organization ID (click to copy)</p>
       </div>
     </div>
 
@@ -923,7 +923,18 @@ function getEnvironmentOrgHtml(
         <h2>All Other Client Credentials</h2>
         <span class="card-subtitle">All other client credentials in the organization</span>
       </div>
-      <table>
+
+      <!-- Filter Box -->
+      <div style="margin-bottom: 16px;">
+        <input
+          type="text"
+          id="generalClientsFilter"
+          placeholder="Filter by client name, ID, or secret..."
+          style="width: 100%; padding: 10px 12px; font-size: 14px; background-color: var(--surface-secondary); border: 1px solid var(--border-primary); border-radius: 6px; color: var(--text-primary); font-family: inherit;"
+        />
+      </div>
+
+      <table id="generalClientsTable">
         <thead>
           <tr>
             <th>Client Name</th>
@@ -992,6 +1003,42 @@ function getEnvironmentOrgHtml(
           .catch(err => console.error('Failed to copy ID:', err));
       }
     });
+
+    // Filter functionality for general clients table
+    const filterInput = document.getElementById('generalClientsFilter');
+    const generalTable = document.getElementById('generalClientsTable');
+
+    if (filterInput && generalTable) {
+      filterInput.addEventListener('input', (e) => {
+        const filterValue = e.target.value.toLowerCase().trim();
+        const tbody = generalTable.querySelector('tbody');
+        const rows = tbody ? tbody.querySelectorAll('tr') : [];
+
+        rows.forEach(row => {
+          // Get all text content from the row (name, ID, and secret)
+          const cells = row.querySelectorAll('td');
+          let rowText = '';
+
+          cells.forEach(cell => {
+            // For secret cells, check both visible text and the data-secret attribute
+            const secretSpan = cell.querySelector('.client-secret');
+            if (secretSpan) {
+              const realSecret = secretSpan.getAttribute('data-secret') || '';
+              rowText += ' ' + realSecret.toLowerCase();
+            }
+            // Add all visible text
+            rowText += ' ' + cell.textContent.toLowerCase();
+          });
+
+          // Show row if it matches the filter, hide otherwise
+          if (rowText.includes(filterValue)) {
+            row.style.display = '';
+          } else {
+            row.style.display = 'none';
+          }
+        });
+      });
+    }
   </script>
 </body>
 </html>

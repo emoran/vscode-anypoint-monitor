@@ -185,17 +185,20 @@ async function showAPIAuditWebview(context: vscode.ExtensionContext, policyStatu
         'apiAuditWebview',
         'API Audit Results',
         vscode.ViewColumn.One,
-        { 
+        {
             enableScripts: true,
-            retainContextWhenHidden: true 
+            retainContextWhenHidden: true
         }
     );
 
-    // Get environment name using multi-account system
+    // Get environment name and organization ID using multi-account system
     const { AccountService } = await import('../controllers/accountService.js');
     const accountService = new AccountService(context);
     const storedEnvironments = await accountService.getActiveAccountEnvironments();
-    
+    const activeAccount = await accountService.getActiveAccount();
+
+    const organizationId = activeAccount?.organizationId || '';
+
     let environmentName = 'Unknown Environment';
     if (storedEnvironments) {
         try {
@@ -209,10 +212,27 @@ async function showAPIAuditWebview(context: vscode.ExtensionContext, policyStatu
         }
     }
 
-    panel.webview.html = getAPIAuditWebviewContent(policyStatus, environmentName);
+    panel.webview.html = getAPIAuditWebviewContent(policyStatus, environmentName, environmentId, organizationId);
+
+    // Handle messages from webview
+    panel.webview.onDidReceiveMessage(async (message) => {
+        switch (message.command) {
+            case 'openApiDetails':
+                {
+                    const { showApiManagerAPIDetail } = await import('./apiMananagerAPIDetail.js');
+                    await showApiManagerAPIDetail(
+                        context,
+                        message.apiId,
+                        message.organizationId,
+                        message.environmentId
+                    );
+                }
+                break;
+        }
+    });
 }
 
-function getAPIAuditWebviewContent(policyStatus: PolicyStatus, environmentName: string): string {
+function getAPIAuditWebviewContent(policyStatus: PolicyStatus, environmentName: string, environmentId: string, organizationId: string): string {
     const totalApis = policyStatus.apis_with_policies.length + policyStatus.apis_without_policies.length;
     const policycoverage = totalApis > 0 ? ((policyStatus.apis_with_policies.length / totalApis) * 100).toFixed(1) : '0.0';
 
@@ -496,6 +516,19 @@ function getAPIAuditWebviewContent(policyStatus: PolicyStatus, environmentName: 
                 opacity: 0.5;
             }
 
+            /* API Name Link */
+            .api-name-link {
+                color: var(--accent-blue);
+                cursor: pointer;
+                text-decoration: none;
+                transition: color 0.2s;
+            }
+
+            .api-name-link:hover {
+                color: var(--accent-light);
+                text-decoration: underline;
+            }
+
             /* Responsive Design */
             @media (max-width: 768px) {
                 .container {
@@ -512,6 +545,8 @@ function getAPIAuditWebviewContent(policyStatus: PolicyStatus, environmentName: 
             }
         </style>
         <script>
+            const vscode = acquireVsCodeApi();
+
             function togglePolicyDetails(element) {
                 const details = element.nextElementSibling;
                 if (details && details.classList.contains('policy-details')) {
@@ -521,6 +556,15 @@ function getAPIAuditWebviewContent(policyStatus: PolicyStatus, environmentName: 
                         arrow.textContent = details.style.display === 'none' ? '▶' : '▼';
                     }
                 }
+            }
+
+            function openApiDetails(apiId, organizationId, environmentId) {
+                vscode.postMessage({
+                    command: 'openApiDetails',
+                    apiId: apiId,
+                    organizationId: organizationId,
+                    environmentId: environmentId
+                });
             }
         </script>
     </head>
@@ -594,7 +638,12 @@ function getAPIAuditWebviewContent(policyStatus: PolicyStatus, environmentName: 
                         <tbody>
                             ${policyStatus.apis_with_policies.map(api => `
                                 <tr>
-                                    <td>${api.api_name}</td>
+                                    <td>
+                                        <a href="#" class="api-name-link"
+                                           onclick="openApiDetails('${api.api_id}', '${organizationId}', '${environmentId}'); return false;">
+                                            ${api.api_name}
+                                        </a>
+                                    </td>
                                     <td>${api.api_version}</td>
                                     <td><span class="policy-count">${api.active_policies}</span></td>
                                     <td>${api.total_policies}</td>
@@ -649,15 +698,20 @@ function getAPIAuditWebviewContent(policyStatus: PolicyStatus, environmentName: 
                         <tbody>
                             ${policyStatus.apis_without_policies.map(api => `
                                 <tr>
-                                    <td>${api.api_name}</td>
+                                    <td>
+                                        <a href="#" class="api-name-link"
+                                           onclick="openApiDetails('${api.api_id}', '${organizationId}', '${environmentId}'); return false;">
+                                            ${api.api_name}
+                                        </a>
+                                    </td>
                                     <td>${api.api_version}</td>
                                     <td>${api.total_policies}</td>
                                     <td>
-                                        ${api.total_policies > 0 ? 
+                                        ${api.total_policies > 0 ?
                                             `<span class="status-badge status-disabled">
                                                 <span class="status-dot"></span>
                                                 Policies Disabled
-                                            </span>` : 
+                                            </span>` :
                                             `<span class="status-badge status-unprotected">
                                                 <span class="status-dot"></span>
                                                 No Policies
@@ -665,8 +719,8 @@ function getAPIAuditWebviewContent(policyStatus: PolicyStatus, environmentName: 
                                         }
                                     </td>
                                     <td>
-                                        ${api.total_policies > 0 ? 
-                                            `${api.total_policies} inactive policies found` : 
+                                        ${api.total_policies > 0 ?
+                                            `${api.total_policies} inactive policies found` :
                                             'No policies configured'
                                         }
                                     </td>
