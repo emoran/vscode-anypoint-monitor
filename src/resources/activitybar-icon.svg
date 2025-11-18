@@ -1,0 +1,23 @@
+<svg width="28" height="28" viewBox="0 0 28 28" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <!-- Anypoint Monitor Logo - Monochrome version for activity bar -->
+  <!-- Diamond/square frame rotated 45 degrees -->
+  <g transform="translate(14, 14) rotate(45) translate(-10, -10)">
+    <!-- Top bar -->
+    <path d="M 2 2 L 18 2 L 16 4 L 4 4 Z" fill="currentColor"/>
+
+    <!-- Right bar -->
+    <path d="M 18 2 L 18 18 L 16 16 L 16 4 Z" fill="currentColor"/>
+
+    <!-- Bottom bar -->
+    <path d="M 2 18 L 18 18 L 16 16 L 4 16 Z" fill="currentColor"/>
+
+    <!-- Left bar -->
+    <path d="M 2 2 L 2 18 L 4 16 L 4 4 Z" fill="currentColor"/>
+  </g>
+
+  <!-- Center "A" monogram -->
+  <g transform="translate(14, 15)">
+    <!-- Letter A shape -->
+    <path d="M -3 3 L 0 -4 L 3 3 L 1.5 3 L 1 1.5 L -1 1.5 L -1.5 3 Z M -0.5 0.5 L 0.5 0.5 L 0 -1.5 Z" fill="currentColor"/>
+  </g>
+</svg>

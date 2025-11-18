@@ -28,6 +28,7 @@ import { BASE_URL } from "./constants";
 import { showApplicationDiagram } from "./anypoint/applicationDiagram";
 import { showDataWeavePlayground } from "./anypoint/dataweavePlayground";
 import { showApplicationCommandCenter } from "./anypoint/applicationCommandCenter";
+import { registerCommandPalettePanel } from "./anypoint/commandPalettePanel";
 
 interface EnvironmentOption {
 	label: string;
@@ -157,7 +158,7 @@ export async function updateAccountStatusBar(context: vscode.ExtensionContext) {
 export function activate(context: vscode.ExtensionContext) {
 	// Initialize account service and migrate existing account if needed
 	const accountService = new AccountService(context);
-	
+
 	// Run automatic migration for existing users
 	accountService.checkAndPromptMigration().then(migrated => {
 		if (migrated) {
@@ -177,6 +178,9 @@ export function activate(context: vscode.ExtensionContext) {
 
 	// Initialize status bar
 	updateAccountStatusBar(context);
+
+	// Register command palette side panel
+	registerCommandPalettePanel(context);
 
 	 // Register a command for the login
         const loginCommand = vscode.commands.registerCommand('anypoint-monitor.login', async () => {

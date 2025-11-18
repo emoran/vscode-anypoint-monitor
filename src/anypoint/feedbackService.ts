@@ -1,7 +1,6 @@
 import * as vscode from 'vscode';
 import axios from 'axios';
-import * as fs from 'fs';
-import * as path from 'path';
+import { getSlackWebhookUrl } from '../config/webhook.config';
 
 interface FeedbackItem {
     id: string;
@@ -22,18 +21,6 @@ interface FeedbackItem {
         organizationName?: string;
         organizationDomain?: string;
     };
-}
-
-function getSlackWebhookUrl(): string {
-    try {
-        const configPath = path.join(__dirname, '../../config/secrets.json');
-        const configData = fs.readFileSync(configPath, 'utf8');
-        const config = JSON.parse(configData);
-        return config.slackWebhookUrl || '';
-    } catch (error) {
-        console.error('Failed to load webhook URL from config:', error);
-        return '';
-    }
 }
 
 export async function provideFeedback(context: vscode.ExtensionContext) {
