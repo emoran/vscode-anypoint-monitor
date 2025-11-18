@@ -37,7 +37,13 @@
       "Bash(done)",
       "Bash(for:*)",
       "Bash(do echo \"File: [$f]\")",
-      "WebFetch(domain:help.mulesoft.com)"
+      "WebFetch(domain:help.mulesoft.com)",
+      "Bash(git add:*)",
+      "Bash(git commit:*)",
+      "Bash(git push:*)",
+      "Bash(git rebase:*)",
+      "Bash(git stash:*)",
+      "Bash(git reset:*)"
     ],
     "deny": []
   }
