@@ -5,6 +5,9 @@
 [![VS Marketplace Rating](https://img.shields.io/visual-studio-marketplace/r/EdgarMoran.anypoint-monitor?style=for-the-badge)](https://marketplace.visualstudio.com/items?itemName=EdgarMoran.anypoint-monitor)
 [![License](https://img.shields.io/github/license/emoran/vscode-anypoint-monitor?style=for-the-badge)](LICENSE)
 
+[![Buy Me A Coffee](https://img.shields.io/badge/Buy%20Me%20a%20Coffee-ffdd00?style=for-the-badge&logo=buy-me-a-coffee&logoColor=black)](https://buymeacoffee.com/yucelmoran)
+[![PayPal](https://img.shields.io/badge/PayPal-00457C?style=for-the-badge&logo=paypal&logoColor=white)](https://paypal.me/yucelmoran)
+
 A comprehensive Visual Studio Code extension for MuleSoft Anypoint Platform management. Monitor CloudHub applications, manage APIs, track subscriptions, and seamlessly work with multiple Anypoint organizations directly within your development environment.
 
 ## Key Benefits
