@@ -32,7 +32,10 @@ import {
     HYBRID_APPLICATIONS_ENDPOINT,
     HYBRID_SERVERS_ENDPOINT,
     HYBRID_SERVER_GROUPS_ENDPOINT,
-    HYBRID_CLUSTERS_ENDPOINT
+    HYBRID_CLUSTERS_ENDPOINT,
+    ANYPOINT_MQ_BASE,
+    ANYPOINT_MQ_ADMIN_BASE,
+    ANYPOINT_MQ_STATS_BASE
 } from '../constants';
 
 // ============================================================================
@@ -240,6 +243,269 @@ export async function getHybridClusters(context: vscode.ExtensionContext, enviro
 
 // ============================================================================
 // END HYBRID FUNCTIONS
+// ============================================================================
+
+// ============================================================================
+// ANYPOINT MQ STATS FUNCTIONS
+// ============================================================================
+
+/**
+ * Fetch AnypointMQ Statistics for queues in a specific environment and region
+ */
+export async function getAnypointMQStats(context: vscode.ExtensionContext, environmentId: string) {
+    const { AccountService } = await import('./accountService.js');
+    const { ApiHelper } = await import('./apiHelper.js');
+    const accountService = new AccountService(context);
+
+    const activeAccount = await accountService.getActiveAccount();
+    if (!activeAccount) {
+        throw new Error('No active account found. Please log in first.');
+    }
+
+    const organizationID = activeAccount.organizationId;
+    console.log(`AnypointMQ Stats: Fetching for org ${organizationID}, env ${environmentId}`);
+
+    // Get environment name
+    let storedEnvironments = await accountService.getActiveAccountEnvironments();
+    if (!storedEnvironments) {
+        storedEnvironments = await context.secrets.get('anypoint.environments');
+    }
+
+    let environmentName = environmentId; // fallback
+
+    if (storedEnvironments) {
+        try {
+            const environments = JSON.parse(storedEnvironments);
+            const selectedEnv = environments.data?.find((env: any) => env.id === environmentId);
+            if (selectedEnv) {
+                environmentName = selectedEnv.name;
+            }
+        } catch (error) {
+            console.warn('Failed to parse environments for name lookup');
+        }
+    }
+
+    // First, we need to get available regions for this environment
+    // The MQ Stats API requires a region ID
+    try {
+        const apiHelper = new ApiHelper(context);
+
+        // Get available regions from the MQ Broker API
+        const regionsUrl = `${ANYPOINT_MQ_ADMIN_BASE}/organizations/${organizationID}/environments/${environmentId}/regions`;
+        console.log(`AnypointMQ Stats: Fetching regions from ${regionsUrl}`);
+        console.log(`AnypointMQ Stats: Organization ID: ${organizationID}`);
+        console.log(`AnypointMQ Stats: Environment ID: ${environmentId}`);
+
+        let regionsResponse;
+        try {
+            regionsResponse = await apiHelper.get(regionsUrl);
+        } catch (error: any) {
+            console.error(`AnypointMQ Stats: Failed to fetch regions:`, error);
+            vscode.window.showErrorMessage(`Failed to fetch MQ regions. Please ensure AnypointMQ is enabled for this environment.`);
+            return;
+        }
+
+        if (!regionsResponse.data || regionsResponse.data.length === 0) {
+            vscode.window.showErrorMessage('No AnypointMQ regions found for this environment. Please ensure AnypointMQ is configured.');
+            return;
+        }
+
+        const regions = Array.isArray(regionsResponse.data) ? regionsResponse.data : [regionsResponse.data];
+        console.log(`AnypointMQ Stats: Found ${regions.length} regions`);
+
+        // Show region selector with "All Regions" option
+        let selectedRegionId: string | null = null;
+        let selectedRegionName = 'All Regions';
+
+        if (regions.length > 1) {
+            const regionOptions = [
+                { label: '📊 All Regions', id: null },
+                ...regions.map((region: any) => ({
+                    label: `📍 ${region.regionName || region.id}`,
+                    id: region.regionId || region.id
+                }))
+            ];
+
+            const selectedRegion = await vscode.window.showQuickPick(
+                regionOptions.map(option => option.label),
+                { placeHolder: 'Select an AnypointMQ region or view all' }
+            );
+
+            if (!selectedRegion) {
+                vscode.window.showInformationMessage('No region selected.');
+                return;
+            }
+
+            const selectedOption = regionOptions.find(option => option.label === selectedRegion);
+            selectedRegionId = selectedOption?.id || null;
+            selectedRegionName = selectedOption?.label.replace('📍 ', '').replace('📊 ', '') || 'All Regions';
+        } else {
+            selectedRegionId = regions[0].regionId || regions[0].id;
+            selectedRegionName = regions[0].regionName || regions[0].id;
+        }
+
+        console.log(`AnypointMQ Stats: Selected region ${selectedRegionId || 'ALL'}`);
+
+        // Fetch data for all regions or selected region
+        let allRegionsData: any[] = [];
+
+        if (selectedRegionId === null) {
+            // Fetch queues and stats for all regions
+            console.log(`AnypointMQ Stats: Fetching queues from all ${regions.length} regions`);
+
+            for (const region of regions) {
+                const regionId = region.regionId || region.id;
+                const regionName = region.regionName || region.id;
+
+                try {
+                    // Fetch queues (destinations) for this region using the Admin API
+                    const queuesUrl = `${ANYPOINT_MQ_ADMIN_BASE}/organizations/${organizationID}/environments/${environmentId}/regions/${regionId}/destinations`;
+                    console.log(`AnypointMQ Stats: Fetching queues for region ${regionName} from ${queuesUrl}`);
+                    console.log(`AnypointMQ Stats: Region ID being used: ${regionId}`);
+
+                    const queuesResponse = await apiHelper.get(queuesUrl);
+                    console.log(`AnypointMQ Stats: Raw response for region ${regionName}:`, JSON.stringify(queuesResponse.data, null, 2));
+
+                    // Handle different response structures
+                    let queues = queuesResponse.data;
+                    if (!Array.isArray(queues)) {
+                        // Check if data is wrapped in a property
+                        if (queues && queues.queues) {
+                            queues = queues.queues;
+                        } else if (queues && queues.destinations) {
+                            queues = queues.destinations;
+                        } else if (queues && typeof queues === 'object') {
+                            // If it's a single object, wrap it in an array
+                            queues = [queues];
+                        } else {
+                            queues = [];
+                        }
+                    }
+
+                    // Filter out null/undefined entries
+                    queues = queues.filter((q: any) => q && (q.queueId || q.id));
+
+                    console.log(`AnypointMQ Stats: Parsed ${queues.length} queues in region ${regionName}`);
+
+                    if (queues.length > 0) {
+                        // Fetch stats for all queues in this region
+                        const queueIds = queues.map((queue: any) => queue.queueId || queue.id).join(',');
+                        console.log(`AnypointMQ Stats: Fetching stats for queue IDs: ${queueIds}`);
+
+                        const statsUrl = `${ANYPOINT_MQ_STATS_BASE}/organizations/${organizationID}/environments/${environmentId}/regions/${regionId}/queues?destinationIds=${queueIds}`;
+                        const statsResponse = await apiHelper.get(statsUrl);
+
+                        console.log(`AnypointMQ Stats: Stats response for region ${regionName}:`, JSON.stringify(statsResponse.data, null, 2));
+
+                        allRegionsData.push({
+                            regionId: regionId,
+                            regionName: regionName,
+                            queues: queues,
+                            stats: Array.isArray(statsResponse.data) ? statsResponse.data : [statsResponse.data]
+                        });
+
+                        console.log(`AnypointMQ Stats: ✓ Found ${queues.length} queues in region ${regionName}`);
+                    } else {
+                        console.log(`AnypointMQ Stats: ✗ No queues in region ${regionName}`);
+                    }
+                } catch (error: any) {
+                    console.error(`AnypointMQ Stats: ✗ Failed to fetch data for region ${regionName}:`, error.message);
+                    if (error.response) {
+                        console.error(`AnypointMQ Stats: Error response status:`, error.response.status);
+                        console.error(`AnypointMQ Stats: Error response data:`, error.response.data);
+                    }
+                }
+            }
+
+            if (allRegionsData.length === 0) {
+                vscode.window.showInformationMessage('No queues found in any region.');
+                return;
+            }
+
+            const statsData = {
+                allRegions: true,
+                regionsData: allRegionsData,
+                environmentId: environmentId,
+                environmentName: environmentName,
+                organizationID: organizationID
+            };
+
+            // Import and show the MQ Stats webview
+            const { showAnypointMQStatsWebview } = await import('../anypoint/mqStats.js');
+            showAnypointMQStatsWebview(context, statsData);
+        } else {
+            // Fetch queues (destinations) for the selected region only using the Admin API
+            const queuesUrl = `${ANYPOINT_MQ_ADMIN_BASE}/organizations/${organizationID}/environments/${environmentId}/regions/${selectedRegionId}/destinations`;
+            console.log(`AnypointMQ Stats: Fetching queues from ${queuesUrl}`);
+
+            const queuesResponse = await apiHelper.get(queuesUrl);
+            console.log(`AnypointMQ Stats: Raw queue response:`, JSON.stringify(queuesResponse.data, null, 2));
+
+            // Handle different response structures
+            let queues = queuesResponse.data;
+            if (!Array.isArray(queues)) {
+                // Check if data is wrapped in a property
+                if (queues && queues.queues) {
+                    queues = queues.queues;
+                } else if (queues && queues.destinations) {
+                    queues = queues.destinations;
+                } else if (queues && typeof queues === 'object' && queues !== null) {
+                    // If it's a single object, wrap it in an array
+                    queues = [queues];
+                } else {
+                    queues = [];
+                }
+            }
+
+            // Filter out null/undefined entries
+            queues = queues.filter((q: any) => q && (q.queueId || q.id));
+
+            console.log(`AnypointMQ Stats: Parsed ${queues.length} queues`);
+
+            if (!queues || queues.length === 0) {
+                vscode.window.showInformationMessage('No queues found in this region.');
+                return;
+            }
+
+            // Fetch stats for all queues
+            const queueIds = queues.map((queue: any) => queue.queueId || queue.id).join(',');
+            console.log(`AnypointMQ Stats: Queue IDs for stats: ${queueIds}`);
+
+            const statsUrl = `${ANYPOINT_MQ_STATS_BASE}/organizations/${organizationID}/environments/${environmentId}/regions/${selectedRegionId}/queues?destinationIds=${queueIds}`;
+
+            console.log(`AnypointMQ Stats: Fetching stats from ${statsUrl}`);
+            const statsResponse = await apiHelper.get(statsUrl);
+
+            console.log(`AnypointMQ Stats: API response status: ${statsResponse.status}`);
+            console.log(`AnypointMQ Stats: Stats response:`, JSON.stringify(statsResponse.data, null, 2));
+
+            if (statsResponse.status !== 200) {
+                throw new Error(`API request failed with status ${statsResponse.status}`);
+            }
+
+            const statsData = {
+                allRegions: false,
+                queues: queues,
+                stats: Array.isArray(statsResponse.data) ? statsResponse.data : [statsResponse.data],
+                region: selectedRegionId,
+                regionName: selectedRegionName,
+                environmentId: environmentId,
+                environmentName: environmentName,
+                organizationID: organizationID
+            };
+
+            // Import and show the MQ Stats webview
+            const { showAnypointMQStatsWebview } = await import('../anypoint/mqStats.js');
+            showAnypointMQStatsWebview(context, statsData);
+        }
+    } catch (error: any) {
+        console.error(`AnypointMQ Stats: Error:`, error);
+        vscode.window.showErrorMessage(`Error calling AnypointMQ Stats API: ${error.message}`);
+    }
+}
+
+// ============================================================================
+// END ANYPOINT MQ STATS FUNCTIONS
 // ============================================================================
 
 export async function getUserInfo(context: vscode.ExtensionContext, isNewAccount: boolean = false) {

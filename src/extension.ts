@@ -19,7 +19,8 @@ import {
 	getHybridApplications,
 	getHybridServers,
 	getHybridServerGroups,
-	getHybridClusters
+	getHybridClusters,
+	getAnypointMQStats
 } from "./controllers/anypointService";
 import { auditAPIs } from "./anypoint/apiAudit";
 import { showCommunityEvents } from "./anypoint/communityEvents";
@@ -722,6 +723,18 @@ export function activate(context: vscode.ExtensionContext) {
 		}
 	});
 
+	const getAnypointMQStatsCmd = vscode.commands.registerCommand('anypoint-monitor.mqStats', async () => {
+		try {
+			const selectedEnvironmentId = await selectEnvironment(context);
+			if (!selectedEnvironmentId) {
+				return;
+			}
+			await getAnypointMQStats(context, selectedEnvironmentId);
+		} catch (error: any) {
+			vscode.window.showErrorMessage(`Error: ${error.message}`);
+		}
+	});
+
 	context.subscriptions.push(userInfo);
 	context.subscriptions.push(getApplications);
 	context.subscriptions.push(revokeAccessCommand);
@@ -747,6 +760,7 @@ export function activate(context: vscode.ExtensionContext) {
 	context.subscriptions.push(getHybridServersCmd);
 	context.subscriptions.push(getHybridServerGroupsCmd);
 	context.subscriptions.push(getHybridClustersCmd);
+	context.subscriptions.push(getAnypointMQStatsCmd);
 }
 
 // This method is called when your extension is deactivated

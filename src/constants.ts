@@ -28,3 +28,9 @@ export const HYBRID_CLUSTERS_ENDPOINT = `${HYBRID_BASE}/clusters`;
 
 // Hybrid Deployments
 export const HYBRID_DEPLOYMENTS_ENDPOINT = `${HYBRID_BASE}/deployments`;
+
+// AnypointMQ APIs
+// The base MQ API path (not the broker or admin sub-APIs)
+export const ANYPOINT_MQ_BASE = `${BASE_URL}/mq`;
+export const ANYPOINT_MQ_ADMIN_BASE = `${BASE_URL}/mq/admin/api/v1`;
+export const ANYPOINT_MQ_STATS_BASE = `${BASE_URL}/mq/stats/api/v1`;

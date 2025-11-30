@@ -65,11 +65,13 @@ export class ApiHelper {
             throw new Error('No access token found. Please log in first.');
         }
 
-        // Add authorization header
+        // Add authorization and accept headers
         const requestConfig = {
             ...config,
             headers: {
                 'Authorization': `Bearer ${accessToken}`,
+                'Accept': 'application/json',
+                'Content-Type': 'application/json',
                 ...config.headers
             }
         };
@@ -102,6 +104,8 @@ export class ApiHelper {
                             ...config,
                             headers: {
                                 'Authorization': `Bearer ${newAccessToken}`,
+                                'Accept': 'application/json',
+                                'Content-Type': 'application/json',
                                 ...config.headers
                             }
                         };

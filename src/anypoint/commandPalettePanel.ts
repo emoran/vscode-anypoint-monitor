@@ -172,6 +172,12 @@ export class CommandPaletteProvider implements vscode.TreeDataProvider<CommandTr
                     icon: 'output'
                 },
                 {
+                    label: 'AnypointMQ Statistics',
+                    command: 'anypoint-monitor.mqStats',
+                    description: 'View queue statistics and message metrics',
+                    icon: 'inbox'
+                },
+                {
                     label: 'Environment Comparison',
                     command: 'anypoint-monitor.environmentComparison',
                     description: 'Compare applications across environments',
