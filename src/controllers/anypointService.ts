@@ -358,55 +358,113 @@ export async function getAnypointMQStats(context: vscode.ExtensionContext, envir
                 const regionName = region.regionName || region.id;
 
                 try {
-                    // Fetch queues (destinations) for this region using the Admin API
-                    const queuesUrl = `${ANYPOINT_MQ_ADMIN_BASE}/organizations/${organizationID}/environments/${environmentId}/regions/${regionId}/destinations`;
-                    console.log(`AnypointMQ Stats: Fetching queues for region ${regionName} from ${queuesUrl}`);
+                    // Fetch destinations (queues and exchanges) for this region using the Admin API
+                    const destinationsUrl = `${ANYPOINT_MQ_ADMIN_BASE}/organizations/${organizationID}/environments/${environmentId}/regions/${regionId}/destinations`;
+                    console.log(`AnypointMQ Stats: Fetching destinations for region ${regionName} from ${destinationsUrl}`);
                     console.log(`AnypointMQ Stats: Region ID being used: ${regionId}`);
 
-                    const queuesResponse = await apiHelper.get(queuesUrl);
-                    console.log(`AnypointMQ Stats: Raw response for region ${regionName}:`, JSON.stringify(queuesResponse.data, null, 2));
+                    const destinationsResponse = await apiHelper.get(destinationsUrl);
+                    console.log(`AnypointMQ Stats: Raw response for region ${regionName}:`, JSON.stringify(destinationsResponse.data, null, 2));
 
                     // Handle different response structures
-                    let queues = queuesResponse.data;
-                    if (!Array.isArray(queues)) {
+                    let destinations = destinationsResponse.data;
+                    if (!Array.isArray(destinations)) {
                         // Check if data is wrapped in a property
-                        if (queues && queues.queues) {
-                            queues = queues.queues;
-                        } else if (queues && queues.destinations) {
-                            queues = queues.destinations;
-                        } else if (queues && typeof queues === 'object') {
+                        if (destinations && destinations.queues) {
+                            destinations = destinations.queues;
+                        } else if (destinations && destinations.destinations) {
+                            destinations = destinations.destinations;
+                        } else if (destinations && typeof destinations === 'object') {
                             // If it's a single object, wrap it in an array
-                            queues = [queues];
+                            destinations = [destinations];
                         } else {
-                            queues = [];
+                            destinations = [];
                         }
                     }
 
-                    // Filter out null/undefined entries
-                    queues = queues.filter((q: any) => q && (q.queueId || q.id));
+                    // Filter out null/undefined entries - be more lenient
+                    destinations = destinations.filter((d: any) => d && typeof d === 'object');
 
-                    console.log(`AnypointMQ Stats: Parsed ${queues.length} queues in region ${regionName}`);
+                    console.log(`AnypointMQ Stats: After filtering, ${destinations.length} destinations remain`);
+                    console.log(`AnypointMQ Stats: Sample destination structure:`, destinations.length > 0 ? JSON.stringify(destinations[0], null, 2) : 'No destinations');
+
+                    // Separate queues and exchanges
+                    // If it has exchangeId or type='exchange', it's an exchange
+                    // Otherwise, it's a queue (default)
+                    const exchanges = destinations.filter((d: any) => d.exchangeId || (d.type && d.type.toLowerCase() === 'exchange'));
+                    const queues = destinations.filter((d: any) => !exchanges.includes(d));
+
+                    console.log(`AnypointMQ Stats: Parsed ${queues.length} queues and ${exchanges.length} exchanges in region ${regionName}`);
+
+                    // Fetch stats for queues and exchanges
+                    let allStats: any[] = [];
+                    let allDestinations: any[] = [];
 
                     if (queues.length > 0) {
                         // Fetch stats for all queues in this region
                         const queueIds = queues.map((queue: any) => queue.queueId || queue.id).join(',');
                         console.log(`AnypointMQ Stats: Fetching stats for queue IDs: ${queueIds}`);
 
-                        const statsUrl = `${ANYPOINT_MQ_STATS_BASE}/organizations/${organizationID}/environments/${environmentId}/regions/${regionId}/queues?destinationIds=${queueIds}`;
-                        const statsResponse = await apiHelper.get(statsUrl);
+                        const queueStatsUrl = `${ANYPOINT_MQ_STATS_BASE}/organizations/${organizationID}/environments/${environmentId}/regions/${regionId}/queues?destinationIds=${queueIds}`;
+                        const queueStatsResponse = await apiHelper.get(queueStatsUrl);
 
-                        console.log(`AnypointMQ Stats: Stats response for region ${regionName}:`, JSON.stringify(statsResponse.data, null, 2));
+                        console.log(`AnypointMQ Stats: Queue stats response for region ${regionName}:`, JSON.stringify(queueStatsResponse.data, null, 2));
 
+                        const queueStats = Array.isArray(queueStatsResponse.data) ? queueStatsResponse.data : [queueStatsResponse.data];
+                        allStats = allStats.concat(queueStats);
+                        allDestinations = allDestinations.concat(queues.map(q => ({ ...q, destinationType: 'queue' })));
+
+                        console.log(`AnypointMQ Stats: ✓ Found ${queues.length} queues in region ${regionName}`);
+                    }
+
+                    if (exchanges.length > 0) {
+                        // Try to fetch stats for all exchanges in this region
+                        // Note: Exchange stats API may not be available in all environments
+                        const exchangeIds = exchanges.map((exchange: any) => exchange.exchangeId || exchange.id).join(',');
+                        console.log(`AnypointMQ Stats: Fetching stats for exchange IDs: ${exchangeIds}`);
+
+                        try {
+                            const exchangeStatsUrl = `${ANYPOINT_MQ_STATS_BASE}/organizations/${organizationID}/environments/${environmentId}/regions/${regionId}/exchanges?destinationIds=${exchangeIds}`;
+                            const exchangeStatsResponse = await apiHelper.get(exchangeStatsUrl);
+
+                            console.log(`AnypointMQ Stats: Exchange stats response for region ${regionName}:`, JSON.stringify(exchangeStatsResponse.data, null, 2));
+
+                            const exchangeStats = Array.isArray(exchangeStatsResponse.data) ? exchangeStatsResponse.data : [exchangeStatsResponse.data];
+                            allStats = allStats.concat(exchangeStats);
+                            allDestinations = allDestinations.concat(exchanges.map(e => ({ ...e, destinationType: 'exchange' })));
+
+                            console.log(`AnypointMQ Stats: ✓ Found ${exchanges.length} exchanges with stats in region ${regionName}`);
+                        } catch (exchangeError: any) {
+                            // If exchange stats API is not available (404), add exchanges without stats
+                            if (exchangeError.response?.status === 404) {
+                                console.log(`AnypointMQ Stats: ⚠️  Exchange stats API not available for region ${regionName}, showing exchanges without stats`);
+                                // Add exchanges with empty stats
+                                const emptyStats = exchanges.map((exchange: any) => ({
+                                    destination: exchange.exchangeId || exchange.id,
+                                    messages: 0,
+                                    inflightMessages: 0
+                                }));
+                                allStats = allStats.concat(emptyStats);
+                                allDestinations = allDestinations.concat(exchanges.map(e => ({ ...e, destinationType: 'exchange' })));
+                                console.log(`AnypointMQ Stats: ✓ Found ${exchanges.length} exchanges (without stats) in region ${regionName}`);
+                            } else {
+                                console.log(`AnypointMQ Stats: ✗ Error fetching exchange stats for region ${regionName}:`, exchangeError.message);
+                                throw exchangeError;
+                            }
+                        }
+                    }
+
+                    if (allDestinations.length > 0) {
                         allRegionsData.push({
                             regionId: regionId,
                             regionName: regionName,
-                            queues: queues,
-                            stats: Array.isArray(statsResponse.data) ? statsResponse.data : [statsResponse.data]
+                            queues: allDestinations, // Using 'queues' for backward compatibility but contains both
+                            stats: allStats
                         });
 
-                        console.log(`AnypointMQ Stats: ✓ Found ${queues.length} queues in region ${regionName}`);
+                        console.log(`AnypointMQ Stats: ✓ Total ${allDestinations.length} destinations (${queues.length} queues, ${exchanges.length} exchanges) in region ${regionName}`);
                     } else {
-                        console.log(`AnypointMQ Stats: ✗ No queues in region ${regionName}`);
+                        console.log(`AnypointMQ Stats: ✗ No destinations in region ${regionName}`);
                     }
                 } catch (error: any) {
                     console.error(`AnypointMQ Stats: ✗ Failed to fetch data for region ${regionName}:`, error.message);
@@ -418,7 +476,7 @@ export async function getAnypointMQStats(context: vscode.ExtensionContext, envir
             }
 
             if (allRegionsData.length === 0) {
-                vscode.window.showInformationMessage('No queues found in any region.');
+                vscode.window.showInformationMessage('No destinations (queues or exchanges) found in any region.');
                 return;
             }
 
@@ -434,59 +492,112 @@ export async function getAnypointMQStats(context: vscode.ExtensionContext, envir
             const { showAnypointMQStatsWebview } = await import('../anypoint/mqStats.js');
             showAnypointMQStatsWebview(context, statsData);
         } else {
-            // Fetch queues (destinations) for the selected region only using the Admin API
-            const queuesUrl = `${ANYPOINT_MQ_ADMIN_BASE}/organizations/${organizationID}/environments/${environmentId}/regions/${selectedRegionId}/destinations`;
-            console.log(`AnypointMQ Stats: Fetching queues from ${queuesUrl}`);
+            // Fetch destinations (queues and exchanges) for the selected region only using the Admin API
+            const destinationsUrl = `${ANYPOINT_MQ_ADMIN_BASE}/organizations/${organizationID}/environments/${environmentId}/regions/${selectedRegionId}/destinations`;
+            console.log(`AnypointMQ Stats: Fetching destinations from ${destinationsUrl}`);
 
-            const queuesResponse = await apiHelper.get(queuesUrl);
-            console.log(`AnypointMQ Stats: Raw queue response:`, JSON.stringify(queuesResponse.data, null, 2));
+            const destinationsResponse = await apiHelper.get(destinationsUrl);
+            console.log(`AnypointMQ Stats: Raw destinations response:`, JSON.stringify(destinationsResponse.data, null, 2));
 
             // Handle different response structures
-            let queues = queuesResponse.data;
-            if (!Array.isArray(queues)) {
+            let destinations = destinationsResponse.data;
+            if (!Array.isArray(destinations)) {
                 // Check if data is wrapped in a property
-                if (queues && queues.queues) {
-                    queues = queues.queues;
-                } else if (queues && queues.destinations) {
-                    queues = queues.destinations;
-                } else if (queues && typeof queues === 'object' && queues !== null) {
+                if (destinations && destinations.queues) {
+                    destinations = destinations.queues;
+                } else if (destinations && destinations.destinations) {
+                    destinations = destinations.destinations;
+                } else if (destinations && typeof destinations === 'object' && destinations !== null) {
                     // If it's a single object, wrap it in an array
-                    queues = [queues];
+                    destinations = [destinations];
                 } else {
-                    queues = [];
+                    destinations = [];
                 }
             }
 
-            // Filter out null/undefined entries
-            queues = queues.filter((q: any) => q && (q.queueId || q.id));
+            // Filter out null/undefined entries - be more lenient
+            destinations = destinations.filter((d: any) => d && typeof d === 'object');
 
-            console.log(`AnypointMQ Stats: Parsed ${queues.length} queues`);
+            console.log(`AnypointMQ Stats: After filtering, ${destinations.length} destinations remain`);
+            console.log(`AnypointMQ Stats: Sample destination structure:`, destinations.length > 0 ? JSON.stringify(destinations[0], null, 2) : 'No destinations');
 
-            if (!queues || queues.length === 0) {
-                vscode.window.showInformationMessage('No queues found in this region.');
+            // Separate queues and exchanges
+            // If it has exchangeId or type='exchange', it's an exchange
+            // Otherwise, it's a queue (default)
+            const exchanges = destinations.filter((d: any) => d.exchangeId || (d.type && d.type.toLowerCase() === 'exchange'));
+            const queues = destinations.filter((d: any) => !exchanges.includes(d));
+
+            console.log(`AnypointMQ Stats: Parsed ${queues.length} queues and ${exchanges.length} exchanges`);
+
+            if (destinations.length === 0) {
+                vscode.window.showInformationMessage('No destinations (queues or exchanges) found in this region.');
                 return;
             }
 
-            // Fetch stats for all queues
-            const queueIds = queues.map((queue: any) => queue.queueId || queue.id).join(',');
-            console.log(`AnypointMQ Stats: Queue IDs for stats: ${queueIds}`);
+            // Fetch stats for queues and exchanges
+            let allStats: any[] = [];
+            let allDestinations: any[] = [];
 
-            const statsUrl = `${ANYPOINT_MQ_STATS_BASE}/organizations/${organizationID}/environments/${environmentId}/regions/${selectedRegionId}/queues?destinationIds=${queueIds}`;
+            if (queues.length > 0) {
+                // Fetch stats for all queues
+                const queueIds = queues.map((queue: any) => queue.queueId || queue.id).join(',');
+                console.log(`AnypointMQ Stats: Queue IDs for stats: ${queueIds}`);
 
-            console.log(`AnypointMQ Stats: Fetching stats from ${statsUrl}`);
-            const statsResponse = await apiHelper.get(statsUrl);
+                const queueStatsUrl = `${ANYPOINT_MQ_STATS_BASE}/organizations/${organizationID}/environments/${environmentId}/regions/${selectedRegionId}/queues?destinationIds=${queueIds}`;
 
-            console.log(`AnypointMQ Stats: API response status: ${statsResponse.status}`);
-            console.log(`AnypointMQ Stats: Stats response:`, JSON.stringify(statsResponse.data, null, 2));
+                console.log(`AnypointMQ Stats: Fetching queue stats from ${queueStatsUrl}`);
+                const queueStatsResponse = await apiHelper.get(queueStatsUrl);
 
-            if (statsResponse.status !== 200) {
-                throw new Error(`API request failed with status ${statsResponse.status}`);
+                console.log(`AnypointMQ Stats: Queue stats response:`, JSON.stringify(queueStatsResponse.data, null, 2));
+
+                const queueStats = Array.isArray(queueStatsResponse.data) ? queueStatsResponse.data : [queueStatsResponse.data];
+                allStats = allStats.concat(queueStats);
+                allDestinations = allDestinations.concat(queues.map(q => ({ ...q, destinationType: 'queue' })));
+            }
+
+            if (exchanges.length > 0) {
+                // Try to fetch stats for all exchanges
+                // Note: Exchange stats API may not be available in all environments
+                const exchangeIds = exchanges.map((exchange: any) => exchange.exchangeId || exchange.id).join(',');
+                console.log(`AnypointMQ Stats: Exchange IDs for stats: ${exchangeIds}`);
+
+                try {
+                    const exchangeStatsUrl = `${ANYPOINT_MQ_STATS_BASE}/organizations/${organizationID}/environments/${environmentId}/regions/${selectedRegionId}/exchanges?destinationIds=${exchangeIds}`;
+
+                    console.log(`AnypointMQ Stats: Fetching exchange stats from ${exchangeStatsUrl}`);
+                    const exchangeStatsResponse = await apiHelper.get(exchangeStatsUrl);
+
+                    console.log(`AnypointMQ Stats: Exchange stats response:`, JSON.stringify(exchangeStatsResponse.data, null, 2));
+
+                    const exchangeStats = Array.isArray(exchangeStatsResponse.data) ? exchangeStatsResponse.data : [exchangeStatsResponse.data];
+                    allStats = allStats.concat(exchangeStats);
+                    allDestinations = allDestinations.concat(exchanges.map(e => ({ ...e, destinationType: 'exchange' })));
+
+                    console.log(`AnypointMQ Stats: ✓ Found ${exchanges.length} exchanges with stats`);
+                } catch (exchangeError: any) {
+                    // If exchange stats API is not available (404), add exchanges without stats
+                    if (exchangeError.response?.status === 404) {
+                        console.log(`AnypointMQ Stats: ⚠️  Exchange stats API not available, showing exchanges without stats`);
+                        // Add exchanges with empty stats
+                        const emptyStats = exchanges.map((exchange: any) => ({
+                            destination: exchange.exchangeId || exchange.id,
+                            messages: 0,
+                            inflightMessages: 0
+                        }));
+                        allStats = allStats.concat(emptyStats);
+                        allDestinations = allDestinations.concat(exchanges.map(e => ({ ...e, destinationType: 'exchange' })));
+                        console.log(`AnypointMQ Stats: ✓ Found ${exchanges.length} exchanges (without stats)`);
+                    } else {
+                        console.log(`AnypointMQ Stats: ✗ Error fetching exchange stats:`, exchangeError.message);
+                        throw exchangeError;
+                    }
+                }
             }
 
             const statsData = {
                 allRegions: false,
-                queues: queues,
-                stats: Array.isArray(statsResponse.data) ? statsResponse.data : [statsResponse.data],
+                queues: allDestinations, // Using 'queues' for backward compatibility but contains both
+                stats: allStats,
                 region: selectedRegionId,
                 regionName: selectedRegionName,
                 environmentId: environmentId,

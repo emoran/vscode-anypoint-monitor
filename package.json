@@ -3,7 +3,7 @@
   "displayName": "Anypoint Monitor",
   "description": "Monitor, manage, and deploy MuleSoft Anypoint Platform applications directly in VS Code. Real-time CloudHub 1.0/2.0 monitoring, API management, multi-account support, and live log streaming for MuleSoft developers.",
   "publisher": "EdgarMoran",
-  "version": "0.0.50",
+  "version": "0.0.51",
   "engines": {
     "vscode": "^1.96.0"
   },

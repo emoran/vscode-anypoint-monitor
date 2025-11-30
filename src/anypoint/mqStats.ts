@@ -54,7 +54,8 @@ export function showAnypointMQStatsWebview(
         message.regionName,
         environmentId,
         environmentName,
-        organizationID
+        organizationID,
+        message.isExchange || false
       );
     } else if (message.command === 'downloadCsv') {
       let csvContent = '';
@@ -99,13 +100,14 @@ function getAnypointMQStatsHtml(
   organizationID?: string,
   environmentId?: string
 ): string {
-  // Merge queue data with stats data
+  // Merge destination data with stats data (queues and exchanges)
   const enrichedQueues = queues.map(queue => {
-    const queueId = queue.queueId || queue.id;
+    const destinationId = queue.queueId || queue.exchangeId || queue.id;
     const queueStats = stats.find(stat =>
-      stat.destination === queueId ||
-      stat.queueId === queueId ||
-      stat.destinationId === queueId
+      stat.destination === destinationId ||
+      stat.queueId === destinationId ||
+      stat.exchangeId === destinationId ||
+      stat.destinationId === destinationId
     );
 
     return {
@@ -309,6 +311,14 @@ function getAnypointMQStatsHtml(
       background: var(--vscode-charts-gray);
       color: white;
     }
+    .badge.queue {
+      background: var(--vscode-charts-blue);
+      color: white;
+    }
+    .badge.exchange {
+      background: var(--vscode-charts-purple);
+      color: white;
+    }
     .metric-value {
       font-weight: 600;
       font-size: 14px;
@@ -414,19 +424,25 @@ function getAnypointMQStatsHtml(
   <table id="queuesTable">
     <thead>
       <tr>
-        <th onclick="sortTable(0)">Queue Name <span class="sort-indicator">▼</span></th>
-        <th onclick="sortTable(1)">Type <span class="sort-indicator">▼</span></th>
-        <th onclick="sortTable(2)">Messages <span class="sort-indicator">▼</span></th>
-        <th onclick="sortTable(3)">In-Flight <span class="sort-indicator">▼</span></th>
-        <th onclick="sortTable(4)">Default TTL <span class="sort-indicator">▼</span></th>
-        <th onclick="sortTable(5)">Default Lock TTL <span class="sort-indicator">▼</span></th>
-        <th onclick="sortTable(6)">Encrypted <span class="sort-indicator">▼</span></th>
+        <th onclick="sortTable(0)">Destination Name <span class="sort-indicator">▼</span></th>
+        <th onclick="sortTable(1)">Destination Type <span class="sort-indicator">▼</span></th>
+        <th onclick="sortTable(2)">Queue Type <span class="sort-indicator">▼</span></th>
+        <th onclick="sortTable(3)">Messages <span class="sort-indicator">▼</span></th>
+        <th onclick="sortTable(4)">In-Flight <span class="sort-indicator">▼</span></th>
+        <th onclick="sortTable(5)">Default TTL <span class="sort-indicator">▼</span></th>
+        <th onclick="sortTable(6)">Default Lock TTL <span class="sort-indicator">▼</span></th>
+        <th onclick="sortTable(7)">Encrypted <span class="sort-indicator">▼</span></th>
         <th>Actions <span class="sort-indicator"></span></th>
       </tr>
     </thead>
     <tbody id="queuesTableBody">
       ${enrichedQueues.map(queue => {
-        const queueId = queue.queueId || queue.id;
+        // Extract ID - could be queueId, exchangeId, or just id
+        const destinationId = queue.queueId || queue.exchangeId || queue.id;
+
+        // Determine type - check destinationType first, then exchangeId, default to queue
+        const destinationType = queue.destinationType || (queue.exchangeId ? 'exchange' : 'queue');
+
         const queueType = queue.fifo ? 'FIFO' : 'Standard';
         const messages = queue.stats.messages || 0;
         const inflight = queue.stats.inflightMessages || 0;
@@ -438,16 +454,19 @@ function getAnypointMQStatsHtml(
           messageClass = 'medium';
         }
 
+        const isExchange = destinationType === 'exchange';
+
         return `
         <tr>
-          <td><span class="queue-name">${queueId}</span></td>
-          <td><span class="badge ${queue.fifo ? 'fifo' : 'standard'}">${queueType}</span></td>
+          <td><span class="queue-name">${destinationId}</span></td>
+          <td><span class="badge ${isExchange ? 'exchange' : 'queue'}">${isExchange ? '🔀 Exchange' : '📋 Queue'}</span></td>
+          <td><span class="badge ${queue.fifo ? 'fifo' : 'standard'}">${isExchange ? 'N/A' : queueType}</span></td>
           <td><span class="metric-value ${messageClass}">${messages.toLocaleString()}</span></td>
           <td><span class="metric-value">${inflight.toLocaleString()}</span></td>
           <td>${queue.defaultTtl ? (queue.defaultTtl / 1000 / 60).toFixed(0) + ' min' : 'N/A'}</td>
           <td>${queue.defaultLockTtl ? (queue.defaultLockTtl / 1000).toFixed(0) + ' sec' : 'N/A'}</td>
           <td>${queue.encrypted ? '🔒 Yes' : '🔓 No'}</td>
-          <td><button class="action-btn" onclick="openQueueDetails('${queueId}', '${region}')">📋 View Details</button></td>
+          <td><button class="action-btn" onclick="openQueueDetails('${destinationId}', '${region}', ${isExchange})">📋 View Details</button></td>
         </tr>
         `;
       }).join('')}
@@ -480,12 +499,13 @@ function getAnypointMQStatsHtml(
       vscode.postMessage({ command: 'downloadCsv' });
     }
 
-    function openQueueDetails(queueId, regionId) {
+    function openQueueDetails(queueId, regionId, isExchange) {
       vscode.postMessage({
         command: 'viewQueueDetails',
         queueId: queueId,
         regionId: regionId,
-        regionName: regionName
+        regionName: regionName,
+        isExchange: isExchange || false
       });
     }
 
@@ -580,8 +600,9 @@ function getAnypointMQStatsHtml(
 function generateMQStatsCsv(queues: any[], stats: any[], regionName?: string): string {
   const headers = [
     'Region',
-    'Queue ID',
-    'Type',
+    'Destination ID',
+    'Destination Type',
+    'Queue Type',
     'Messages',
     'In-Flight Messages',
     'Default TTL (ms)',
@@ -593,16 +614,19 @@ function generateMQStatsCsv(queues: any[], stats: any[], regionName?: string): s
   ];
 
   const rows = queues.map(queue => {
-    const queueId = queue.queueId || queue.id;
+    const destinationId = queue.queueId || queue.exchangeId || queue.id;
+    const destinationType = queue.destinationType || (queue.exchangeId ? 'exchange' : 'queue');
     const queueStats = stats.find(stat =>
-      stat.destination === queueId ||
-      stat.queueId === queueId ||
-      stat.destinationId === queueId
+      stat.destination === destinationId ||
+      stat.queueId === destinationId ||
+      stat.exchangeId === destinationId ||
+      stat.destinationId === destinationId
     );
 
     return [
       regionName || 'N/A',
-      queueId,
+      destinationId,
+      destinationType,
       queue.fifo ? 'FIFO' : 'Standard',
       queueStats?.messages || 0,
       queueStats?.inflightMessages || 0,
@@ -690,11 +714,15 @@ function getAnypointMQStatsHtmlAllRegions(
     const { regionName, regionId, queues, stats } = regionData;
 
     queues.forEach((queue: any) => {
-      const queueId = queue.queueId || queue.id;
+      // Extract ID - could be queueId, exchangeId, or just id
+      const destinationId = queue.queueId || queue.exchangeId || queue.id;
+
+      // Find matching stats
       const queueStats = stats.find((stat: any) =>
-        stat.destination === queueId ||
-        stat.queueId === queueId ||
-        stat.destinationId === queueId
+        stat.destination === destinationId ||
+        stat.queueId === destinationId ||
+        stat.exchangeId === destinationId ||
+        stat.destinationId === destinationId
       );
 
       allQueues.push({
@@ -1008,18 +1036,24 @@ function getAnypointMQStatsHtmlAllRegions(
     <thead>
       <tr>
         <th onclick="sortTable(0)">Region <span class="sort-indicator">▼</span></th>
-        <th onclick="sortTable(1)">Queue Name <span class="sort-indicator">▼</span></th>
-        <th onclick="sortTable(2)">Type <span class="sort-indicator">▼</span></th>
-        <th onclick="sortTable(3)">Messages <span class="sort-indicator">▼</span></th>
-        <th onclick="sortTable(4)">In-Flight <span class="sort-indicator">▼</span></th>
-        <th onclick="sortTable(5)">Default TTL <span class="sort-indicator">▼</span></th>
-        <th onclick="sortTable(6)">Encrypted <span class="sort-indicator">▼</span></th>
+        <th onclick="sortTable(1)">Destination Name <span class="sort-indicator">▼</span></th>
+        <th onclick="sortTable(2)">Destination Type <span class="sort-indicator">▼</span></th>
+        <th onclick="sortTable(3)">Queue Type <span class="sort-indicator">▼</span></th>
+        <th onclick="sortTable(4)">Messages <span class="sort-indicator">▼</span></th>
+        <th onclick="sortTable(5)">In-Flight <span class="sort-indicator">▼</span></th>
+        <th onclick="sortTable(6)">Default TTL <span class="sort-indicator">▼</span></th>
+        <th onclick="sortTable(7)">Encrypted <span class="sort-indicator">▼</span></th>
         <th>Actions <span class="sort-indicator"></span></th>
       </tr>
     </thead>
     <tbody id="queuesTableBody">
       ${allQueues.map(queue => {
-        const queueId = queue.queueId || queue.id;
+        // Extract ID - could be queueId, exchangeId, or just id
+        const destinationId = queue.queueId || queue.exchangeId || queue.id;
+
+        // Determine type - check destinationType first, then exchangeId, default to queue
+        const destinationType = queue.destinationType || (queue.exchangeId ? 'exchange' : 'queue');
+
         const queueType = queue.fifo ? 'FIFO' : 'Standard';
         const messages = queue.stats.messages || 0;
         const inflight = queue.stats.inflightMessages || 0;
@@ -1031,16 +1065,19 @@ function getAnypointMQStatsHtmlAllRegions(
           messageClass = 'medium';
         }
 
+        const isExchange = destinationType === 'exchange';
+
         return `
         <tr>
           <td><span class="region-badge">${queue.region}</span></td>
-          <td><span class="queue-name">${queueId}</span></td>
-          <td><span class="badge ${queue.fifo ? 'fifo' : 'standard'}">${queueType}</span></td>
+          <td><span class="queue-name">${destinationId}</span></td>
+          <td><span class="badge ${isExchange ? 'exchange' : 'queue'}">${isExchange ? '🔀 Exchange' : '📋 Queue'}</span></td>
+          <td><span class="badge ${queue.fifo ? 'fifo' : 'standard'}">${isExchange ? 'N/A' : queueType}</span></td>
           <td><span class="metric-value ${messageClass}">${messages.toLocaleString()}</span></td>
           <td><span class="metric-value">${inflight.toLocaleString()}</span></td>
           <td>${queue.defaultTtl ? (queue.defaultTtl / 1000 / 60).toFixed(0) + ' min' : 'N/A'}</td>
           <td>${queue.encrypted ? '🔒 Yes' : '🔓 No'}</td>
-          <td><button class="action-btn" onclick="openQueueDetails('${queueId}', '${queue.regionId}', '${queue.region}')">📋 View Details</button></td>
+          <td><button class="action-btn" onclick="openQueueDetails('${destinationId}', '${queue.regionId}', '${queue.region}', ${isExchange})">📋 View Details</button></td>
         </tr>
         `;
       }).join('')}
@@ -1065,12 +1102,13 @@ function getAnypointMQStatsHtmlAllRegions(
       vscode.postMessage({ command: 'downloadCsv' });
     }
 
-    function openQueueDetails(queueId, regionId, regionName) {
+    function openQueueDetails(queueId, regionId, regionName, isExchange) {
       vscode.postMessage({
         command: 'viewQueueDetails',
         queueId: queueId,
         regionId: regionId,
-        regionName: regionName
+        regionName: regionName,
+        isExchange: isExchange || false
       });
     }
 
