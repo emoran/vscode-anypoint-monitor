@@ -94,7 +94,8 @@ export function showHybridApplicationsWebview(
       try {
         vscode.window.showInformationMessage('Refreshing Hybrid applications...');
         const refreshed = await fetchHybridApplications(context, environmentId);
-        appsArray = Array.isArray(refreshed) ? refreshed : refreshed?.data || [];
+        const refreshedList = Array.isArray(refreshed) ? refreshed : (refreshed as any)?.data;
+        appsArray = Array.isArray(refreshedList) ? refreshedList : [];
         panel.webview.html = getHybridApplicationsHtml(appsArray, panel.webview, context.extensionUri, environmentName);
         vscode.window.showInformationMessage(`Refreshed ${appsArray.length} Hybrid application(s).`);
       } catch (error: any) {
