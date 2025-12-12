@@ -1,5 +1,8 @@
 import * as vscode from 'vscode';
 import * as fs from 'fs';
+import { ApiHelper } from '../controllers/apiHelper.js';
+import { AccountService } from '../controllers/accountService.js';
+import { BASE_URL } from '../constants';
 
 /**
  * Creates a webview panel and displays a detailed table of applications
@@ -13,7 +16,7 @@ export function showApplicationsWebview1(
   environmentName?: string
 ) {
   // Ensure the data is an array
-  const appsArray = Array.isArray(data) ? data : [];
+  let appsArray = Array.isArray(data) ? data : [];
 
   // Create the webview panel
   const panel = vscode.window.createWebviewPanel(
@@ -59,6 +62,24 @@ export function showApplicationsWebview1(
         } catch (error: any) {
           vscode.window.showErrorMessage(`Failed to save CSV file: ${error.message}`);
         }
+      }
+    } else if (message.command === 'ch1BulkAction') {
+      try {
+        await handleCh1BulkAction(context, environmentId, message.action, message.domains);
+      } catch (error: any) {
+        console.error('Bulk action failed:', error);
+        vscode.window.showErrorMessage(`Failed to ${message.action || 'update'} applications: ${error.message}`);
+      }
+    } else if (message.command === 'refreshApplications') {
+      try {
+        vscode.window.showInformationMessage('Refreshing CloudHub 1.0 applications...');
+        const refreshed = await fetchCloudHub1Applications(context, environmentId);
+        appsArray = Array.isArray(refreshed) ? refreshed : [];
+        panel.webview.html = getApplicationsHtml(appsArray, panel.webview, context.extensionUri, environmentName);
+        vscode.window.showInformationMessage(`Refreshed ${appsArray.length} CloudHub 1.0 application(s).`);
+      } catch (error: any) {
+        console.error('Failed to refresh CloudHub 1.0 apps:', error);
+        vscode.window.showErrorMessage(`Failed to refresh applications: ${error.message}`);
       }
     }
   });
@@ -239,7 +260,40 @@ function getApplicationsHtml(
             background-color: var(--accent-light);
           }
 
+          .button-ghost {
+            background-color: transparent;
+            border: 1px solid var(--border-primary);
+          }
+
           /* Table Controls */
+          .button-group {
+            display: flex;
+            gap: 8px;
+          }
+
+          .button-danger {
+            background-color: var(--error);
+            color: var(--text-primary);
+          }
+
+          .button-danger:hover {
+            background-color: #ff6b6b;
+          }
+
+          .action-bar {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 12px;
+            margin-bottom: 16px;
+            flex-wrap: wrap;
+          }
+
+          .selection-info {
+            color: var(--text-secondary);
+            font-size: 13px;
+          }
+
           .table-controls {
             display: flex;
             justify-content: space-between;
@@ -298,6 +352,16 @@ function getApplicationsHtml(
             width: 100%;
             border-collapse: collapse;
             background-color: var(--surface-secondary);
+          }
+
+          .checkbox-cell {
+            width: 40px;
+            text-align: center;
+          }
+
+          input[type="checkbox"] {
+            width: 16px;
+            height: 16px;
           }
 
           th {
@@ -482,7 +546,10 @@ function getApplicationsHtml(
           <div class="applications-card">
             <div class="card-header">
               <h2 class="card-title">Applications</h2>
-              <button id="downloadAllCsv" class="button">Download as CSV</button>
+              <div class="button-group">
+                <button id="refreshApps" class="button button-ghost">Refresh</button>
+                <button id="downloadAllCsv" class="button">Download as CSV</button>
+              </div>
             </div>
 
             <div class="table-controls">
@@ -502,10 +569,20 @@ function getApplicationsHtml(
               </div>
             </div>
 
+          <div class="action-bar">
+            <div class="selection-info" id="selectionSummary">No applications selected</div>
+            <div style="display: flex; gap: 8px;">
+              <button id="btnStartSelected" class="button" disabled>Start Selected</button>
+              <button id="btnRestartSelected" class="button" disabled>Restart Selected</button>
+              <button id="btnStopSelected" class="button button-danger" disabled>Stop Selected</button>
+            </div>
+          </div>
+
             <div class="table-wrapper">
               <table id="appTable">
                 <thead>
                   <tr>
+                    <th class="checkbox-cell"><input type="checkbox" id="selectAll"></th>
                     <th>Domain</th>
                     <th>Full Domain</th>
                     <th>Status</th>
@@ -538,6 +615,68 @@ function getApplicationsHtml(
           let filteredData = [...appsData];
           let currentPage = 1;
           let entriesPerPage = 10;
+          const selectedDomains = new Set();
+
+          function getDomain(app) {
+            return app?.domain || app?.fullDomain || '';
+          }
+
+          function updateSelectionSummary() {
+            const summaryEl = document.getElementById('selectionSummary');
+            const count = selectedDomains.size;
+            if (summaryEl) {
+              summaryEl.textContent = count === 0 ? 'No applications selected' : \`\${count} application(s) selected\`;
+            }
+
+            const restartBtn = document.getElementById('btnRestartSelected');
+            const stopBtn = document.getElementById('btnStopSelected');
+            const startBtn = document.getElementById('btnStartSelected');
+            const hasSelection = count > 0;
+            if (restartBtn) restartBtn.disabled = !hasSelection;
+            if (stopBtn) stopBtn.disabled = !hasSelection;
+            if (startBtn) startBtn.disabled = !hasSelection;
+          }
+
+          function getPaginationBounds() {
+            const startIndex = (currentPage - 1) * entriesPerPage;
+            return { startIndex, endIndex: startIndex + entriesPerPage };
+          }
+
+          function getPageData() {
+            const { startIndex, endIndex } = getPaginationBounds();
+            return filteredData.slice(startIndex, endIndex);
+          }
+
+          function syncSelectAllCheckbox() {
+            const selectAllEl = document.getElementById('selectAll');
+            if (!selectAllEl) return;
+
+            const pageData = getPageData();
+            if (pageData.length === 0) {
+              selectAllEl.checked = false;
+              selectAllEl.indeterminate = false;
+              return;
+            }
+
+            const pageDomains = pageData.map(getDomain).filter(Boolean);
+            const allSelected = pageDomains.length > 0 && pageDomains.every(domain => selectedDomains.has(domain));
+            const someSelected = pageDomains.some(domain => selectedDomains.has(domain));
+            selectAllEl.checked = allSelected;
+            selectAllEl.indeterminate = !allSelected && someSelected;
+          }
+
+          function sendBulkAction(action) {
+            if (!selectedDomains.size) {
+              alert('Select at least one application first.');
+              return;
+            }
+
+            vscode.postMessage({
+              command: 'ch1BulkAction',
+              action,
+              domains: Array.from(selectedDomains)
+            });
+          }
 
           // Render status badge
           function renderStatus(status) {
@@ -554,14 +693,21 @@ function getApplicationsHtml(
 
           // Render table
           function renderTable() {
-            const startIndex = (currentPage - 1) * entriesPerPage;
-            const endIndex = startIndex + entriesPerPage;
+            const { startIndex, endIndex } = getPaginationBounds();
             const pageData = filteredData.slice(startIndex, endIndex);
 
             const tbody = document.getElementById('appTableBody');
-            tbody.innerHTML = pageData.map((app, index) => \`
+            tbody.innerHTML = pageData.map((app, index) => {
+              const actualIndex = startIndex + index;
+              const domain = getDomain(app);
+              const isSelected = domain && selectedDomains.has(domain);
+
+              return \`
               <tr>
-                <td><a href="#" class="app-name-link" data-app-name="\${app.domain || ''}" data-app-index="\${index}">\${app.domain || 'N/A'}</a></td>
+                <td class="checkbox-cell">
+                  <input type="checkbox" class="row-select" data-app-index="\${actualIndex}" \${domain ? '' : 'disabled'} \${isSelected ? 'checked' : ''}>
+                </td>
+                <td><a href="#" class="app-name-link" data-app-name="\${app.domain || ''}" data-app-index="\${actualIndex}">\${app.domain || 'N/A'}</a></td>
                 <td>\${app.fullDomain || 'N/A'}</td>
                 <td>\${renderStatus(app.status)}</td>
                 <td>\${app.workers || 'N/A'}</td>
@@ -569,9 +715,12 @@ function getApplicationsHtml(
                 <td>\${app.region || 'N/A'}</td>
                 <td>\${app.lastUpdateTime ? new Date(app.lastUpdateTime).toLocaleString() : 'N/A'}</td>
               </tr>
-            \`).join('');
+            \`;
+            }).join('');
 
             updatePagination();
+            updateSelectionSummary();
+            syncSelectAllCheckbox();
           }
 
           // Update pagination
@@ -608,6 +757,57 @@ function getApplicationsHtml(
             entriesPerPage = parseInt(e.target.value);
             currentPage = 1;
             renderTable();
+          });
+
+          document.getElementById('refreshApps').addEventListener('click', () => {
+            vscode.postMessage({ command: 'refreshApplications' });
+          });
+
+          document.getElementById('btnRestartSelected').addEventListener('click', () => {
+            sendBulkAction('restart');
+          });
+
+          document.getElementById('btnStartSelected').addEventListener('click', () => {
+            sendBulkAction('start');
+          });
+
+          document.getElementById('btnStopSelected').addEventListener('click', () => {
+            sendBulkAction('stop');
+          });
+
+          document.addEventListener('change', (e) => {
+            const target = e.target;
+
+            if (target?.id === 'selectAll') {
+              const pageData = getPageData();
+              if (target.checked) {
+                pageData.forEach(app => {
+                  const domain = getDomain(app);
+                  if (domain) selectedDomains.add(domain);
+                });
+              } else {
+                pageData.forEach(app => {
+                  const domain = getDomain(app);
+                  if (domain) selectedDomains.delete(domain);
+                });
+              }
+              renderTable();
+            }
+
+            if (target?.classList?.contains('row-select')) {
+              const appIndex = Number(target.dataset.appIndex);
+              const app = filteredData[appIndex];
+              const domain = getDomain(app);
+              if (domain) {
+                if (target.checked) {
+                  selectedDomains.add(domain);
+                } else {
+                  selectedDomains.delete(domain);
+                }
+              }
+              updateSelectionSummary();
+              syncSelectAllCheckbox();
+            }
           });
 
           document.getElementById('prevBtn').addEventListener('click', () => {
@@ -654,6 +854,103 @@ function getApplicationsHtml(
       </body>
     </html>
   `;
+}
+
+async function handleCh1BulkAction(
+  context: vscode.ExtensionContext,
+  environmentId: string | undefined,
+  action: string,
+  domains: string[]
+): Promise<void> {
+  if (!environmentId) {
+    throw new Error('No environment selected for CloudHub 1.0.');
+  }
+
+  if (!domains || domains.length === 0) {
+    vscode.window.showWarningMessage('Select at least one application to continue.');
+    return;
+  }
+
+  const normalizedAction = (action || '').toLowerCase();
+  if (!['restart', 'stop', 'start'].includes(normalizedAction)) {
+    throw new Error(`Unsupported action ${action}`);
+  }
+
+  const accountService = new AccountService(context);
+  const activeAccount = await accountService.getActiveAccount();
+  if (!activeAccount) {
+    throw new Error('No active account found. Please log in first.');
+  }
+
+  const apiHelper = new ApiHelper(context);
+  const organizationID = activeAccount.organizationId;
+  const statusValue = normalizedAction === 'restart' ? 'restart' : normalizedAction === 'start' ? 'start' : 'STOPPED';
+
+  for (const domain of domains) {
+    let response;
+    if (statusValue === 'restart') {
+      response = await apiHelper.post(
+        `${BASE_URL}/cloudhub/api/applications/${domain}/status`,
+        { status: 'restart' },
+        {
+          headers: {
+            'X-ANYPNT-ENV-ID': environmentId,
+            'X-ANYPNT-ORG-ID': organizationID,
+          },
+        }
+      );
+    } else {
+      response = await apiHelper.post(
+        `${BASE_URL}/cloudhub/api/applications/${domain}/status`,
+        { status: statusValue },
+        {
+          headers: {
+            'X-ANYPNT-ENV-ID': environmentId,
+            'X-ANYPNT-ORG-ID': organizationID,
+          },
+        }
+      );
+    }
+
+    if (response.status < 200 || response.status >= 300) {
+      throw new Error(`API responded with ${response.status} for ${domain}`);
+    }
+  }
+
+  const label =
+    statusValue === 'restart' ? 'Restart' :
+    statusValue === 'start' ? 'Start' : 'Stop';
+
+  vscode.window.showInformationMessage(
+    `${label} requested for ${domains.length} CloudHub 1.0 application(s).`
+  );
+}
+
+async function fetchCloudHub1Applications(context: vscode.ExtensionContext, environmentId?: string): Promise<any[]> {
+  if (!environmentId) {
+    throw new Error('No environment selected for CloudHub 1.0.');
+  }
+
+  const accountService = new AccountService(context);
+  const activeAccount = await accountService.getActiveAccount();
+  if (!activeAccount) {
+    throw new Error('No active account found. Please log in first.');
+  }
+
+  const apiHelper = new ApiHelper(context);
+  const organizationID = activeAccount.organizationId;
+  const response = await apiHelper.get(`${BASE_URL}/cloudhub/api/applications`, {
+    headers: {
+      'X-ANYPNT-ENV-ID': environmentId,
+      'X-ANYPNT-ORG-ID': organizationID,
+    },
+  });
+
+  if (response.status !== 200) {
+    throw new Error(`API request failed with status ${response.status}`);
+  }
+
+  return response.data;
 }
 
 /**

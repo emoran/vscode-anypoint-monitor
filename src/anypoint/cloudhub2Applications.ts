@@ -1,9 +1,8 @@
 // cloudhub2Applications.ts
 import * as vscode from 'vscode';
 import * as fs from 'fs';
-import { showApplicationDetailsCH2Webview } from './/applicationDetailsCH2';
-import { refreshAccessToken } from '../controllers/oauthService';
 import { ApiHelper } from '../controllers/apiHelper.js';
+import { BASE_URL } from '../constants';
 
 // ==================== MAIN ENTRY POINTS ====================
 
@@ -166,6 +165,16 @@ panel.webview.onDidReceiveMessage(async (message) => {
             id: parsedEnvironments.data[0]?.id || '', 
             name: parsedEnvironments.data[0]?.name || environment 
           };
+          const storedSelected = await context.secrets.get('anypoint.selectedEnvironment');
+          if (storedSelected) {
+            try {
+              const parsed = JSON.parse(storedSelected);
+              envInfo.id = parsed.id || envInfo.id;
+              envInfo.name = parsed.name || envInfo.name;
+            } catch {
+              // ignore parse errors and use defaults
+            }
+          }
           console.log('🔄 Refreshing with environment:', envInfo);
           
           const refreshedApps = await getCH2Applications(context);
@@ -176,6 +185,16 @@ panel.webview.onDidReceiveMessage(async (message) => {
         } catch (error: any) {
           console.error('❌ Refresh failed:', error);
           vscode.window.showErrorMessage(`Failed to refresh applications: ${error.message}`);
+        }
+        break;
+
+      case 'ch2BulkAction':
+        console.log('🚦 Processing CloudHub 2.0 bulk action...');
+        try {
+          await handleCh2BulkAction(context, message.action, message.domains, message.deployments);
+        } catch (error: any) {
+          console.error('❌ Bulk action failed:', error);
+          vscode.window.showErrorMessage(`Failed to ${message.action?.toLowerCase?.() || 'update'} applications: ${error.message}`);
         }
         break;
 
@@ -389,6 +408,34 @@ function getCloudHub2ApplicationsHtml(
             cursor: not-allowed;
           }
 
+          .button-danger {
+            background-color: var(--error);
+            color: var(--text-primary);
+          }
+
+          .button-danger:hover {
+            background-color: #ff6b6b;
+          }
+
+          .button-ghost {
+            background-color: transparent;
+            border: 1px solid var(--border-primary);
+          }
+
+          .action-bar {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            margin-bottom: 16px;
+            gap: 12px;
+            flex-wrap: wrap;
+          }
+
+          .selection-info {
+            color: var(--text-secondary);
+            font-size: 13px;
+          }
+
           /* Table Controls */
           .table-controls {
             display: flex;
@@ -448,6 +495,16 @@ function getCloudHub2ApplicationsHtml(
             width: 100%;
             border-collapse: collapse;
             background-color: var(--surface-secondary);
+          }
+
+          .checkbox-cell {
+            width: 40px;
+            text-align: center;
+          }
+
+          input[type="checkbox"] {
+            width: 16px;
+            height: 16px;
           }
 
           th {
@@ -655,10 +712,19 @@ function getCloudHub2ApplicationsHtml(
               </div>
             </div>
 
+            <div class="action-bar">
+              <div class="selection-info" id="selectionSummary">No applications selected</div>
+              <div class="button-group">
+                <button id="btnRestartSelected" class="button button-ghost" disabled>Start Selected</button>
+                <button id="btnStopSelected" class="button button-danger" disabled>Stop Selected</button>
+              </div>
+            </div>
+
             <div class="table-wrapper">
               <table id="appTable">
                 <thead>
                   <tr>
+                    <th class="checkbox-cell"><input type="checkbox" id="ch2SelectAll"></th>
                     <th>Status</th>
                     <th>Name</th>
                     <th>Creation Date</th>
@@ -691,6 +757,18 @@ function getCloudHub2ApplicationsHtml(
           let filteredApplications = [...applicationsData];
           let currentPage = 1;
           let entriesPerPage = 10;
+          const selectedApps = new Map();
+
+          function getDomain(app) {
+            if (!app || typeof app !== 'object') {
+              return '';
+            }
+            return app.application?.domain || app.domain || app.name || '';
+          }
+
+          function getDeploymentId(app) {
+            return app?.deploymentId || app?.id || app?.application?.id || '';
+          }
 
           // Render status badge
           function renderStatus(status) {
@@ -715,10 +793,78 @@ function getCloudHub2ApplicationsHtml(
             }
           }
 
+          function updateSelectionSummary() {
+            const summaryEl = document.getElementById('selectionSummary');
+            const selectedCount = selectedApps.size;
+            if (summaryEl) {
+              summaryEl.textContent = selectedCount === 0
+                ? 'No applications selected'
+                : \`\${selectedCount} application(s) selected\`;
+            }
+
+            const restartBtn = document.getElementById('btnRestartSelected');
+            const stopBtn = document.getElementById('btnStopSelected');
+            const hasSelection = selectedCount > 0;
+            if (restartBtn) restartBtn.disabled = !hasSelection;
+            if (stopBtn) stopBtn.disabled = !hasSelection;
+          }
+
+          function getPaginationBounds() {
+            const startIndex = (currentPage - 1) * entriesPerPage;
+            return { startIndex, endIndex: startIndex + entriesPerPage };
+          }
+
+          function getPageApplications() {
+            const { startIndex, endIndex } = getPaginationBounds();
+            return filteredApplications.slice(startIndex, endIndex);
+          }
+
+          function syncSelectAllCheckbox() {
+            const selectAllEl = document.getElementById('ch2SelectAll');
+            if (!selectAllEl) {
+              return;
+            }
+
+            const pageApps = getPageApplications();
+            if (pageApps.length === 0) {
+              selectAllEl.checked = false;
+              selectAllEl.indeterminate = false;
+              return;
+            }
+
+            const pageDomains = pageApps.map(getDomain).filter(Boolean);
+            const allSelected = pageDomains.length > 0 && pageDomains.every(domain => selectedApps.has(domain));
+            const someSelected = pageDomains.some(domain => selectedApps.has(domain));
+            selectAllEl.checked = allSelected;
+            selectAllEl.indeterminate = !allSelected && someSelected;
+          }
+
+          function sendBulkAction(action) {
+            if (!selectedApps.size) {
+              alert('Select at least one application first.');
+              return;
+            }
+
+            const deployments = Array.from(selectedApps.values())
+              .map(item => item.deploymentId)
+              .filter(Boolean);
+
+            if (!deployments.length) {
+              alert('Could not resolve deployment IDs for the selected applications.');
+              return;
+            }
+
+            vscode.postMessage({
+              command: 'ch2BulkAction',
+              action,
+              domains: Array.from(selectedApps.keys()),
+              deployments
+            });
+          }
+
           // Render table
           function renderTable() {
-            const startIndex = (currentPage - 1) * entriesPerPage;
-            const endIndex = startIndex + entriesPerPage;
+            const { startIndex, endIndex } = getPaginationBounds();
             const pageApplications = filteredApplications.slice(startIndex, endIndex);
             
             const tbody = document.getElementById('ch2AppsTbody');
@@ -729,9 +875,15 @@ function getCloudHub2ApplicationsHtml(
               
               const actualIndex = applicationsData.indexOf(app);
               const status = (app.application && app.application.status) || app.status || '';
+              const domain = getDomain(app);
+              const deploymentId = getDeploymentId(app);
+              const isSelected = domain && selectedApps.has(domain);
 
               return \`
                 <tr data-app-index="\${actualIndex}">
+                  <td class="checkbox-cell">
+                    <input type="checkbox" class="row-select" data-app-index="\${actualIndex}" data-deployment-id="\${deploymentId || ''}" data-domain="\${domain || ''}" \${domain ? '' : 'disabled'} \${isSelected ? 'checked' : ''}>
+                  </td>
                   <td>\${renderStatus(status)}</td>
                   <td><a href="#" class="app-name-link" data-app-name="\${app.name || ''}" data-app-index="\${actualIndex}">\${app.name || 'Unknown'}</a></td>
                   <td>\${formatDateSafe(app.creationDate)}</td>
@@ -744,6 +896,8 @@ function getCloudHub2ApplicationsHtml(
 
             tbody.innerHTML = rowsHtml;
             updatePagination();
+            updateSelectionSummary();
+            syncSelectAllCheckbox();
           }
 
           // Update pagination
@@ -788,6 +942,55 @@ function getCloudHub2ApplicationsHtml(
           // Refresh button
           document.getElementById('btnRefreshApps')?.addEventListener('click', () => {
             vscode.postMessage({ command: 'refreshApplications' });
+          });
+
+          document.getElementById('btnRestartSelected')?.addEventListener('click', () => {
+            sendBulkAction('START');
+          });
+
+          document.getElementById('btnStopSelected')?.addEventListener('click', () => {
+            sendBulkAction('STOP');
+          });
+
+          document.addEventListener('change', (e) => {
+            const target = e.target;
+
+            if (target?.id === 'ch2SelectAll') {
+              const pageApps = getPageApplications();
+              if (target.checked) {
+                pageApps.forEach(app => {
+                  const domain = getDomain(app);
+                  const deploymentId = getDeploymentId(app);
+                  if (domain) {
+                    selectedApps.set(domain, { domain, deploymentId });
+                  }
+                });
+              } else {
+                pageApps.forEach(app => {
+                  const domain = getDomain(app);
+                  if (domain) {
+                    selectedApps.delete(domain);
+                  }
+                });
+              }
+              renderTable();
+            }
+
+            if (target?.classList?.contains('row-select')) {
+              const appIndex = Number(target.dataset.appIndex);
+              const app = applicationsData[appIndex];
+              const domain = getDomain(app);
+              const deploymentId = getDeploymentId(app);
+              if (domain) {
+                if (target.checked) {
+                  selectedApps.set(domain, { domain, deploymentId });
+                } else {
+                  selectedApps.delete(domain);
+                }
+              }
+              updateSelectionSummary();
+              syncSelectAllCheckbox();
+            }
           });
 
           // Search functionality
@@ -862,6 +1065,63 @@ export async function getCH2Applications(context: vscode.ExtensionContext): Prom
   }
 }
 
+async function handleCh2BulkAction(
+  context: vscode.ExtensionContext,
+  action: string,
+  domains: string[],
+  deployments?: string[]
+): Promise<void> {
+  if (!domains || domains.length === 0) {
+    vscode.window.showWarningMessage('Select at least one application to continue.');
+    return;
+  }
+
+  const normalizedAction = (action || '').toUpperCase();
+  if (!['START', 'STOP'].includes(normalizedAction)) {
+    throw new Error(`Unsupported action ${action}`);
+  }
+
+  const storedEnv = await context.secrets.get('anypoint.selectedEnvironment');
+  const { orgId, envId: defaultEnvId } = await getStoredOrgAndEnvInfo(context);
+  let envId = defaultEnvId;
+
+  if (storedEnv) {
+    try {
+      const parsed = JSON.parse(storedEnv);
+      envId = parsed.id || defaultEnvId;
+    } catch {
+      // Keep default env id on parse error
+    }
+  }
+
+  if (!envId) {
+    throw new Error('No environment selected for CloudHub 2.0.');
+  }
+
+  const apiHelper = new ApiHelper(context);
+  const desiredState = normalizedAction === 'START' ? 'STARTED' : 'STOPPED';
+
+  const deploymentIds = (deployments || []).filter(id => !!id);
+  if (!deploymentIds.length) {
+    throw new Error('No deployment IDs found for the selected applications.');
+  }
+
+  for (const deploymentId of deploymentIds) {
+    const response = await apiHelper.patch(
+      `${BASE_URL}/amc/adam/api/organizations/${orgId}/environments/${envId}/deployments/${deploymentId}`,
+      { application: { desiredState } }
+    );
+
+    if (response.status < 200 || response.status >= 300) {
+      throw new Error(`API responded with status ${response.status} for deployment ${deploymentId}`);
+    }
+  }
+
+  vscode.window.showInformationMessage(
+    `${desiredState === 'STARTED' ? 'Start' : 'Stop'} requested for ${domains.length} CloudHub 2.0 application(s).`
+  );
+}
+
 /**
  * Debug function to help identify data structure issues
  */
@@ -908,10 +1168,22 @@ export async function getStoredOrgAndEnvInfo(context: vscode.ExtensionContext): 
   }
 
   const parsedEnvironments = JSON.parse(environmentsData); // { data: [...], total: N }
+  let envId = parsedEnvironments.data[0]?.id || '';
+
+  // Prefer previously selected environment if available
+  const storedSelected = await context.secrets.get('anypoint.selectedEnvironment');
+  if (storedSelected) {
+    try {
+      const parsed = JSON.parse(storedSelected);
+      envId = parsed.id || envId;
+    } catch {
+      // ignore parse failure
+    }
+  }
 
   return {
     orgId: activeAccount.organizationId,
-    envId: parsedEnvironments.data[0]?.id || '', // Use first environment or let user select
+    envId, // Use selected or first environment
     environments: parsedEnvironments.data
   };
 }
