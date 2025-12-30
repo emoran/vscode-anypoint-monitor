@@ -229,13 +229,14 @@ async function fetchCH1Logs(
 ): Promise<LogEntry[]> {
     const accountService = new AccountService(context);
     const apiHelper = new ApiHelper(context);
-    
+
     const activeAccount = await accountService.getActiveAccount();
     if (!activeAccount) {
         throw new Error('No active account found. Please log in.');
     }
-    
-    const organizationID = activeAccount.organizationId;
+
+    // Use effective organization ID to respect selected business group
+    const organizationID = await accountService.getEffectiveOrganizationId() || activeAccount.organizationId;
 
     // Get region-specific base URL
     const baseUrl = await getBaseUrl(context);
@@ -303,7 +304,8 @@ async function fetchCH2Logs(
         throw new Error('No active account found. Please log in.');
     }
 
-    const organizationID = activeAccount.organizationId;
+    // Use effective organization ID to respect selected business group
+    const organizationID = await accountService.getEffectiveOrganizationId() || activeAccount.organizationId;
     const accessToken = await accountService.getActiveAccountAccessToken();
 
     if (!accessToken) {
@@ -419,7 +421,8 @@ async function fetchHybridLogs(
         throw new Error('No active account found. Please log in.');
     }
 
-    const organizationID = activeAccount.organizationId;
+    // Use effective organization ID to respect selected business group
+    const organizationID = await accountService.getEffectiveOrganizationId() || activeAccount.organizationId;
     const { ARM_BASE } = await import('../constants.js');
 
     // Hybrid logs are typically not available through the ARM REST API
@@ -709,13 +712,14 @@ async function fetchFullCH1Logs(session: RealTimeLogSession): Promise<LogEntry[]
     const context = session.context;
     const accountService = new AccountService(context);
     const apiHelper = new ApiHelper(context);
-    
+
     const activeAccount = await accountService.getActiveAccount();
     if (!activeAccount) {
         throw new Error('No active account found. Please log in.');
     }
-    
-    const organizationID = activeAccount.organizationId;
+
+    // Use effective organization ID to respect selected business group
+    const organizationID = await accountService.getEffectiveOrganizationId() || activeAccount.organizationId;
 
     // Get region-specific base URL
     const baseUrl = await getBaseUrl(context);
@@ -770,7 +774,8 @@ async function fetchFullCH2Logs(session: RealTimeLogSession): Promise<LogEntry[]
         throw new Error('No access token found for active account');
     }
 
-    const organizationID = activeAccount.organizationId;
+    // Use effective organization ID to respect selected business group
+    const organizationID = await accountService.getEffectiveOrganizationId() || activeAccount.organizationId;
 
     // Get region-specific base URL
     const regionId = activeAccount.region || 'us';

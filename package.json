@@ -97,6 +97,7 @@
     "onCommand:anypoint-monitor.applicationDiagram",
     "onCommand:anypoint-monitor.dataweavePlayground",
     "onCommand:anypoint-monitor.accountManager",
+    "onCommand:anypoint-monitor.selectBusinessGroup",
     "onCommand:anypoint-monitor.deleteAllAccounts",
     "onCommand:anypoint-monitor.migrateLegacyAccount",
     "onCommand:anypoint-monitor.applicationCommandCenter",
@@ -184,6 +185,10 @@
       {
         "command": "anypoint-monitor.accountManager",
         "title": "AM: Account Manager"
+      },
+      {
+        "command": "anypoint-monitor.selectBusinessGroup",
+        "title": "AM: Select Business Group"
       },
       {
         "command": "anypoint-monitor.deleteAllAccounts",

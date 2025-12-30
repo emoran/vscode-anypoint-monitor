@@ -41,24 +41,22 @@ export async function showApplicationDiagram(context: vscode.ExtensionContext, e
         return;
     }
     
+    // Use effective organization ID to respect selected business group
+    const organizationId = await accountService.getEffectiveOrganizationId() || activeAccount.organizationId;
+    const businessGroup = await accountService.getActiveAccountBusinessGroup();
+
     outputChannel.appendLine(`🔐 Active Account: ${activeAccount.userEmail} (${activeAccount.organizationName})`);
-    outputChannel.appendLine(`✅ Organization ID: ${activeAccount.organizationId}`);
+    outputChannel.appendLine(`✅ Organization ID: ${organizationId}`);
+    if (businessGroup && businessGroup.id !== activeAccount.organizationId) {
+        outputChannel.appendLine(`🏢 Business Group: ${businessGroup.name} (${businessGroup.id})`);
+    }
     outputChannel.appendLine(`✅ Environment ID: ${environmentId}`);
 
     // Get region-specific base URL
     const baseUrl = await getBaseUrl(context);
     outputChannel.appendLine(`🌍 Region Base URL: ${baseUrl}`);
 
-    // For backward compatibility, also check legacy user info
-    const userInfoRaw = await context.secrets.get('anypoint.userInfo');
-    if (userInfoRaw) {
-        const { organization } = JSON.parse(userInfoRaw);
-        if (organization?.id) {
-            outputChannel.appendLine(`📋 Legacy Organization ID: ${organization.id}`);
-        }
-    }
-
-    const deploymentChoice = await pickDeployment(context, activeAccount.organizationId, environmentId, outputChannel, preselectedDeploymentId);
+    const deploymentChoice = await pickDeployment(context, organizationId, environmentId, outputChannel, preselectedDeploymentId);
     if (!deploymentChoice) {
         outputChannel.appendLine('❌ No deployment selected or available');
         return;
@@ -127,13 +125,13 @@ export async function showApplicationDiagram(context: vscode.ExtensionContext, e
         
         const hydratedDeployment = await enrichDeploymentDetails(
             context,
-            activeAccount.organizationId,
+            organizationId,
             environmentId,
             deploymentChoice.deploymentId,
             deploymentChoice.raw,
             outputChannel
         );
-        
+
         outputChannel.appendLine('📊 Hydrated deployment metadata:');
         outputChannel.appendLine(JSON.stringify(hydratedDeployment, null, 2));
 
@@ -141,7 +139,7 @@ export async function showApplicationDiagram(context: vscode.ExtensionContext, e
         outputChannel.appendLine('\n--- Extracting Artifact Coordinates ---');
         const artifactZip = await fetchDeploymentArtifact(
             context,
-            activeAccount.organizationId,
+            organizationId,
             environmentId,
             deploymentChoice.deploymentId,
             hydratedDeployment,
@@ -222,15 +220,15 @@ async function pickDeployment(
         }
         
         outputChannel.appendLine(`🔐 Using active account: ${activeAccount.userEmail} (${activeAccount.organizationName})`);
-        outputChannel.appendLine(`🏢 Organization ID from account: ${activeAccount.organizationId}`);
+        outputChannel.appendLine(`🏢 Organization ID: ${orgId}`);
         outputChannel.appendLine(`🌍 Environment ID: ${environmentId}`);
-        
+
         // GraphQL deployment query currently has schema issues, using REST API
         outputChannel.appendLine('🔍 Using REST API for deployments (GraphQL schema validation issues)...');
-        
+
         let deployments;
         try {
-            deployments = await getCH2Deployments(context, activeAccount.organizationId, environmentId);
+            deployments = await getCH2Deployments(context, orgId, environmentId);
             outputChannel.appendLine(`📝 REST API returned ${deployments?.length || 0} deployments`);
         } catch (error: any) {
             outputChannel.appendLine(`❌ Error fetching deployments: ${error.message}`);
@@ -467,7 +465,7 @@ async function fetchDeploymentArtifact(
                 const response = await apiHelper.get(url, {
                     headers: {
                         'Accept': 'application/java-archive, application/zip, application/octet-stream',
-                        'X-ANYPNT-ORG-ID': activeAccount.organizationId,
+                        'X-ANYPNT-ORG-ID': orgId,
                         'X-ANYPNT-ENV-ID': environmentId,
                         'User-Agent': 'Anypoint-Monitor-VSCode-Extension',
                     },
@@ -784,7 +782,7 @@ async function fetchDeploymentArtifact(
 
                 // Use organization ID as groupId (common pattern)
                 finalCoords = {
-                    groupId: activeAccount.organizationId,
+                    groupId: orgId,
                     assetId: assetName,
                     version: '1.0.0' // Default version
                 };
@@ -802,7 +800,7 @@ async function fetchDeploymentArtifact(
                 outputChannel?.appendLine('\n=== PRIORITY 1: Maven Facade API ===');
                 const mavenZip = await downloadFromMavenFacade(
                     finalCoords,
-                    activeAccount.organizationId,
+                    orgId,
                     environmentId,
                     context,
                     outputChannel
@@ -887,7 +885,7 @@ async function fetchDeploymentArtifact(
                 outputChannel?.appendLine('🔗 Attempting GraphQL asset download URL retrieval...');
                 outputChannel?.appendLine(`📍 Using coordinates: groupId=${finalCoords.groupId}, assetId=${finalCoords.assetId}, version=${finalCoords.version}`);
                 console.log('🔗 CALLING GraphQL asset download with coordinates:', finalCoords);
-                const s3DownloadUrl = await getAssetDownloadUrlFromGraphQL(finalCoords, activeAccount.organizationId, context, outputChannel);
+                const s3DownloadUrl = await getAssetDownloadUrlFromGraphQL(finalCoords, orgId, context, outputChannel);
                 console.log('📍 GraphQL asset download result:', s3DownloadUrl);
                 outputChannel?.appendLine(`📍 GraphQL result: ${s3DownloadUrl ? 'SUCCESS - URL found' : 'FAILED - No URL returned'}`);
                 if (s3DownloadUrl) {
@@ -914,7 +912,7 @@ async function fetchDeploymentArtifact(
                 
                 // Fallback to traditional Exchange download
                 outputChannel?.appendLine('📥 Attempting traditional Exchange artifact download...');
-                const exchangeData = await downloadArtifactFromExchange(finalCoords, activeAccount.organizationId, context, outputChannel);
+                const exchangeData = await downloadArtifactFromExchange(finalCoords, orgId, context, outputChannel);
                 if (exchangeData) {
                     outputChannel?.appendLine('✅ Successfully downloaded artifact from Exchange');
                     return await JSZip.loadAsync(exchangeData);
@@ -998,7 +996,7 @@ async function fetchDeploymentArtifact(
                     const graphqlQuery = {
                         query: `
                             query asset {
-                                asset(groupId:"${activeAccount.organizationId}", assetId:"${assetIdFromJar}", version:"1.0.0" ) {
+                                asset(groupId:"${orgId}", assetId:"${assetIdFromJar}", version:"1.0.0" ) {
                                     groupId
                                     assetId
                                     version
@@ -1638,17 +1636,15 @@ async function fetchDeploymentDetailsGraphQL(
     const baseUrl = await getBaseUrl(context);
 
     const graphqlEndpoint = `${baseUrl}/graph/api/v2/graphql`;
-    
+
     outputChannel?.appendLine('\n--- GraphQL Deployment Details Query ---');
     outputChannel?.appendLine(`📡 Endpoint: ${graphqlEndpoint}`);
-    
-    let accessToken = await context.secrets.get('anypoint.accessToken');
-    if (!accessToken) {
-        outputChannel?.appendLine('❌ No access token for deployment details GraphQL request');
-        return undefined;
-    }
-    
-    outputChannel?.appendLine('✅ Access token retrieved for deployment details');
+
+    // Use ApiHelper for proper multi-account and token refresh support
+    const { ApiHelper } = await import('../controllers/apiHelper.js');
+    const apiHelper = new ApiHelper(context);
+
+    outputChannel?.appendLine('✅ Using ApiHelper for GraphQL request');
 
     // GraphQL query to get deployment details with artifact information
     // Using a more flexible query that should capture all available fields
@@ -1781,41 +1777,17 @@ async function fetchDeploymentDetailsGraphQL(
         deploymentId
     };
 
-    const issueRequest = async (token: string) => {
-        return axios.post(graphqlEndpoint, {
+    try {
+        const response = await apiHelper.post(graphqlEndpoint, {
             query,
             variables
         }, {
             headers: {
-                Authorization: `Bearer ${token}`,
-                'Content-Type': 'application/json',
-                Accept: 'application/json',
                 'X-ANYPNT-ORG-ID': orgId,
                 'X-ANYPNT-ENV-ID': environmentId,
             },
             validateStatus: () => true,
         });
-    };
-
-    try {
-        let response = await issueRequest(accessToken);
-        
-        if (response.status === 401) {
-            console.warn('GraphQL deployment request returned 401. Attempting to refresh access token.');
-            const refreshed = await refreshAccessToken(context);
-            if (!refreshed) {
-                console.warn('Failed to refresh access token for GraphQL request.');
-                return undefined;
-            }
-
-            accessToken = await context.secrets.get('anypoint.accessToken');
-            if (!accessToken) {
-                console.warn('No access token available after refresh for GraphQL request.');
-                return undefined;
-            }
-
-            response = await issueRequest(accessToken);
-        }
 
         if (response.status >= 400) {
             console.warn(`GraphQL deployment details request failed with status ${response.status}`);
@@ -1875,17 +1847,15 @@ async function fetchDeploymentDetailsGraphQLSimple(
     const baseUrl = await getBaseUrl(context);
 
     const graphqlEndpoint = `${baseUrl}/graph/api/v2/graphql`;
-    
+
     outputChannel?.appendLine('\n--- Simplified GraphQL Deployment Query ---');
     outputChannel?.appendLine(`📡 Endpoint: ${graphqlEndpoint}`);
-    
-    let accessToken = await context.secrets.get('anypoint.accessToken');
-    if (!accessToken) {
-        outputChannel?.appendLine('❌ No access token for simplified GraphQL request');
-        return undefined;
-    }
-    
-    outputChannel?.appendLine('✅ Access token retrieved for simplified query');
+
+    // Use ApiHelper for proper multi-account and token refresh support
+    const { ApiHelper } = await import('../controllers/apiHelper.js');
+    const apiHelper = new ApiHelper(context);
+
+    outputChannel?.appendLine('✅ Using ApiHelper for simplified GraphQL query');
 
     // Simplified GraphQL query with minimal fields that should exist
     const query = `
@@ -1909,38 +1879,17 @@ async function fetchDeploymentDetailsGraphQLSimple(
         deploymentId
     };
 
-    const issueRequest = async (token: string) => {
-        return axios.post(graphqlEndpoint, {
+    try {
+        const response = await apiHelper.post(graphqlEndpoint, {
             query,
             variables
         }, {
             headers: {
-                Authorization: `Bearer ${token}`,
-                'Content-Type': 'application/json',
-                Accept: 'application/json',
                 'X-ANYPNT-ORG-ID': orgId,
                 'X-ANYPNT-ENV-ID': environmentId,
             },
             validateStatus: () => true,
         });
-    };
-
-    try {
-        let response = await issueRequest(accessToken);
-        
-        if (response.status === 401) {
-            const refreshed = await refreshAccessToken(context);
-            if (!refreshed) {
-                return undefined;
-            }
-
-            accessToken = await context.secrets.get('anypoint.accessToken');
-            if (!accessToken) {
-                return undefined;
-            }
-
-            response = await issueRequest(accessToken);
-        }
 
         if (response.status >= 400) {
             console.warn(`Simplified GraphQL deployment details request failed with status ${response.status}`);
@@ -2002,33 +1951,22 @@ async function fetchDeploymentDetails(
 
     outputChannel?.appendLine(`📡 Calling REST API: ${apiUrl}`);
 
-    let accessToken = await context.secrets.get('anypoint.accessToken');
-    if (!accessToken) {
-        outputChannel?.appendLine('❌ No access token available for REST API call');
-        return undefined;
-    }
+    // Use ApiHelper for proper multi-account and token refresh support
+    const { ApiHelper } = await import('../controllers/apiHelper.js');
+    const apiHelper = new ApiHelper(context);
 
-    const issueRequest = async (token: string) => {
-        return axios.get(apiUrl, {
+    try {
+        outputChannel?.appendLine('📤 Sending REST API request...');
+        const response = await apiHelper.get(apiUrl, {
             headers: {
-                Authorization: `Bearer ${token}`,
-                Accept: 'application/json',
                 'X-ANYPNT-ORG-ID': orgId,
                 'X-ANYPNT-ENV-ID': environmentId,
             },
             validateStatus: () => true,
         });
-    };
 
-    try {
-        outputChannel?.appendLine('📤 Sending REST API request...');
-        let response = await issueRequest(accessToken);
         outputChannel?.appendLine(`📨 REST API Response Status: ${response.status}`);
 
-        if (response.status === 401) {
-            outputChannel?.appendLine('🔒 Unauthorized (401) - attempting token refresh...');
-            throw createUnauthorizedError(baseUrl);
-        }
         if (response.status >= 400) {
             outputChannel?.appendLine(`❌ REST API request failed with status ${response.status}`);
             console.warn(`Deployment details lookup failed with status ${response.status}`);
@@ -2038,35 +1976,9 @@ async function fetchDeploymentDetails(
         outputChannel?.appendLine('✅ REST API request successful');
         return response.data;
     } catch (error: unknown) {
-        if (!isUnauthorized(error)) {
-            console.warn('Failed to read deployment details for artifact lookup.', error);
-            return undefined;
-        }
-
-        const refreshed = await refreshAccessToken(context);
-        if (!refreshed) {
-            return undefined;
-        }
-
-        accessToken = await context.secrets.get('anypoint.accessToken');
-        if (!accessToken) {
-            return undefined;
-        }
-
-        try {
-            const retry = await issueRequest(accessToken);
-            if (retry.status === 401) {
-                return undefined;
-            }
-            if (retry.status >= 400) {
-                console.warn(`Deployment details retry failed with status ${retry.status}`);
-                return undefined;
-            }
-            return retry.data;
-        } catch (retryError: unknown) {
-            console.warn('Retry fetchDeploymentDetails failed.', retryError);
-            return undefined;
-        }
+        console.warn('Failed to read deployment details for artifact lookup.', error);
+        outputChannel?.appendLine(`❌ Exception during REST API call: ${error instanceof Error ? error.message : 'Unknown error'}`);
+        return undefined;
     }
 }
 
@@ -2094,44 +2006,24 @@ async function fetchApplicationDetails(
 
     const apiUrl = `${baseUrl}/amc/application-manager/api/v2/organizations/${orgId}/environments/${environmentId}/applications/${applicationId}`;
 
-    let accessToken = await context.secrets.get('anypoint.accessToken');
-    if (!accessToken) {
-        return undefined;
-    }
+    // Use ApiHelper for proper multi-account and token refresh support
+    const { ApiHelper } = await import('../controllers/apiHelper.js');
+    const apiHelper = new ApiHelper(context);
 
-    const issueRequest = async (token: string) => {
-        return axios.get(apiUrl, {
+    try {
+        const response = await apiHelper.get(apiUrl, {
             headers: {
-                Authorization: `Bearer ${token}`,
-                Accept: 'application/json',
                 'X-ANYPNT-ORG-ID': orgId,
                 'X-ANYPNT-ENV-ID': environmentId,
             },
             validateStatus: () => true,
         });
-    };
 
-    try {
-        let response = await issueRequest(accessToken);
-        if (response.status === 401) {
-            const refreshed = await refreshAccessToken(context);
-            if (!refreshed) {
-                return undefined;
-            }
-
-            accessToken = await context.secrets.get('anypoint.accessToken');
-            if (!accessToken) {
-                return undefined;
-            }
-
-            response = await issueRequest(accessToken);
-        }
-        
         if (response.status >= 400) {
             console.warn(`Application details lookup failed with status ${response.status}`);
             return undefined;
         }
-        
+
         console.log('Fetched additional application details for artifact extraction');
         return response.data;
     } catch (error: unknown) {

@@ -10,6 +10,8 @@ export interface AnypointAccount {
     lastUsed: string;
     status: 'authenticated' | 'expired' | 'error';
     region?: string; // Region ID (us, eu, gov)
+    businessGroupId?: string; // Currently selected business group ID
+    businessGroupName?: string; // Currently selected business group name
 }
 
 export class AccountService {
@@ -433,5 +435,77 @@ export class AccountService {
             console.error('Region migration check failed:', error);
             return false;
         }
+    }
+
+    /**
+     * Update selected business group for an account
+     */
+    async setAccountBusinessGroup(accountId: string, businessGroupId: string, businessGroupName: string): Promise<void> {
+        const accounts = await this.getAccounts();
+        const accountIndex = accounts.findIndex(acc => acc.id === accountId);
+
+        if (accountIndex !== -1) {
+            accounts[accountIndex].businessGroupId = businessGroupId;
+            accounts[accountIndex].businessGroupName = businessGroupName;
+            accounts[accountIndex].lastUsed = new Date().toISOString();
+
+            await this.context.secrets.store('anypoint.accounts', JSON.stringify(accounts));
+            console.log(`Business group ${businessGroupName} (${businessGroupId}) set for account ${accountId}`);
+
+            // Close Developer Utilities panel if open (will need to be reopened with new BG data)
+            try {
+                const { closeDeveloperUtilitiesPanel } = await import('../anypoint/DeveloperInfo.js');
+                closeDeveloperUtilitiesPanel();
+            } catch (error) {
+                console.log('Could not close Developer Utilities panel:', error);
+            }
+
+            // Refresh environments for the new business group
+            try {
+                console.log(`Refreshing environments for business group ${businessGroupName} (${businessGroupId})`);
+                const { getEnvironments } = await import('./anypointService.js');
+                await getEnvironments(this.context, false);
+                console.log(`Successfully refreshed environments for business group ${businessGroupName}`);
+            } catch (error) {
+                console.error('Failed to refresh environments after business group change:', error);
+                // Don't throw - BG selection should still work, environments can be refreshed manually
+            }
+        }
+    }
+
+    /**
+     * Get the selected business group for the active account
+     */
+    async getActiveAccountBusinessGroup(): Promise<{ id: string, name: string } | undefined> {
+        const activeAccount = await this.getActiveAccount();
+        if (!activeAccount) {
+            return undefined;
+        }
+
+        if (activeAccount.businessGroupId && activeAccount.businessGroupName) {
+            return {
+                id: activeAccount.businessGroupId,
+                name: activeAccount.businessGroupName
+            };
+        }
+
+        // Default to root organization if no business group selected
+        return {
+            id: activeAccount.organizationId,
+            name: activeAccount.organizationName
+        };
+    }
+
+    /**
+     * Get the effective organization ID (business group ID or root org ID)
+     */
+    async getEffectiveOrganizationId(): Promise<string | undefined> {
+        const activeAccount = await this.getActiveAccount();
+        if (!activeAccount) {
+            return undefined;
+        }
+
+        // Return business group ID if selected, otherwise return root org ID
+        return activeAccount.businessGroupId || activeAccount.organizationId;
     }
 }

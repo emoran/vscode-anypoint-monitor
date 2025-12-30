@@ -132,13 +132,24 @@ export async function updateAccountStatusBar(context: vscode.ExtensionContext) {
 	try {
 		const accountService = new AccountService(context);
 		const activeAccount = await accountService.getActiveAccount();
-		
+
 		if (activeAccount) {
-			// Show active account with organization name
+			// Show active account with organization name and business group
 			const displayName = activeAccount.userName || 'Unknown User';
 			const orgName = activeAccount.organizationName || 'Unknown Org';
-			
-			accountStatusBarItem.text = `$(organization) ${displayName} • ${orgName}`;
+
+			// Get selected business group
+			const businessGroup = await accountService.getActiveAccountBusinessGroup();
+
+			// Build status bar text
+			let statusText = `$(organization) ${displayName} • ${orgName}`;
+
+			// Add business group if different from root org
+			if (businessGroup && businessGroup.id !== activeAccount.organizationId) {
+				statusText += ` > $(folder) ${businessGroup.name}`;
+			}
+
+			accountStatusBarItem.text = statusText;
 			accountStatusBarItem.backgroundColor = undefined; // Default color for active
 			accountStatusBarItem.show();
 		} else {
@@ -182,8 +193,8 @@ export function activate(context: vscode.ExtensionContext) {
 
 	// Create status bar item for active account
 	accountStatusBarItem = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Left, 100);
-	accountStatusBarItem.command = 'anypoint-monitor.accountManager';
-	accountStatusBarItem.tooltip = 'Click to open Account Manager';
+	accountStatusBarItem.command = 'anypoint-monitor.statusBarQuickActions';
+	accountStatusBarItem.tooltip = 'Click to manage accounts and business groups';
 	context.subscriptions.push(accountStatusBarItem);
 
 	// Initialize status bar
@@ -591,6 +602,92 @@ export function activate(context: vscode.ExtensionContext) {
 		}
 	});
 
+	// Command to select business group
+	const selectBusinessGroupCmd = vscode.commands.registerCommand('anypoint-monitor.selectBusinessGroup', async () => {
+		try {
+			const { showBusinessGroupSelectorWebview } = await import('./anypoint/businessGroupSelector.js');
+			await showBusinessGroupSelectorWebview(context);
+		} catch (error: any) {
+			vscode.window.showErrorMessage(`Error opening Business Group Selector: ${error.message}`);
+		}
+	});
+
+	// Command for status bar quick actions (accounts and business groups)
+	const statusBarQuickActionsCmd = vscode.commands.registerCommand('anypoint-monitor.statusBarQuickActions', async () => {
+		try {
+			const accountService = new AccountService(context);
+			const activeAccount = await accountService.getActiveAccount();
+
+			if (!activeAccount) {
+				vscode.window.showWarningMessage('No active account found. Please log in first.');
+				return;
+			}
+
+			// Get current business group
+			const currentBG = await accountService.getActiveAccountBusinessGroup();
+
+			// Build quick pick items
+			const items: vscode.QuickPickItem[] = [
+				{
+					label: '$(organization) Switch Account',
+					description: `Currently: ${activeAccount.organizationName}`,
+					detail: 'Open Account Manager to switch between accounts'
+				}
+			];
+
+			// Add business group options
+			const { BusinessGroupService } = await import('./controllers/businessGroupService.js');
+			const bgService = new BusinessGroupService(context);
+
+			try {
+				const hasMultipleBGs = await bgService.hasMultipleBusinessGroups(activeAccount.organizationId);
+
+				if (hasMultipleBGs) {
+					items.push({
+						label: '$(folder) Switch Business Group',
+						description: currentBG ? `Currently: ${currentBG.name}` : 'Not selected',
+						detail: 'Select a different business group for this account'
+					});
+				}
+
+				items.push({
+					label: '$(info) Current Business Group',
+					description: currentBG?.name || 'Root Organization',
+					detail: currentBG?.id || activeAccount.organizationId
+				});
+			} catch (error) {
+				// If BG check fails, just show account options
+				console.error('Error checking business groups:', error);
+			}
+
+			items.push(
+				{
+					label: '$(refresh) Refresh',
+					description: 'Reload account and business group information'
+				}
+			);
+
+			const selection = await vscode.window.showQuickPick(items, {
+				placeHolder: 'Account & Business Group Actions',
+				matchOnDescription: true,
+				matchOnDetail: true
+			});
+
+			if (selection) {
+				if (selection.label.includes('Switch Account')) {
+					await vscode.commands.executeCommand('anypoint-monitor.accountManager');
+				} else if (selection.label.includes('Switch Business Group')) {
+					await vscode.commands.executeCommand('anypoint-monitor.selectBusinessGroup');
+				} else if (selection.label.includes('Refresh')) {
+					await updateAccountStatusBar(context);
+					vscode.window.showInformationMessage('Account information refreshed');
+				}
+			}
+		} catch (error: any) {
+			vscode.window.showErrorMessage(`Error: ${error.message}`);
+		}
+	});
+
 	// Command to delete all accounts and data
 	const deleteAllAccountsCmd = vscode.commands.registerCommand('anypoint-monitor.deleteAllAccounts', async () => {
 		const confirmation = await vscode.window.showWarningMessage(
@@ -765,6 +862,8 @@ export function activate(context: vscode.ExtensionContext) {
 	context.subscriptions.push(environmentComparisonCmd);
 	context.subscriptions.push(dataweavePlaygroundCmd);
 	context.subscriptions.push(accountManagerCmd);
+	context.subscriptions.push(selectBusinessGroupCmd);
+	context.subscriptions.push(statusBarQuickActionsCmd);
 	context.subscriptions.push(deleteAllAccountsCmd);
 	context.subscriptions.push(migrateLegacyAccountCmd);
 	context.subscriptions.push(applicationCommandCenterCmd);

@@ -14,6 +14,20 @@
    import { getBaseUrl } from '../constants';
    import { AccountService } from '../controllers/accountService.js';
 
+   // Track open Developer Utilities panel
+   let developerUtilitiesPanel: vscode.WebviewPanel | undefined;
+
+   /**
+    * Close the Developer Utilities panel if it's open
+    */
+   export function closeDeveloperUtilitiesPanel(): void {
+     if (developerUtilitiesPanel) {
+       console.log('Closing Developer Utilities panel due to business group change');
+       developerUtilitiesPanel.dispose();
+       developerUtilitiesPanel = undefined;
+     }
+   }
+
    // ------------------------------------------------------------------
    // CONSTANTS & CONFIG
    // ------------------------------------------------------------------
@@ -379,21 +393,50 @@
    // SHOW ENVIRONMENT & ORG PANEL (Now with auto-refresh if 401)
    // ------------------------------------------------------------------
    export async function developerInfo(context: vscode.ExtensionContext) {
-     // This command was originally called in your code to show the environment & org panel
-     const storedUserInfo = await context.secrets.get('anypoint.userInfo');
-     const storedEnvironments = await context.secrets.get('anypoint.environments');
-   
+     // Use multi-account system to get active account data
+     const accountService = new AccountService(context);
+     const activeAccount = await accountService.getActiveAccount();
+
+     if (!activeAccount) {
+       vscode.window.showErrorMessage('No active account found. Please log in first.');
+       return;
+     }
+
+     // Get user info and environments from active account
+     let storedUserInfo = await accountService.getActiveAccountUserInfo();
+     let storedEnvironments = await accountService.getActiveAccountEnvironments();
+
+     // Fallback to legacy storage if needed (for backward compatibility)
+     if (!storedUserInfo) {
+       storedUserInfo = await context.secrets.get('anypoint.userInfo');
+     }
+     if (!storedEnvironments) {
+       storedEnvironments = await context.secrets.get('anypoint.environments');
+     }
+
      if (!storedUserInfo || !storedEnvironments) {
        vscode.window.showErrorMessage('User info or environment info not found. Please log in first.');
        return;
      }
-   
+
      const userInfo = JSON.parse(storedUserInfo);
      const parsedEnvironments = JSON.parse(storedEnvironments); // { data: [...], total: N }
-   
+
+     // Get effective organization ID (business group if selected, otherwise root org)
+     const effectiveOrgId = await accountService.getEffectiveOrganizationId();
+     const businessGroup = await accountService.getActiveAccountBusinessGroup();
+
+     console.log(`Developer Utilities - Business Group: ${businessGroup?.name} (${businessGroup?.id})`);
+     console.log(`Developer Utilities - Effective Org ID: ${effectiveOrgId}`);
+     console.log(`Developer Utilities - Environments count: ${parsedEnvironments.data?.length || 0}`);
+     console.log(`Developer Utilities - Environments:`, parsedEnvironments.data?.map((e: any) => e.name).join(', '));
+
      await showEnvironmentAndOrgPanel(
        context,
-       { orgName: '-', orgId: userInfo.organization.id },
+       {
+         orgName: businessGroup?.name || userInfo.organization.name || '-',
+         orgId: effectiveOrgId || userInfo.organization.id
+       },
        parsedEnvironments.data
      );
    }
@@ -445,22 +488,33 @@
          }
        }
    
-       // 3) Create the Webview
-       const panel = vscode.window.createWebviewPanel(
+       // 3) Close existing panel if open (to refresh with new BG data)
+       if (developerUtilitiesPanel) {
+         developerUtilitiesPanel.dispose();
+       }
+
+       // 4) Create the Webview
+       developerUtilitiesPanel = vscode.window.createWebviewPanel(
          'environmentOrgView',
          'Environment & Organization Info',
          vscode.ViewColumn.One,
          { enableScripts: true }
        );
-       panel.webview.html = getEnvironmentOrgHtml(
-         panel.webview,
+
+       // Track when panel is closed
+       developerUtilitiesPanel.onDidDispose(() => {
+         developerUtilitiesPanel = undefined;
+       });
+
+       developerUtilitiesPanel.webview.html = getEnvironmentOrgHtml(
+         developerUtilitiesPanel.webview,
          context.extensionUri,
          userInfo,
          environments,
          envClients,
          generalClients
        );
-   
+
      } catch (error: any) {
        vscode.window.showErrorMessage(`Error fetching clients: ${error.message}`);
      }

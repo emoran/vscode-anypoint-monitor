@@ -448,7 +448,8 @@ async function fetchApplicationData(
         throw new Error('No active account found');
     }
 
-    const organizationID = activeAccount.organizationId;
+    // Use effective organization ID to respect selected business group
+    const organizationID = await accountService.getEffectiveOrganizationId() || activeAccount.organizationId;
 
     // Get region-specific base URL
     const baseUrl = await getBaseUrl(context);
@@ -2580,7 +2581,8 @@ export async function showApplicationCommandCenter(
 
         // Fetch both CH1 and CH2 applications
         const apiHelper = new ApiHelper(context);
-        const organizationID = activeAccount.organizationId;
+        // Use effective organization ID to respect selected business group
+        const organizationID = await accountService.getEffectiveOrganizationId() || activeAccount.organizationId;
         const baseUrl = await getBaseUrl(context);
         const envHeaders = {
             'X-ANYPNT-ENV-ID': environmentId,

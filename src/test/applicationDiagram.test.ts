@@ -6,8 +6,8 @@ import {
     selectRelevantXmlEntries
 } from '../utils/muleDiagram';
 
-describe('Mule diagram utilities', () => {
-    it('constructs flow graph from Mule XML files', () => {
+suite('Mule diagram utilities', () => {
+    test('constructs flow graph from Mule XML files', () => {
         const files = {
             'src/main/mule/order.xml': `
                 <mule>
@@ -40,7 +40,7 @@ describe('Mule diagram utilities', () => {
         assert.ok(edges.some(edge => edge.includes('CheckStock') && edge.includes('Notify')));
     });
 
-    it('produces mermaid definition with styled classes', () => {
+    test('produces mermaid definition with styled classes', () => {
         const graph = buildMuleFlowGraph({
             'mule-config.xml': `
                 <mule>
@@ -58,7 +58,7 @@ describe('Mule diagram utilities', () => {
         assert.ok(definition.includes('classDef subflow'));
     });
 
-    it('filters relevant XML entries while ignoring meta-inf', () => {
+    test('filters relevant XML entries while ignoring meta-inf', () => {
         const entries = selectRelevantXmlEntries([
             { path: 'src/main/mule/order.xml', content: '<xml />' },
             { path: 'META-INF/mule-artifact/mule-artifact.xml', content: '<xml />' },

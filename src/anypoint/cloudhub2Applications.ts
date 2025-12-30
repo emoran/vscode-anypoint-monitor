@@ -16,6 +16,10 @@ export async function showApplicationsWebview(
   applicationsData: any,
   environment: string
 ) {
+  // Get business group info
+  const { AccountService } = await import('../controllers/accountService.js');
+  const accountService = new AccountService(context);
+  const businessGroup = await accountService.getActiveAccountBusinessGroup();
   // Debug: Log the received data structure
   console.log('CloudHub 2.0 Applications Data Structure:', JSON.stringify(applicationsData, null, 2));
   
@@ -59,7 +63,7 @@ export async function showApplicationsWebview(
     // Panel disposed - cleanup if needed
   });
 
-  panel.webview.html = getCloudHub2ApplicationsHtml(applications, panel.webview, context.extensionUri, environment);
+  panel.webview.html = getCloudHub2ApplicationsHtml(applications, panel.webview, context.extensionUri, environment, businessGroup);
 
 panel.webview.onDidReceiveMessage(async (message) => {
   try {
@@ -215,7 +219,8 @@ function getCloudHub2ApplicationsHtml(
   applications: any[],
   webview: vscode.Webview,
   extensionUri: vscode.Uri,
-  environment?: string
+  environment?: string,
+  businessGroup?: { id: string, name: string }
 ): string {
   const logoPath = vscode.Uri.joinPath(extensionUri, 'logo.png');
   const logoSrc = webview.asWebviewUri(logoPath);
@@ -644,7 +649,10 @@ function getCloudHub2ApplicationsHtml(
           <div class="header-content">
             <h1>CloudHub 2.0 Applications</h1>
             <p>Next-generation application monitoring and management</p>
-            ${environment ? `<div class="environment-badge">Environment: ${environment}</div>` : ''}
+            <div style="display: flex; gap: 12px; margin-top: 12px; flex-wrap: wrap;">
+              ${environment ? `<div class="environment-badge">🌍 Environment: ${environment}</div>` : ''}
+              ${businessGroup ? `<div class="environment-badge" style="background: var(--surface-secondary); border-color: var(--accent-blue);">🏢 Business Group: ${businessGroup.name}</div>` : ''}
+            </div>
           </div>
         </div>
 

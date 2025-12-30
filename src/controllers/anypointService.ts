@@ -28,6 +28,14 @@ async function getRefreshedToken(context: vscode.ExtensionContext): Promise<stri
     }
     return accessToken;
 }
+
+// Helper function to get effective organization ID (business group ID if selected, otherwise root org ID)
+async function getEffectiveOrganizationId(context: vscode.ExtensionContext, fallbackOrgId?: string): Promise<string> {
+    const { AccountService } = await import('./accountService.js');
+    const accountService = new AccountService(context);
+    const effectiveOrgId = await accountService.getEffectiveOrganizationId();
+    return effectiveOrgId || fallbackOrgId || '';
+}
 import { showApplicationsWebview } from '../anypoint/cloudhub2Applications';
 import { showApplicationsWebview1 } from '../anypoint/cloudhub1Applications';
 import { getUserInfoWebviewContent } from '../anypoint/userInfoContent';
@@ -58,7 +66,7 @@ export async function getHybridApplications(context: vscode.ExtensionContext, en
         throw new Error('No active account found. Please log in first.');
     }
 
-    const organizationID = activeAccount.organizationId;
+    const organizationID = await getEffectiveOrganizationId(context, activeAccount.organizationId);
     console.log(`Hybrid Apps: Fetching applications for org ${organizationID}, env ${environmentId}`);
 
     // Get environment name
@@ -129,7 +137,7 @@ export async function getHybridServers(context: vscode.ExtensionContext, environ
         throw new Error('No active account found. Please log in first.');
     }
 
-    const organizationID = activeAccount.organizationId;
+    const organizationID = await getEffectiveOrganizationId(context, activeAccount.organizationId);
     console.log(`Hybrid Servers: Fetching servers for org ${organizationID}, env ${environmentId}`);
 
     try {
@@ -174,7 +182,7 @@ export async function getHybridServerGroups(context: vscode.ExtensionContext, en
         throw new Error('No active account found. Please log in first.');
     }
 
-    const organizationID = activeAccount.organizationId;
+    const organizationID = await getEffectiveOrganizationId(context, activeAccount.organizationId);
     console.log(`Hybrid Server Groups: Fetching for org ${organizationID}, env ${environmentId}`);
 
     try {
@@ -219,7 +227,7 @@ export async function getHybridClusters(context: vscode.ExtensionContext, enviro
         throw new Error('No active account found. Please log in first.');
     }
 
-    const organizationID = activeAccount.organizationId;
+    const organizationID = await getEffectiveOrganizationId(context, activeAccount.organizationId);
     console.log(`Hybrid Clusters: Fetching for org ${organizationID}, env ${environmentId}`);
 
     try {
@@ -272,7 +280,7 @@ export async function getAnypointMQStats(context: vscode.ExtensionContext, envir
         throw new Error('No active account found. Please log in first.');
     }
 
-    const organizationID = activeAccount.organizationId;
+    const organizationID = await getEffectiveOrganizationId(context, activeAccount.organizationId);
     console.log(`AnypointMQ Stats: Fetching for org ${organizationID}, env ${environmentId}`);
 
     // Get environment name
@@ -733,6 +741,18 @@ export async function getUserInfo(context: vscode.ExtensionContext, isNewAccount
             // Don't delete tempUserInfo yet - getEnvironments needs it
             console.log(`New account ${accountId} added and set as active`);
 
+            // Check if user should be prompted to select a business group
+            const { BusinessGroupService } = await import('./businessGroupService.js');
+            const businessGroupService = new BusinessGroupService(context);
+            // Prompt asynchronously without blocking login flow
+            setTimeout(async () => {
+                try {
+                    await businessGroupService.promptForBusinessGroupSelection(accountId);
+                } catch (error) {
+                    console.error('Error prompting for business group selection:', error);
+                }
+            }, 1000); // 1 second delay to let environments load
+
             return data;
         } else {
             const activeAccount = await accountService.getActiveAccount();
@@ -861,7 +881,9 @@ export async function getEnvironments(context: vscode.ExtensionContext, isNewAcc
         if (!activeAccount) {
             throw new Error('No active account found. Please log in first.');
         }
-        organizationID = activeAccount.organizationId;
+        // Use effective organization ID (business group ID if selected, otherwise root org ID)
+        const effectiveOrgId = await accountService.getEffectiveOrganizationId();
+        organizationID = effectiveOrgId || activeAccount.organizationId;
 
         // For existing accounts, get the base URL from the active account's region
         baseUrl = await getBaseUrl(context);
@@ -940,7 +962,7 @@ export async function getCH2Applications(context: vscode.ExtensionContext, envir
         throw new Error('No active account found. Please log in first.');
     }
 
-    const organizationID = activeAccount.organizationId;
+    const organizationID = await getEffectiveOrganizationId(context, activeAccount.organizationId);
     console.log(`CloudHub 2.0: Fetching applications for org ${organizationID}, env ${environmentId}`);
     console.log(`CloudHub 2.0: Active account: ${activeAccount.userEmail} (${activeAccount.organizationName})`);
 
@@ -1105,7 +1127,7 @@ export async function getCH1Applications(context: vscode.ExtensionContext, envir
         throw new Error('No active account found. Please log in first.');
     }
 
-    const organizationID = activeAccount.organizationId;
+    const organizationID = await getEffectiveOrganizationId(context, activeAccount.organizationId);
     console.log(`CloudHub 1.0: Fetching applications for org ${organizationID}, env ${environmentId}`);
     console.log(`CloudHub 1.0: Active account: ${activeAccount.userName} (${activeAccount.organizationName})`);
 
@@ -1199,7 +1221,7 @@ export async function retrieveAPIManagerAPIs(context: vscode.ExtensionContext) {
             return;
         }
         
-        const organizationID = activeAccount.organizationId;
+        const organizationID = await getEffectiveOrganizationId(context, activeAccount.organizationId);
         showAPIManagerWebview(context, selectedEnvironmentId, organizationID);
     } catch (error: any) {
         vscode.window.showErrorMessage(`Error: ${error.message || error}`);
@@ -1299,7 +1321,7 @@ export async function getEnvironmentComparison(context: vscode.ExtensionContext)
         return;
     }
 
-    const organizationID = activeAccount.organizationId;
+    const organizationID = await getEffectiveOrganizationId(context, activeAccount.organizationId);
     const environments = JSON.parse(storedEnvironments);
     const apiHelper = new ApiHelper(context);
 

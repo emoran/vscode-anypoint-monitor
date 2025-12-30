@@ -232,6 +232,12 @@ export class CommandPaletteProvider implements vscode.TreeDataProvider<CommandTr
             icon: 'settings-gear',
             commands: [
                 {
+                    label: 'Select Business Group',
+                    command: 'anypoint-monitor.selectBusinessGroup',
+                    description: 'Switch between business groups',
+                    icon: 'folder'
+                },
+                {
                     label: 'Delete All Accounts',
                     command: 'anypoint-monitor.deleteAllAccounts',
                     description: 'Remove all stored accounts and data',

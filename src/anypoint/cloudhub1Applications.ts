@@ -9,7 +9,7 @@ import { BASE_URL, getBaseUrl } from '../constants';
  * with a single CSV download option. This version has a dark theme
  * and a more “techy” vibe, plus styling for the DataTables length menu.
  */
-export function showApplicationsWebview1(
+export async function showApplicationsWebview1(
   context: vscode.ExtensionContext,
   data: any[],
   environmentId?: string,
@@ -17,6 +17,10 @@ export function showApplicationsWebview1(
 ) {
   // Ensure the data is an array
   let appsArray = Array.isArray(data) ? data : [];
+
+  // Get business group info
+  const accountService = new AccountService(context);
+  const businessGroup = await accountService.getActiveAccountBusinessGroup();
 
   // Create the webview panel
   const panel = vscode.window.createWebviewPanel(
@@ -27,7 +31,7 @@ export function showApplicationsWebview1(
   );
 
   // Build the HTML
-  panel.webview.html = getApplicationsHtml(appsArray, panel.webview, context.extensionUri, environmentName);
+  panel.webview.html = getApplicationsHtml(appsArray, panel.webview, context.extensionUri, environmentName, businessGroup);
 
   // Listen for messages (for CSV download)
   panel.webview.onDidReceiveMessage(async (message) => {
@@ -89,7 +93,8 @@ function getApplicationsHtml(
   apps: any[],
   webview: vscode.Webview,
   extensionUri: vscode.Uri,
-  environmentName?: string
+  environmentName?: string,
+  businessGroup?: { id: string, name: string }
 ): string {
   // URIs for resources
   const logoPath = vscode.Uri.joinPath(extensionUri, 'logo.png');
@@ -164,6 +169,17 @@ function getApplicationsHtml(
             font-size: 16px;
             color: var(--text-secondary);
             margin: 0;
+          }
+
+          .environment-badge {
+            display: inline-block;
+            padding: 6px 12px;
+            background: var(--surface-primary);
+            border: 1px solid var(--border-primary);
+            border-radius: 4px;
+            font-size: 13px;
+            color: var(--text-primary);
+            font-weight: 500;
           }
 
           /* Main Content */
@@ -502,6 +518,10 @@ function getApplicationsHtml(
           <div class="header-content">
             <h1>CloudHub 1.0 Applications</h1>
             <p>Application monitoring and management</p>
+            <div style="display: flex; gap: 12px; margin-top: 12px; flex-wrap: wrap;">
+              ${environmentName ? `<div class="environment-badge">🌍 Environment: ${environmentName}</div>` : ''}
+              ${businessGroup ? `<div class="environment-badge" style="background: var(--surface-secondary); border-color: var(--accent-blue);">🏢 Business Group: ${businessGroup.name}</div>` : ''}
+            </div>
           </div>
         </div>
 
