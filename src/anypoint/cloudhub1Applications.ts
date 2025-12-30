@@ -2,7 +2,7 @@ import * as vscode from 'vscode';
 import * as fs from 'fs';
 import { ApiHelper } from '../controllers/apiHelper.js';
 import { AccountService } from '../controllers/accountService.js';
-import { BASE_URL } from '../constants';
+import { BASE_URL, getBaseUrl } from '../constants';
 
 /**
  * Creates a webview panel and displays a detailed table of applications
@@ -886,11 +886,14 @@ async function handleCh1BulkAction(
   const organizationID = activeAccount.organizationId;
   const statusValue = normalizedAction === 'restart' ? 'restart' : normalizedAction === 'start' ? 'start' : 'STOPPED';
 
+  // Get region-specific base URL
+  const baseUrl = await getBaseUrl(context);
+
   for (const domain of domains) {
     let response;
     if (statusValue === 'restart') {
       response = await apiHelper.post(
-        `${BASE_URL}/cloudhub/api/applications/${domain}/status`,
+        `${baseUrl}/cloudhub/api/applications/${domain}/status`,
         { status: 'restart' },
         {
           headers: {
@@ -901,7 +904,7 @@ async function handleCh1BulkAction(
       );
     } else {
       response = await apiHelper.post(
-        `${BASE_URL}/cloudhub/api/applications/${domain}/status`,
+        `${baseUrl}/cloudhub/api/applications/${domain}/status`,
         { status: statusValue },
         {
           headers: {
@@ -939,7 +942,11 @@ async function fetchCloudHub1Applications(context: vscode.ExtensionContext, envi
 
   const apiHelper = new ApiHelper(context);
   const organizationID = activeAccount.organizationId;
-  const response = await apiHelper.get(`${BASE_URL}/cloudhub/api/applications`, {
+
+  // Get region-specific base URL
+  const baseUrl = await getBaseUrl(context);
+
+  const response = await apiHelper.get(`${baseUrl}/cloudhub/api/applications`, {
     headers: {
       'X-ANYPNT-ENV-ID': environmentId,
       'X-ANYPNT-ORG-ID': organizationID,

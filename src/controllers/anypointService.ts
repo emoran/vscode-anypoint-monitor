@@ -1,6 +1,13 @@
 import * as vscode from 'vscode';
 import axios from 'axios';
-import { BASE_URL } from '../constants';
+import {
+    BASE_URL,
+    getBaseUrl,
+    getHybridApplicationsEndpoint,
+    getHybridServersEndpoint,
+    getHybridServerGroupsEndpoint,
+    getHybridClustersEndpoint
+} from '../constants';
 import { refreshAccessToken } from './oauthService';
 // Helper function to refresh token with account context
 async function refreshTokenWithAccount(context: vscode.ExtensionContext): Promise<boolean> {
@@ -14,7 +21,7 @@ async function refreshTokenWithAccount(context: vscode.ExtensionContext): Promis
 async function getRefreshedToken(context: vscode.ExtensionContext): Promise<string | undefined> {
     const { AccountService } = await import('./accountService.js');
     const accountService = new AccountService(context);
-    
+
     let accessToken = await accountService.getActiveAccountAccessToken();
     if (!accessToken) {
         accessToken = await context.secrets.get('anypoint.accessToken');
@@ -29,13 +36,9 @@ import { showEnvironmentAndOrgPanel } from '../anypoint/DeveloperInfo';
 import { showAPIManagerWebview } from '../anypoint/apiMananagerAPIs';
 import { showEnvironmentComparisonWebview } from '../anypoint/environmentComparison';
 import {
-    HYBRID_APPLICATIONS_ENDPOINT,
-    HYBRID_SERVERS_ENDPOINT,
-    HYBRID_SERVER_GROUPS_ENDPOINT,
-    HYBRID_CLUSTERS_ENDPOINT,
-    ANYPOINT_MQ_BASE,
-    ANYPOINT_MQ_ADMIN_BASE,
-    ANYPOINT_MQ_STATS_BASE
+    getAnypointMqBase,
+    getAnypointMqAdminBase,
+    getAnypointMqStatsBase
 } from '../constants';
 
 // ============================================================================
@@ -85,9 +88,10 @@ export async function getHybridApplications(context: vscode.ExtensionContext, en
     }));
 
     try {
-        console.log(`Hybrid Apps: Making API call to ${HYBRID_APPLICATIONS_ENDPOINT}`);
+        const hybridAppsEndpoint = await getHybridApplicationsEndpoint(context);
+        console.log(`Hybrid Apps: Making API call to ${hybridAppsEndpoint}`);
         const apiHelper = new ApiHelper(context);
-        const response = await apiHelper.get(HYBRID_APPLICATIONS_ENDPOINT, {
+        const response = await apiHelper.get(hybridAppsEndpoint, {
             headers: {
                 'X-ANYPNT-ENV-ID': environmentId,
                 'X-ANYPNT-ORG-ID': organizationID,
@@ -129,8 +133,10 @@ export async function getHybridServers(context: vscode.ExtensionContext, environ
     console.log(`Hybrid Servers: Fetching servers for org ${organizationID}, env ${environmentId}`);
 
     try {
+        const hybridServersEndpoint = await getHybridServersEndpoint(context);
+        console.log(`Hybrid Servers: Making API call to ${hybridServersEndpoint}`);
         const apiHelper = new ApiHelper(context);
-        const response = await apiHelper.get(HYBRID_SERVERS_ENDPOINT, {
+        const response = await apiHelper.get(hybridServersEndpoint, {
             headers: {
                 'X-ANYPNT-ENV-ID': environmentId,
                 'X-ANYPNT-ORG-ID': organizationID,
@@ -172,8 +178,10 @@ export async function getHybridServerGroups(context: vscode.ExtensionContext, en
     console.log(`Hybrid Server Groups: Fetching for org ${organizationID}, env ${environmentId}`);
 
     try {
+        const hybridServerGroupsEndpoint = await getHybridServerGroupsEndpoint(context);
+        console.log(`Hybrid Server Groups: Making API call to ${hybridServerGroupsEndpoint}`);
         const apiHelper = new ApiHelper(context);
-        const response = await apiHelper.get(HYBRID_SERVER_GROUPS_ENDPOINT, {
+        const response = await apiHelper.get(hybridServerGroupsEndpoint, {
             headers: {
                 'X-ANYPNT-ENV-ID': environmentId,
                 'X-ANYPNT-ORG-ID': organizationID,
@@ -215,8 +223,10 @@ export async function getHybridClusters(context: vscode.ExtensionContext, enviro
     console.log(`Hybrid Clusters: Fetching for org ${organizationID}, env ${environmentId}`);
 
     try {
+        const hybridClustersEndpoint = await getHybridClustersEndpoint(context);
+        console.log(`Hybrid Clusters: Making API call to ${hybridClustersEndpoint}`);
         const apiHelper = new ApiHelper(context);
-        const response = await apiHelper.get(HYBRID_CLUSTERS_ENDPOINT, {
+        const response = await apiHelper.get(hybridClustersEndpoint, {
             headers: {
                 'X-ANYPNT-ENV-ID': environmentId,
                 'X-ANYPNT-ORG-ID': organizationID,
@@ -290,8 +300,12 @@ export async function getAnypointMQStats(context: vscode.ExtensionContext, envir
     try {
         const apiHelper = new ApiHelper(context);
 
+        // Get region-specific MQ URLs
+        const mqAdminBase = await getAnypointMqAdminBase(context);
+        const mqStatsBase = await getAnypointMqStatsBase(context);
+
         // Get available regions from the MQ Broker API
-        const regionsUrl = `${ANYPOINT_MQ_ADMIN_BASE}/organizations/${organizationID}/environments/${environmentId}/regions`;
+        const regionsUrl = `${mqAdminBase}/organizations/${organizationID}/environments/${environmentId}/regions`;
         console.log(`AnypointMQ Stats: Fetching regions from ${regionsUrl}`);
         console.log(`AnypointMQ Stats: Organization ID: ${organizationID}`);
         console.log(`AnypointMQ Stats: Environment ID: ${environmentId}`);
@@ -359,7 +373,7 @@ export async function getAnypointMQStats(context: vscode.ExtensionContext, envir
 
                 try {
                     // Fetch destinations (queues and exchanges) for this region using the Admin API
-                    const destinationsUrl = `${ANYPOINT_MQ_ADMIN_BASE}/organizations/${organizationID}/environments/${environmentId}/regions/${regionId}/destinations`;
+                    const destinationsUrl = `${mqAdminBase}/organizations/${organizationID}/environments/${environmentId}/regions/${regionId}/destinations`;
                     console.log(`AnypointMQ Stats: Fetching destinations for region ${regionName} from ${destinationsUrl}`);
                     console.log(`AnypointMQ Stats: Region ID being used: ${regionId}`);
 
@@ -405,7 +419,7 @@ export async function getAnypointMQStats(context: vscode.ExtensionContext, envir
                         const queueIds = queues.map((queue: any) => queue.queueId || queue.id).join(',');
                         console.log(`AnypointMQ Stats: Fetching stats for queue IDs: ${queueIds}`);
 
-                        const queueStatsUrl = `${ANYPOINT_MQ_STATS_BASE}/organizations/${organizationID}/environments/${environmentId}/regions/${regionId}/queues?destinationIds=${queueIds}`;
+                        const queueStatsUrl = `${mqStatsBase}/organizations/${organizationID}/environments/${environmentId}/regions/${regionId}/queues?destinationIds=${queueIds}`;
                         const queueStatsResponse = await apiHelper.get(queueStatsUrl);
 
                         console.log(`AnypointMQ Stats: Queue stats response for region ${regionName}:`, JSON.stringify(queueStatsResponse.data, null, 2));
@@ -424,7 +438,7 @@ export async function getAnypointMQStats(context: vscode.ExtensionContext, envir
                         console.log(`AnypointMQ Stats: Fetching stats for exchange IDs: ${exchangeIds}`);
 
                         try {
-                            const exchangeStatsUrl = `${ANYPOINT_MQ_STATS_BASE}/organizations/${organizationID}/environments/${environmentId}/regions/${regionId}/exchanges?destinationIds=${exchangeIds}`;
+                            const exchangeStatsUrl = `${mqStatsBase}/organizations/${organizationID}/environments/${environmentId}/regions/${regionId}/exchanges?destinationIds=${exchangeIds}`;
                             const exchangeStatsResponse = await apiHelper.get(exchangeStatsUrl);
 
                             console.log(`AnypointMQ Stats: Exchange stats response for region ${regionName}:`, JSON.stringify(exchangeStatsResponse.data, null, 2));
@@ -493,7 +507,7 @@ export async function getAnypointMQStats(context: vscode.ExtensionContext, envir
             showAnypointMQStatsWebview(context, statsData);
         } else {
             // Fetch destinations (queues and exchanges) for the selected region only using the Admin API
-            const destinationsUrl = `${ANYPOINT_MQ_ADMIN_BASE}/organizations/${organizationID}/environments/${environmentId}/regions/${selectedRegionId}/destinations`;
+            const destinationsUrl = `${mqAdminBase}/organizations/${organizationID}/environments/${environmentId}/regions/${selectedRegionId}/destinations`;
             console.log(`AnypointMQ Stats: Fetching destinations from ${destinationsUrl}`);
 
             const destinationsResponse = await apiHelper.get(destinationsUrl);
@@ -543,7 +557,7 @@ export async function getAnypointMQStats(context: vscode.ExtensionContext, envir
                 const queueIds = queues.map((queue: any) => queue.queueId || queue.id).join(',');
                 console.log(`AnypointMQ Stats: Queue IDs for stats: ${queueIds}`);
 
-                const queueStatsUrl = `${ANYPOINT_MQ_STATS_BASE}/organizations/${organizationID}/environments/${environmentId}/regions/${selectedRegionId}/queues?destinationIds=${queueIds}`;
+                const queueStatsUrl = `${mqStatsBase}/organizations/${organizationID}/environments/${environmentId}/regions/${selectedRegionId}/queues?destinationIds=${queueIds}`;
 
                 console.log(`AnypointMQ Stats: Fetching queue stats from ${queueStatsUrl}`);
                 const queueStatsResponse = await apiHelper.get(queueStatsUrl);
@@ -562,7 +576,7 @@ export async function getAnypointMQStats(context: vscode.ExtensionContext, envir
                 console.log(`AnypointMQ Stats: Exchange IDs for stats: ${exchangeIds}`);
 
                 try {
-                    const exchangeStatsUrl = `${ANYPOINT_MQ_STATS_BASE}/organizations/${organizationID}/environments/${environmentId}/regions/${selectedRegionId}/exchanges?destinationIds=${exchangeIds}`;
+                    const exchangeStatsUrl = `${mqStatsBase}/organizations/${organizationID}/environments/${environmentId}/regions/${selectedRegionId}/exchanges?destinationIds=${exchangeIds}`;
 
                     console.log(`AnypointMQ Stats: Fetching exchange stats from ${exchangeStatsUrl}`);
                     const exchangeStatsResponse = await apiHelper.get(exchangeStatsUrl);
@@ -621,10 +635,13 @@ export async function getAnypointMQStats(context: vscode.ExtensionContext, envir
 
 export async function getUserInfo(context: vscode.ExtensionContext, isNewAccount: boolean = false) {
     const { AccountService } = await import('./accountService.js');
+    const { RegionService } = await import('./regionService.js');
     const accountService = new AccountService(context);
-    
+    const regionService = new RegionService(context);
+
     let accessToken: string | undefined;
-    
+    let baseUrl: string;
+
     if (isNewAccount) {
         console.log('getUserInfo: Getting temporary access token for new account');
         accessToken = await context.secrets.get('anypoint.tempAccessToken');
@@ -638,6 +655,11 @@ export async function getUserInfo(context: vscode.ExtensionContext, isNewAccount
             console.log('getUserInfo: Main access token exists:', !!mainToken);
             throw new Error('No temporary access token found. Please try logging in again.');
         }
+
+        // For new accounts, get the base URL from the temp region
+        const tempRegionId = await context.secrets.get('anypoint.tempRegionId');
+        baseUrl = tempRegionId ? regionService.getBaseUrlForRegion(tempRegionId) : BASE_URL;
+        console.log(`getUserInfo: Using base URL for new account (region: ${tempRegionId || 'us'}): ${baseUrl}`);
     } else {
         accessToken = await accountService.getActiveAccountAccessToken();
         if (!accessToken) {
@@ -646,9 +668,13 @@ export async function getUserInfo(context: vscode.ExtensionContext, isNewAccount
         if (!accessToken) {
             throw new Error('No access token found. Please log in first.');
         }
+
+        // For existing accounts, get the base URL from the active account's region
+        baseUrl = await getBaseUrl(context);
+        console.log(`getUserInfo: Using base URL for existing account: ${baseUrl}`);
     }
 
-    const apiUrl = BASE_URL + '/accounts/api/me';
+    const apiUrl = baseUrl + '/accounts/api/me';
 
     try {
         const response = await axios.get(apiUrl, {
@@ -663,14 +689,15 @@ export async function getUserInfo(context: vscode.ExtensionContext, isNewAccount
         
         if (isNewAccount) {
             await context.secrets.store('anypoint.tempUserInfo', JSON.stringify(data.user));
-            
+
             const userInfo = data.user;
             const orgId = userInfo.organization.id;
             const accountId = `account_${orgId}_${Date.now()}`;
-            
+
             const tempAccessToken = await context.secrets.get('anypoint.tempAccessToken');
             const tempRefreshToken = await context.secrets.get('anypoint.tempRefreshToken');
-            
+            const tempRegionId = await context.secrets.get('anypoint.tempRegionId');
+
             if (tempAccessToken) {
                 await accountService.setAccountData(accountId, 'accessToken', tempAccessToken);
                 await context.secrets.delete('anypoint.tempAccessToken');
@@ -679,23 +706,33 @@ export async function getUserInfo(context: vscode.ExtensionContext, isNewAccount
                 await accountService.setAccountData(accountId, 'refreshToken', tempRefreshToken);
                 await context.secrets.delete('anypoint.tempRefreshToken');
             }
-            
+
             await accountService.setAccountData(accountId, 'userInfo', JSON.stringify(userInfo));
-            
+
+            // Store region for the new account
+            if (tempRegionId) {
+                await accountService.setAccountData(accountId, 'region', tempRegionId);
+                await context.secrets.delete('anypoint.tempRegionId');
+                console.log(`Region ${tempRegionId} stored for new account ${accountId}`);
+            }
+
             const account = {
                 id: accountId,
                 organizationId: orgId,
                 organizationName: userInfo.organization.name || 'Unknown Organization',
                 userEmail: userInfo.email || 'unknown@email.com',
                 userName: userInfo.username || userInfo.firstName + ' ' + userInfo.lastName || 'Unknown User',
-                isActive: false,
+                isActive: true, // Set as active when adding new account
                 lastUsed: new Date().toISOString(),
-                status: 'authenticated' as const
+                status: 'authenticated' as const,
+                region: tempRegionId || 'us' // Store region in account object
             };
-            
+
             await accountService.addAccount(account);
-            await context.secrets.delete('anypoint.tempUserInfo');
-            
+            await accountService.setActiveAccount(accountId); // Explicitly set as active account
+            // Don't delete tempUserInfo yet - getEnvironments needs it
+            console.log(`New account ${accountId} added and set as active`);
+
             return data;
         } else {
             const activeAccount = await accountService.getActiveAccount();
@@ -751,7 +788,8 @@ export async function getOrganizationInfo(context: vscode.ExtensionContext) {
     const { ApiHelper } = await import('./apiHelper.js');
     const apiHelper = new ApiHelper(context);
 
-    const apiUrl = BASE_URL + '/cloudhub/api/organization';
+    const baseUrl = await getBaseUrl(context);
+    const apiUrl = baseUrl + '/cloudhub/api/organization';
 
     try {
         const response = await apiHelper.get(apiUrl);
@@ -800,26 +838,36 @@ export async function developerInfo(context: vscode.ExtensionContext) {
 export async function getEnvironments(context: vscode.ExtensionContext, isNewAccount: boolean = false) {
     const { AccountService } = await import('./accountService.js');
     const { ApiHelper } = await import('./apiHelper.js');
+    const { RegionService } = await import('./regionService.js');
     const accountService = new AccountService(context);
-    
+    const regionService = new RegionService(context);
+
     let userInfo: string | undefined;
     let organizationID: string;
-    
+    let baseUrl: string;
+
     if (isNewAccount) {
         userInfo = await context.secrets.get('anypoint.tempUserInfo');
         if (!userInfo) {
             throw new Error('No temporary user info found. Please try logging in again.');
         }
         organizationID = JSON.parse(userInfo).organization.id;
+
+        // For new accounts, get the base URL from the temp region
+        const tempRegionId = await context.secrets.get('anypoint.tempRegionId');
+        baseUrl = tempRegionId ? regionService.getBaseUrlForRegion(tempRegionId) : BASE_URL;
     } else {
         const activeAccount = await accountService.getActiveAccount();
         if (!activeAccount) {
             throw new Error('No active account found. Please log in first.');
         }
         organizationID = activeAccount.organizationId;
+
+        // For existing accounts, get the base URL from the active account's region
+        baseUrl = await getBaseUrl(context);
     }
 
-    const apiUrl = BASE_URL + '/accounts/api/organizations/' + organizationID + '/environments';
+    const apiUrl = baseUrl + '/accounts/api/organizations/' + organizationID + '/environments';
 
     try {
         let response;
@@ -846,20 +894,23 @@ export async function getEnvironments(context: vscode.ExtensionContext, isNewAcc
         // Store environments based on account type
         if (isNewAccount) {
             await context.secrets.store('anypoint.tempEnvironments', JSON.stringify(response.data));
-            
+
             const tempUserInfo = await context.secrets.get('anypoint.tempUserInfo');
             if (tempUserInfo) {
                 const userInfoData = JSON.parse(tempUserInfo);
                 const orgId = userInfoData.organization.id;
                 const accounts = await accountService.getAccounts();
                 const account = accounts.find(acc => acc.organizationId === orgId);
-                
+
                 if (account) {
                     await accountService.setAccountData(account.id, 'environments', JSON.stringify(response.data));
+                    console.log(`Stored ${response.data?.data?.length || 0} environments for new account ${account.userName}`);
                 }
             }
-            
+
+            // Clean up temp data
             await context.secrets.delete('anypoint.tempEnvironments');
+            await context.secrets.delete('anypoint.tempUserInfo');
         } else {
             // Store environments for the active account
             const activeAccount = await accountService.getActiveAccount();
@@ -883,12 +934,12 @@ export async function getCH2Applications(context: vscode.ExtensionContext, envir
     const { AccountService } = await import('./accountService.js');
     const { ApiHelper } = await import('./apiHelper.js');
     const accountService = new AccountService(context);
-    
+
     const activeAccount = await accountService.getActiveAccount();
     if (!activeAccount) {
         throw new Error('No active account found. Please log in first.');
     }
-    
+
     const organizationID = activeAccount.organizationId;
     console.log(`CloudHub 2.0: Fetching applications for org ${organizationID}, env ${environmentId}`);
     console.log(`CloudHub 2.0: Active account: ${activeAccount.userEmail} (${activeAccount.organizationName})`);
@@ -898,9 +949,9 @@ export async function getCH2Applications(context: vscode.ExtensionContext, envir
     if (!storedEnvironments) {
         storedEnvironments = await context.secrets.get('anypoint.environments');
     }
-    
+
     let environmentName = environmentId; // fallback
-    
+
     if (storedEnvironments) {
         try {
             const environments = JSON.parse(storedEnvironments);
@@ -919,37 +970,92 @@ export async function getCH2Applications(context: vscode.ExtensionContext, envir
         name: environmentName
     }));
 
-    const apiUrl = BASE_URL + '/amc/application-manager/api/v2/organizations/' + organizationID + '/environments/' + environmentId + '/deployments';
+    // Get region to determine which API to use
+    const regionId = activeAccount.region || 'us';
+    const baseUrl = await getBaseUrl(context);
+
+    // US region uses Application Manager API (original working endpoint)
+    // EU/GOV use ARM API (unified endpoint)
+    let apiUrl: string;
+    let requestConfig: any = {};
+
+    if (regionId === 'us') {
+        apiUrl = `${baseUrl}/amc/application-manager/api/v2/organizations/${organizationID}/environments/${environmentId}/deployments`;
+        console.log(`CloudHub 2.0: Using Application Manager API for US region`);
+    } else {
+        apiUrl = `${baseUrl}/armui/api/v2/applications`;
+        console.log(`CloudHub 2.0: Using ARM API for ${regionId.toUpperCase()} region`);
+
+        // ARM API requires org and env as headers instead of URL path
+        requestConfig.headers = {
+            'X-Anypnt-Org-Id': organizationID,
+            'X-Anypnt-Env-Id': environmentId
+        };
+        console.log(`CloudHub 2.0: Adding ARM API headers - Org: ${organizationID}, Env: ${environmentId}`);
+    }
 
     try {
         console.log(`CloudHub 2.0: Making API call to ${apiUrl}`);
         const apiHelper = new ApiHelper(context);
-        const response = await apiHelper.get(apiUrl);
-        
+        const response = await apiHelper.get(apiUrl, requestConfig);
+
         console.log(`CloudHub 2.0: API response status: ${response.status}`);
         console.log(`CloudHub 2.0: Response data structure:`, Object.keys(response.data || {}));
         console.log(`CloudHub 2.0: Full response data:`, JSON.stringify(response.data, null, 2));
-        
+
         if (response.status !== 200) {
             throw new Error(`API request failed with status ${response.status}`);
         }
-        
+
         const data = response.data;
-        
-        // Check if we have applications
-        let applicationsFound = 0;
-        if (Array.isArray(data)) {
-            applicationsFound = data.length;
-        } else if (data.items && Array.isArray(data.items)) {
-            applicationsFound = data.items.length;
-        } else if (data.data && Array.isArray(data.data)) {
-            applicationsFound = data.data.length;
+        let transformedData;
+
+        // Different response formats for different APIs
+        if (regionId === 'us') {
+            // Application Manager API returns different format
+            transformedData = data;
+        } else {
+            // ARM API returns: { data: [...], total: N, error: [...] }
+            // Filter for CloudHub 2.0 apps only (target.type === "MC" and target.subtype === "shared-space")
+            let allApps = data.data || [];
+            const ch2Apps = allApps.filter((app: any) =>
+                app.target?.type === 'MC' &&
+                app.target?.subtype === 'shared-space'
+            );
+
+            console.log(`CloudHub 2.0: Found ${ch2Apps.length} CloudHub 2.0 applications in environment ${environmentName} (out of ${allApps.length} total apps)`);
+
+            // Transform ARM API format to match Application Manager API format
+            const normalizedApps = ch2Apps.map((app: any) => ({
+                id: app.id,
+                deploymentId: app.id,
+                name: app.artifact?.name || 'Unknown',
+                domain: app.artifact?.name || 'Unknown',
+                creationDate: app.artifact?.createTime ? new Date(app.artifact.createTime).toISOString() : undefined,
+                lastModifiedDate: app.artifact?.lastUpdateTime ? new Date(app.artifact.lastUpdateTime).toISOString() : undefined,
+                currentRuntimeVersion: app.muleVersion?.version || 'N/A',
+                lastSuccessfulRuntimeVersion: app.muleVersion?.version || 'N/A',
+                muleVersion: app.muleVersion?.version || 'N/A',  // Command Center checks for this first
+                region: app.target?.name || app.target?.provider || 'Unknown',  // Region info from target
+                application: {
+                    status: app.application?.status || app.lastReportedStatus || 'UNKNOWN',
+                    domain: app.artifact?.name || 'Unknown'
+                },
+                target: app.target,
+                // Keep original data for reference
+                _originalArmData: app
+            }));
+
+            console.log(`CloudHub 2.0: Transformed ${normalizedApps.length} apps from ARM API format`);
+
+            transformedData = {
+                data: normalizedApps,
+                total: normalizedApps.length
+            };
         }
-        
-        console.log(`CloudHub 2.0: Found ${applicationsFound} applications in environment ${environmentName}`);
-        
+
         // FIXED: Pass environment name for display, but ID is stored in secrets
-        showApplicationsWebview(context, data, environmentName);
+        showApplicationsWebview(context, transformedData, environmentName);
     } catch (error: any) {
         console.error(`CloudHub 2.0: Error fetching applications:`, error);
         
@@ -1018,7 +1124,9 @@ export async function getCH1Applications(context: vscode.ExtensionContext, envir
         }
     }
 
-    const apiUrl = BASE_URL + '/cloudhub/api/applications';
+    // Use region-specific base URL
+    const baseUrl = await getBaseUrl(context);
+    const apiUrl = baseUrl + '/cloudhub/api/applications';
 
     try {
         console.log(`CloudHub 1.0: Making API call to ${apiUrl}`);
@@ -1195,14 +1303,18 @@ export async function getEnvironmentComparison(context: vscode.ExtensionContext)
     const environments = JSON.parse(storedEnvironments);
     const apiHelper = new ApiHelper(context);
 
+    // Get region-specific base URL
+    const baseUrl = await getBaseUrl(context);
+    console.log(`Environment Comparison: Using base URL ${baseUrl}`);
+
     if (!environments.data || environments.data.length === 0) {
         vscode.window.showErrorMessage('No environments available.');
         return;
     }
 
     // Filter out Design environment as it's typically used for API design, not deployments
-    const filteredEnvironments = environments.data.filter((env: any) => 
-        env.name.toLowerCase() !== 'design' && 
+    const filteredEnvironments = environments.data.filter((env: any) =>
+        env.name.toLowerCase() !== 'design' &&
         env.type?.toLowerCase() !== 'design'
     );
 
@@ -1215,14 +1327,14 @@ export async function getEnvironmentComparison(context: vscode.ExtensionContext)
         environments: filteredEnvironments,
         applications: {}
     };
-    
+
     // Temporary storage for grouping applications by normalized names
     const applicationGroups: { [normalizedName: string]: any[] } = {};
 
     for (const env of filteredEnvironments) {
         try {
             // Fetch CloudHub 1.0 applications
-            const ch1Response = await apiHelper.get(BASE_URL + '/cloudhub/api/applications', {
+            const ch1Response = await apiHelper.get(baseUrl + '/cloudhub/api/applications', {
                 headers: {
                     'X-ANYPNT-ENV-ID': env.id,
                     'X-ANYPNT-ORG-ID': organizationID,
@@ -1291,7 +1403,7 @@ export async function getEnvironmentComparison(context: vscode.ExtensionContext)
 
         try {
             // Fetch CloudHub 2.0 applications
-            const ch2Response = await apiHelper.get(BASE_URL + '/amc/application-manager/api/v2/organizations/' + organizationID + '/environments/' + env.id + '/deployments');
+            const ch2Response = await apiHelper.get(baseUrl + '/amc/application-manager/api/v2/organizations/' + organizationID + '/environments/' + env.id + '/deployments');
 
             if (ch2Response.status === 200) {
                 let ch2Apps = ch2Response.data;

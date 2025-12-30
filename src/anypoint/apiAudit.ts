@@ -1,5 +1,5 @@
 import * as vscode from 'vscode';
-import { BASE_URL } from '../constants';
+import { BASE_URL, getBaseUrl } from '../constants';
 import { ApiHelper } from '../controllers/apiHelper.js';
 
 interface APIInfo {
@@ -96,9 +96,12 @@ async function analyzeAPIs(context: vscode.ExtensionContext, organizationID: str
 }
 
 async function getAPIsInEnvironment(context: vscode.ExtensionContext, organizationID: string, environmentId: string): Promise<any[]> {
+    // Get region-specific base URL
+    const baseUrl = await getBaseUrl(context);
+
     const endpoints = [
-        `${BASE_URL}/apimanager/api/v1/organizations/${organizationID}/environments/${environmentId}/apis`,
-        `${BASE_URL}/apimanager/api/v2/organizations/${organizationID}/environments/${environmentId}/apis`
+        `${baseUrl}/apimanager/api/v1/organizations/${organizationID}/environments/${environmentId}/apis`,
+        `${baseUrl}/apimanager/api/v2/organizations/${organizationID}/environments/${environmentId}/apis`
     ];
 
     const apiHelper = new ApiHelper(context);
@@ -148,9 +151,12 @@ async function getAPIPolicies(context: vscode.ExtensionContext, organizationID: 
         apiData.autodiscoveryApiId
     ].filter(id => id !== undefined && id !== null);
 
+    // Get region-specific base URL
+    const baseUrl = await getBaseUrl(context);
+
     const endpointTemplates = [
-        `${BASE_URL}/apimanager/api/v1/organizations/${organizationID}/environments/${environmentId}/apis/{api_id}/policies`,
-        `${BASE_URL}/apimanager/api/v2/organizations/${organizationID}/environments/${environmentId}/apis/{api_id}/policies`
+        `${baseUrl}/apimanager/api/v1/organizations/${organizationID}/environments/${environmentId}/apis/{api_id}/policies`,
+        `${baseUrl}/apimanager/api/v2/organizations/${organizationID}/environments/${environmentId}/apis/{api_id}/policies`
     ];
 
     const apiHelper = new ApiHelper(context);

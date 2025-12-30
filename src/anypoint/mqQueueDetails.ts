@@ -1,4 +1,5 @@
 import * as vscode from 'vscode';
+import { getAnypointMqAdminBase, getAnypointMqStatsBase } from '../constants.js';
 
 /**
  * Creates a webview panel and displays detailed queue information
@@ -31,8 +32,12 @@ export async function showQueueDetailsWebview(
     const { ApiHelper } = await import('../controllers/apiHelper.js');
     const apiHelper = new ApiHelper(context);
 
+    // Get region-specific MQ URLs
+    const mqAdminBase = await getAnypointMqAdminBase(context);
+    const mqStatsBase = await getAnypointMqStatsBase(context);
+
     const destinationPath = isExchange ? 'exchanges' : 'queues';
-    const queueDetailsUrl = `https://anypoint.mulesoft.com/mq/admin/api/v1/organizations/${organizationID}/environments/${environmentId}/regions/${regionId}/destinations/${destinationPath}/${queueId}`;
+    const queueDetailsUrl = `${mqAdminBase}/organizations/${organizationID}/environments/${environmentId}/regions/${regionId}/destinations/${destinationPath}/${queueId}`;
 
     console.log(`${destinationType} Details: Fetching ${destinationType.toLowerCase()} info from ${queueDetailsUrl}`);
 
@@ -48,7 +53,7 @@ export async function showQueueDetailsWebview(
     if (isExchange) {
       // For exchanges, try to fetch bindings instead of stats
       try {
-        const bindingsUrl = `https://anypoint.mulesoft.com/mq/admin/api/v1/organizations/${organizationID}/environments/${environmentId}/regions/${regionId}/bindings/exchanges/${queueId}`;
+        const bindingsUrl = `${mqAdminBase}/organizations/${organizationID}/environments/${environmentId}/regions/${regionId}/bindings/exchanges/${queueId}`;
         console.log(`Exchange Details: Fetching bindings from ${bindingsUrl}`);
 
         const bindingsResponse = await apiHelper.get(bindingsUrl);
@@ -60,7 +65,7 @@ export async function showQueueDetailsWebview(
       }
     } else {
       // For queues, fetch stats
-      const statsUrl = `https://anypoint.mulesoft.com/mq/stats/api/v1/organizations/${organizationID}/environments/${environmentId}/regions/${regionId}/queues?destinationIds=${queueId}`;
+      const statsUrl = `${mqStatsBase}/organizations/${organizationID}/environments/${environmentId}/regions/${regionId}/queues?destinationIds=${queueId}`;
       console.log(`Queue Details: Fetching stats from ${statsUrl}`);
 
       try {

@@ -20,10 +20,14 @@ export async function showApiManagerAPIDetail(
     { enableScripts: true }
   );
 
+  // Get region-specific base URL
+  const { getBaseUrl } = await import('../constants.js');
+  const baseUrl = await getBaseUrl(context);
+
   // Endpoints
-  const apiDetailUrl = `https://anypoint.mulesoft.com/apimanager/api/v1/organizations/${organizationId}/environments/${environmentId}/apis/${recordId}?includeProxyConfiguration=true&includeTlsContexts=true`;
-  const policiesUrl = `https://anypoint.mulesoft.com/apimanager/api/v1/organizations/${organizationId}/environments/${environmentId}/apis/${recordId}/policies?fullInfo=false`;
-  const contractsUrl = `https://anypoint.mulesoft.com/apimanager/xapi/v1/organizations/${organizationId}/environments/${environmentId}/apis/${recordId}/contracts?limit=10&offset=0&sort=name&ascending=true`;
+  const apiDetailUrl = `${baseUrl}/apimanager/api/v1/organizations/${organizationId}/environments/${environmentId}/apis/${recordId}?includeProxyConfiguration=true&includeTlsContexts=true`;
+  const policiesUrl = `${baseUrl}/apimanager/api/v1/organizations/${organizationId}/environments/${environmentId}/apis/${recordId}/policies?fullInfo=false`;
+  const contractsUrl = `${baseUrl}/apimanager/xapi/v1/organizations/${organizationId}/environments/${environmentId}/apis/${recordId}/contracts?limit=10&offset=0&sort=name&ascending=true`;
 
   // ---------------- Fetch API detail ----------------
   let apiDetail: any;

@@ -9,6 +9,7 @@ export interface AnypointAccount {
     isActive: boolean;
     lastUsed: string;
     status: 'authenticated' | 'expired' | 'error';
+    region?: string; // Region ID (us, eu, gov)
 }
 
 export class AccountService {
@@ -159,16 +160,49 @@ export class AccountService {
         }
     }
 
-    async getAccountData(accountId: string, dataType: 'accessToken' | 'refreshToken' | 'userInfo' | 'environments' | 'selectedEnvironment'): Promise<string | undefined> {
+    async getAccountData(accountId: string, dataType: 'accessToken' | 'refreshToken' | 'userInfo' | 'environments' | 'selectedEnvironment' | 'region'): Promise<string | undefined> {
         return await this.context.secrets.get(`anypoint.account.${accountId}.${dataType}`);
     }
 
-    async setAccountData(accountId: string, dataType: 'accessToken' | 'refreshToken' | 'userInfo' | 'environments' | 'selectedEnvironment', data: string): Promise<void> {
+    async setAccountData(accountId: string, dataType: 'accessToken' | 'refreshToken' | 'userInfo' | 'environments' | 'selectedEnvironment' | 'region', data: string): Promise<void> {
         await this.context.secrets.store(`anypoint.account.${accountId}.${dataType}`, data);
     }
 
-    async deleteAccountData(accountId: string, dataType: 'accessToken' | 'refreshToken' | 'userInfo' | 'environments' | 'selectedEnvironment'): Promise<void> {
+    async deleteAccountData(accountId: string, dataType: 'accessToken' | 'refreshToken' | 'userInfo' | 'environments' | 'selectedEnvironment' | 'region'): Promise<void> {
         await this.context.secrets.delete(`anypoint.account.${accountId}.${dataType}`);
+    }
+
+    /**
+     * Get region for the active account
+     */
+    async getActiveAccountRegion(): Promise<string | undefined> {
+        const activeAccount = await this.getActiveAccount();
+        if (!activeAccount) {
+            return undefined;
+        }
+
+        // First check if it's stored in the account object
+        if (activeAccount.region) {
+            return activeAccount.region;
+        }
+
+        // Otherwise, check in secrets storage
+        return await this.getAccountData(activeAccount.id, 'region');
+    }
+
+    /**
+     * Set region for an account and update the account object
+     */
+    async setAccountRegion(accountId: string, regionId: string): Promise<void> {
+        // Store in secrets
+        await this.setAccountData(accountId, 'region', regionId);
+
+        // Update the account object
+        const accounts = await this.getAccounts();
+        const updatedAccounts = accounts.map(acc =>
+            acc.id === accountId ? { ...acc, region: regionId } : acc
+        );
+        await this.context.secrets.store('anypoint.accounts', JSON.stringify(updatedAccounts));
     }
 
     async getActiveAccountAccessToken(): Promise<string | undefined> {
@@ -210,19 +244,22 @@ export class AccountService {
     async refreshAllAccountStatuses(): Promise<void> {
         const accounts = await this.getAccounts();
         const { ApiHelper } = await import('./apiHelper.js');
-        
+        const { getBaseUrl } = await import('../constants.js');
+
         for (const account of accounts) {
             try {
                 // Temporarily set this account as active for the API test
                 const originalActive = await this.getActiveAccountId();
                 await this.setActiveAccount(account.id);
-                
+
+                // Get region-specific base URL for this account
+                const baseUrl = await getBaseUrl(this.context);
                 const apiHelper = new ApiHelper(this.context);
-                await apiHelper.get('https://anypoint.mulesoft.com/accounts/api/me');
-                
+                await apiHelper.get(`${baseUrl}/accounts/api/me`);
+
                 // If successful, mark as authenticated
                 await this.updateAccountStatus(account.id, 'authenticated');
-                
+
                 // Restore original active account
                 if (originalActive) {
                     await this.setActiveAccount(originalActive);
@@ -324,27 +361,76 @@ export class AccountService {
     async checkAndPromptMigration(): Promise<boolean> {
         try {
             const migrationResult = await this.migrateLegacyAccount();
-            
+
             if (migrationResult.migrated && migrationResult.accountId) {
                 // Show success message to user
                 const account = await this.getAccountById(migrationResult.accountId);
                 if (account) {
                     console.log(`🎉 Migration successful for ${account.userEmail}`);
-                    
+
                     // Import vscode dynamically to show user notification
                     const vscode = await import('vscode');
                     vscode.window.showInformationMessage(
                         `✅ Your legacy account has been migrated to the new multi-account system! ` +
                         `Welcome ${account.userEmail} (${account.organizationName})`
                     );
-                    
+
                     return true;
                 }
             }
-            
+
             return false;
         } catch (error: any) {
             console.error('Migration check failed:', error);
+            return false;
+        }
+    }
+
+    /**
+     * Check if existing accounts need region assignment and automatically assign US region
+     * Marks accounts as expired to force re-authentication with correct region tokens
+     */
+    async checkAndPromptRegionMigration(): Promise<boolean> {
+        try {
+            const accounts = await this.getAccounts();
+
+            // Find accounts without region
+            const accountsWithoutRegion = accounts.filter(account => !account.region);
+
+            if (accountsWithoutRegion.length === 0) {
+                return false;
+            }
+
+            console.log(`Found ${accountsWithoutRegion.length} account(s) without region assignment`);
+
+            const vscode = await import('vscode');
+
+            // Automatically assign US region to all accounts without region
+            // and mark them as expired to force re-authentication
+            for (const account of accountsWithoutRegion) {
+                await this.setAccountRegion(account.id, 'us');
+                // Mark as expired to force re-authentication with region-specific tokens
+                await this.updateAccountStatus(account.id, 'expired');
+                console.log(`✅ Auto-assigned US region to account ${account.userEmail} and marked as expired`);
+            }
+
+            // Show single informative message
+            if (accountsWithoutRegion.length > 0) {
+                const accountNames = accountsWithoutRegion.map(a => a.userEmail).join(', ');
+                vscode.window.showWarningMessage(
+                    `Multi-region support enabled! Your ${accountsWithoutRegion.length} account(s) (${accountNames}) have been set to US region by default. ` +
+                    `Please re-authenticate to continue. You can change the region in Account Manager if needed.`,
+                    'Open Account Manager'
+                ).then(selection => {
+                    if (selection === 'Open Account Manager') {
+                        vscode.commands.executeCommand('anypoint-monitor.accountManager');
+                    }
+                });
+            }
+
+            return true;
+        } catch (error: any) {
+            console.error('Region migration check failed:', error);
             return false;
         }
     }

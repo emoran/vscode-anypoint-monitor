@@ -94,11 +94,14 @@ export class ApiHelper {
                     let newAccessToken: string | undefined;
                     if (useActiveAccount && activeAccount) {
                         newAccessToken = await this.accountService.getAccountData(activeAccount.id, 'accessToken');
+                        console.log(`API Helper: Retrieved refreshed token for account ${activeAccount.id}, token exists: ${!!newAccessToken}`);
                     } else {
                         newAccessToken = await this.context.secrets.get('anypoint.accessToken');
+                        console.log(`API Helper: Retrieved refreshed token from legacy storage, token exists: ${!!newAccessToken}`);
                     }
 
                     if (newAccessToken) {
+                        console.log(`API Helper: Retrying request with new token (length: ${newAccessToken.length})`);
                         // Retry the request with the new token
                         const retryConfig = {
                             ...config,
@@ -111,6 +114,8 @@ export class ApiHelper {
                         };
 
                         return await axios(retryConfig);
+                    } else {
+                        console.log(`API Helper: No new token found after refresh!`);
                     }
                 }
                 

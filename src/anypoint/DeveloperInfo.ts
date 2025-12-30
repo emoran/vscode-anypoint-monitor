@@ -11,19 +11,33 @@
    import * as http from 'http';
    import * as path from 'path';
    import { ApiHelper } from '../controllers/apiHelper.js';
-   
+   import { getBaseUrl } from '../constants';
+   import { AccountService } from '../controllers/accountService.js';
+
    // ------------------------------------------------------------------
    // CONSTANTS & CONFIG
    // ------------------------------------------------------------------
-   const BASE_URL = 'https://anypoint.mulesoft.com';
-   
-   // MuleSoft OAuth Endpoints
-   const AUTHORIZATION_ENDPOINT = BASE_URL + '/accounts/api/v2/oauth2/authorize';
-   const TOKEN_ENDPOINT = BASE_URL + '/accounts/api/v2/oauth2/token';
-   const REVOKE_ENDPOINT = BASE_URL + '/accounts/api/v2/oauth2/revoke';
-   
+   // Note: BASE_URL is now dynamic based on active account's region
+   // Use getBaseUrl(context) to get the region-specific URL
+
    // Example redirect URL (must match your MuleSoft OAuth app settings)
    const LOCAL_REDIRECT_URI = 'http://localhost:8082/callback';
+
+   // Helper functions to build region-specific OAuth endpoints
+   async function getAuthorizationEndpoint(context: vscode.ExtensionContext): Promise<string> {
+       const baseUrl = await getBaseUrl(context);
+       return `${baseUrl}/accounts/api/v2/oauth2/authorize`;
+   }
+
+   async function getTokenEndpoint(context: vscode.ExtensionContext): Promise<string> {
+       const baseUrl = await getBaseUrl(context);
+       return `${baseUrl}/accounts/api/v2/oauth2/token`;
+   }
+
+   async function getRevokeEndpoint(context: vscode.ExtensionContext): Promise<string> {
+       const baseUrl = await getBaseUrl(context);
+       return `${baseUrl}/accounts/api/v2/oauth2/revoke`;
+   }
    
    // Use the same credentials as the main extension
    const CLIENT_ID = 'a7db79120339458da2d7ba979ee94a42';
@@ -133,9 +147,10 @@
        }
      });
    
-     server.listen(8082, () => {
+     server.listen(8082, async () => {
        // 2) Build the authorization URL
-       const authUrl = new URL(AUTHORIZATION_ENDPOINT);
+       const authorizationEndpoint = await getAuthorizationEndpoint(context);
+       const authUrl = new URL(authorizationEndpoint);
        authUrl.searchParams.set('response_type', 'code');
        authUrl.searchParams.set('client_id', CLIENT_ID);
        authUrl.searchParams.set('redirect_uri', LOCAL_REDIRECT_URI);
@@ -160,8 +175,9 @@
      data.append('client_secret', CLIENT_SECRET);
    
      const base64Creds = Buffer.from(`${CLIENT_ID}:${CLIENT_SECRET}`).toString('base64');
-   
-     const response = await axios.post(TOKEN_ENDPOINT, data.toString(), {
+
+     const tokenEndpoint = await getTokenEndpoint(context);
+     const response = await axios.post(tokenEndpoint, data.toString(), {
        headers: {
          'Authorization': `Basic ${base64Creds}`,
          'Content-Type': 'application/x-www-form-urlencoded;charset=UTF-8',
@@ -215,7 +231,8 @@
      const base64Creds = Buffer.from(`${CLIENT_ID}:${CLIENT_SECRET}`).toString('base64');
    
      try {
-       const response = await axios.post(REVOKE_ENDPOINT, formData.toString(), {
+       const revokeEndpoint = await getRevokeEndpoint(context);
+       const response = await axios.post(revokeEndpoint, formData.toString(), {
          headers: {
            'Authorization': `Basic ${base64Creds}`,
            'Content-Type': 'application/x-www-form-urlencoded'
@@ -252,7 +269,8 @@
      const base64Creds = Buffer.from(`${CLIENT_ID}:${CLIENT_SECRET}`).toString('base64');
    
      try {
-       const response = await axios.post(TOKEN_ENDPOINT, refreshData.toString(), {
+       const tokenEndpoint = await getTokenEndpoint(context);
+       const response = await axios.post(tokenEndpoint, refreshData.toString(), {
          headers: {
            'Authorization': `Basic ${base64Creds}`,
            'Content-Type': 'application/x-www-form-urlencoded'
@@ -290,33 +308,37 @@
    // GET USER INFO + Org info, with 401 auto-refresh
    // ------------------------------------------------------------------
    export async function getUserInfo(context: vscode.ExtensionContext) {
-     const apiUrl = `${BASE_URL}/accounts/api/me`;
-   
+     // Get region-specific base URL
+     const baseUrl = await getBaseUrl(context);
+     const apiUrl = `${baseUrl}/accounts/api/me`;
+
      try {
        const apiHelper = new ApiHelper(context);
        const response = await apiHelper.get(apiUrl);
        const data = response.data;
-       
+
        // Store user info if you like
        await context.secrets.store('anypoint.userInfo', JSON.stringify(data.user));
-   
+
        // For demonstration, show a webview or a message
        vscode.window.showInformationMessage(`User Info: ${JSON.stringify(data.user)}`);
-   
+
      } catch (error: any) {
        vscode.window.showErrorMessage(`Error calling API: ${error.message}`);
      }
    }
-   
+
    export async function getOrganizationInfo(context: vscode.ExtensionContext) {
-     const apiUrl = `${BASE_URL}/cloudhub/api/organization`;
-   
+     // Get region-specific base URL
+     const baseUrl = await getBaseUrl(context);
+     const apiUrl = `${baseUrl}/cloudhub/api/organization`;
+
      try {
        const apiHelper = new ApiHelper(context);
        const response = await apiHelper.get(apiUrl);
        const data = response.data;
        vscode.window.showInformationMessage(`Organization Info: ${JSON.stringify(data)}`);
-   
+
      } catch (error: any) {
        vscode.window.showErrorMessage(`Error calling API: ${error.message}`);
      }
@@ -327,14 +349,17 @@
    // ------------------------------------------------------------------
    export async function getEnvironments(context: vscode.ExtensionContext) {
      const userInfoStr = await context.secrets.get('anypoint.userInfo');
-   
+
      if (!userInfoStr) {
        throw new Error('No user info found. Please log in first.');
      }
-   
+
      const userInfoData = JSON.parse(userInfoStr);
      const orgId = userInfoData.organization.id;
-     const apiUrl = `${BASE_URL}/accounts/api/organizations/${orgId}/environments`;
+
+     // Get region-specific base URL
+     const baseUrl = await getBaseUrl(context);
+     const apiUrl = `${baseUrl}/accounts/api/organizations/${orgId}/environments`;
    
      try {
        const apiHelper = new ApiHelper(context);
@@ -381,7 +406,9 @@
      userInfo: { orgName: string; orgId: string },
      environments: IEnvironment[]
    ) {
-     const url = `https://anypoint.mulesoft.com/accounts/api/organizations/${userInfo.orgId}/clients`;
+     // Get region-specific base URL
+     const baseUrl = await getBaseUrl(context);
+     const url = `${baseUrl}/accounts/api/organizations/${userInfo.orgId}/clients`;
    
      try {
        const apiHelper = new ApiHelper(context);

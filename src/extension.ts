@@ -25,7 +25,7 @@ import {
 import { auditAPIs } from "./anypoint/apiAudit";
 import { showCommunityEvents } from "./anypoint/communityEvents";
 import { showRealTimeLogs } from "./anypoint/realTimeLogs";
-import { BASE_URL } from "./constants";
+import { BASE_URL, getBaseUrl } from "./constants";
 import { showApplicationDiagram } from "./anypoint/applicationDiagram";
 import { showDataWeavePlayground } from "./anypoint/dataweavePlayground";
 import { showApplicationCommandCenter } from "./anypoint/applicationCommandCenter";
@@ -166,6 +166,15 @@ export function activate(context: vscode.ExtensionContext) {
 			// Update status bar to reflect the migrated account
 			updateAccountStatusBar(context);
 			console.log('✅ Legacy account migration completed on startup');
+		}
+
+		// After legacy migration, check if existing accounts need region assignment
+		return accountService.checkAndPromptRegionMigration();
+	}).then(regionMigrated => {
+		if (regionMigrated) {
+			// Update status bar after region assignment
+			updateAccountStatusBar(context);
+			console.log('✅ Region migration completed for existing accounts');
 		}
 	}).catch(err => {
 		console.error('Failed to migrate existing account:', err);
@@ -405,7 +414,8 @@ export function activate(context: vscode.ExtensionContext) {
 			// Fetch CloudHub 1.0 applications
 			try {
 				console.log('Real-time logs: Fetching CloudHub 1.0 applications...');
-				const ch1Response = await apiHelper.get(BASE_URL + '/cloudhub/api/applications', {
+				const baseUrl = await getBaseUrl(context);
+				const ch1Response = await apiHelper.get(baseUrl + '/cloudhub/api/applications', {
 					headers: {
 						'X-ANYPNT-ENV-ID': selectedEnvironmentId,
 						'X-ANYPNT-ORG-ID': organizationID,
@@ -422,7 +432,8 @@ export function activate(context: vscode.ExtensionContext) {
 			// Fetch CloudHub 2.0 applications
 			try {
 				console.log('Real-time logs: Fetching CloudHub 2.0 applications...');
-				const ch2Response = await apiHelper.get(BASE_URL + '/amc/application-manager/api/v2/organizations/' + organizationID + '/environments/' + selectedEnvironmentId + '/deployments');
+				const baseUrl = await getBaseUrl(context);
+				const ch2Response = await apiHelper.get(baseUrl + '/amc/application-manager/api/v2/organizations/' + organizationID + '/environments/' + selectedEnvironmentId + '/deployments');
 				
 				if (ch2Response.status === 200) {
 					// Handle different data structures from CH2 API response
@@ -468,10 +479,11 @@ export function activate(context: vscode.ExtensionContext) {
 				...await Promise.all(ch2Apps.map(async app => {
 					// For CH2 apps, we need to fetch the specs to get the correct specificationId
 					let specificationId = app.id; // Default fallback to deployment ID
-					
+
 					try {
-						const specsUrl = `${BASE_URL}/amc/application-manager/api/v2/organizations/${organizationID}/environments/${selectedEnvironmentId}/deployments/${app.id}/specs`;
-						
+						const baseUrl = await getBaseUrl(context);
+						const specsUrl = `${baseUrl}/amc/application-manager/api/v2/organizations/${organizationID}/environments/${selectedEnvironmentId}/deployments/${app.id}/specs`;
+
 						const specsResponse = await apiHelper.get(specsUrl);
 						
 						if (specsResponse.status === 200 && specsResponse.data) {

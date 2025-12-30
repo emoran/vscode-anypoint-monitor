@@ -75,7 +75,9 @@ export async function showAPIManagerWebview(
 async function loadAPIsAndRender() {
   if (!currentPanel || !currentContext) return;
 
-  const apiUrl = `https://anypoint.mulesoft.com/apimanager/xapi/v1/organizations/${currentOrganizationId}/environments/${currentEnvironmentId}/apis?pinnedFirst=true&sort=name&ascending=false`;
+  const { getBaseUrl } = await import('../constants.js');
+  const baseUrl = await getBaseUrl(currentContext);
+  const apiUrl = `${baseUrl}/apimanager/xapi/v1/organizations/${currentOrganizationId}/environments/${currentEnvironmentId}/apis?pinnedFirst=true&sort=name&ascending=false`;
 
   let apiData: any[] = [];
   try {

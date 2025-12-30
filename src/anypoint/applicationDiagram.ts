@@ -3,7 +3,7 @@ import axios, { AxiosError } from 'axios';
 import JSZip from 'jszip';
 import * as fs from 'fs';
 
-import { BASE_URL } from '../constants';
+import { BASE_URL, getBaseUrl } from '../constants';
 import { refreshAccessToken } from '../controllers/oauthService';
 import { getCH2Deployments } from './cloudhub2Applications';
 import {
@@ -44,7 +44,11 @@ export async function showApplicationDiagram(context: vscode.ExtensionContext, e
     outputChannel.appendLine(`🔐 Active Account: ${activeAccount.userEmail} (${activeAccount.organizationName})`);
     outputChannel.appendLine(`✅ Organization ID: ${activeAccount.organizationId}`);
     outputChannel.appendLine(`✅ Environment ID: ${environmentId}`);
-    
+
+    // Get region-specific base URL
+    const baseUrl = await getBaseUrl(context);
+    outputChannel.appendLine(`🌍 Region Base URL: ${baseUrl}`);
+
     // For backward compatibility, also check legacy user info
     const userInfoRaw = await context.secrets.get('anypoint.userInfo');
     if (userInfoRaw) {
@@ -358,6 +362,9 @@ async function fetchDeploymentArtifact(
     outputChannel?.appendLine(`🔐 Using account: ${activeAccount.userEmail} for artifact download`);
     outputChannel?.appendLine(`🏢 Organization: ${activeAccount.organizationName} (${activeAccount.organizationId})`);
 
+    // Get region-specific base URL
+    const baseUrl = await getBaseUrl(context);
+
     // IMMEDIATE GRAPHQL TEST: Try GraphQL approach for any manually deployed app
     const deploymentName = deployment?.name || deployment?.application?.name || deployment?.applicationName;
     const realAssetInfo = deployment?.application?.ref;
@@ -371,7 +378,7 @@ async function fetchDeploymentArtifact(
         
         try {
             // Make the GraphQL query using the REAL asset coordinates
-            const graphqlResponse = await apiHelper.post(`${BASE_URL}/graph/api/v2/graphql`, {
+            const graphqlResponse = await apiHelper.post(`${baseUrl}/graph/api/v2/graphql`, {
                 query: `
                     query asset {
                         asset(groupId:"${groupId}", assetId:"${artifactId}", version:"${version}" ) {
@@ -440,8 +447,8 @@ async function fetchDeploymentArtifact(
     } else {
         outputChannel?.appendLine('📋 No asset coordinates found in deployment metadata, using traditional endpoint approach...');
     }
-    
-    const candidateUrls = buildArtifactUrlCandidates(orgId, environmentId, deploymentId, deployment, outputChannel);
+
+    const candidateUrls = buildArtifactUrlCandidates(baseUrl, orgId, environmentId, deploymentId, deployment, outputChannel);
     outputChannel?.appendLine(`📋 Generated ${candidateUrls.length} direct download URL candidates:`);
     candidateUrls.forEach((url, index) => {
         outputChannel?.appendLine(`   ${index + 1}. ${url}`);
@@ -684,7 +691,7 @@ async function fetchDeploymentArtifact(
             
             try {
                 // Make the GraphQL query directly to get fresh S3 URL
-                const graphqlResponse = await axios.post(`${BASE_URL}/graph/api/v2/graphql`, {
+                const graphqlResponse = await axios.post(`${baseUrl}/graph/api/v2/graphql`, {
                     query: `
                         query asset {
                             asset(groupId:"37c16704-6187-4f8f-87eb-e3263c3852fa", assetId:"moran-data-generator-api", version:"1.0.0" ) {
@@ -814,7 +821,7 @@ async function fetchDeploymentArtifact(
                     
                     try {
                         // Make the GraphQL query directly to get fresh S3 URL
-                        const graphqlResponse = await axios.post(`${BASE_URL}/graph/api/v2/graphql`, {
+                        const graphqlResponse = await axios.post(`${baseUrl}/graph/api/v2/graphql`, {
                             query: `
                                 query asset {
                                     asset(groupId:"37c16704-6187-4f8f-87eb-e3263c3852fa", assetId:"moran-data-generator-api", version:"1.0.0" ) {
@@ -1014,7 +1021,7 @@ async function fetchDeploymentArtifact(
                         `
                     };
                     
-                    const graphqlResponse = await apiHelper.post(`${BASE_URL}/graph/api/v2/graphql`, graphqlQuery);
+                    const graphqlResponse = await apiHelper.post(`${baseUrl}/graph/api/v2/graphql`, graphqlQuery);
                     
                     if (graphqlResponse.data?.data?.asset?.files) {
                         const jarFile = graphqlResponse.data.data.asset.files.find((file: any) => 
@@ -1080,8 +1087,11 @@ async function getAssetDownloadUrlFromGraphQL(
         outputChannel?.appendLine('❌ No access token available for GraphQL request');
         return undefined;
     }
-    
-    const graphqlEndpoint = `${BASE_URL}/graph/api/v2/graphql`;
+
+    // Get region-specific base URL
+    const baseUrl = await getBaseUrl(context);
+
+    const graphqlEndpoint = `${baseUrl}/graph/api/v2/graphql`;
     
     outputChannel?.appendLine(`📡 GraphQL Asset Endpoint: ${graphqlEndpoint}`);
     
@@ -1246,7 +1256,10 @@ async function getCH2DeploymentsGraphQL(
     environmentId: string,
     outputChannel?: vscode.OutputChannel
 ): Promise<any[]> {
-    const graphqlEndpoint = `${BASE_URL}/graph/api/v2/graphql`;
+    // Get region-specific base URL
+    const baseUrl = await getBaseUrl(context);
+
+    const graphqlEndpoint = `${baseUrl}/graph/api/v2/graphql`;
     
     outputChannel?.appendLine(`📡 GraphQL Endpoint: ${graphqlEndpoint}`);
     
@@ -1621,7 +1634,10 @@ async function fetchDeploymentDetailsGraphQL(
     deploymentId: string,
     outputChannel?: vscode.OutputChannel
 ): Promise<any | undefined> {
-    const graphqlEndpoint = `${BASE_URL}/graph/api/v2/graphql`;
+    // Get region-specific base URL
+    const baseUrl = await getBaseUrl(context);
+
+    const graphqlEndpoint = `${baseUrl}/graph/api/v2/graphql`;
     
     outputChannel?.appendLine('\n--- GraphQL Deployment Details Query ---');
     outputChannel?.appendLine(`📡 Endpoint: ${graphqlEndpoint}`);
@@ -1855,7 +1871,10 @@ async function fetchDeploymentDetailsGraphQLSimple(
     deploymentId: string,
     outputChannel?: vscode.OutputChannel
 ): Promise<any | undefined> {
-    const graphqlEndpoint = `${BASE_URL}/graph/api/v2/graphql`;
+    // Get region-specific base URL
+    const baseUrl = await getBaseUrl(context);
+
+    const graphqlEndpoint = `${baseUrl}/graph/api/v2/graphql`;
     
     outputChannel?.appendLine('\n--- Simplified GraphQL Deployment Query ---');
     outputChannel?.appendLine(`📡 Endpoint: ${graphqlEndpoint}`);
@@ -1976,9 +1995,12 @@ async function fetchDeploymentDetails(
     deploymentId: string,
     outputChannel?: vscode.OutputChannel
 ): Promise<any | undefined> {
-    const baseUrl = `${BASE_URL}/amc/application-manager/api/v2/organizations/${orgId}/environments/${environmentId}/deployments/${deploymentId}`;
+    // Get region-specific base URL
+    const baseUrl = await getBaseUrl(context);
 
-    outputChannel?.appendLine(`📡 Calling REST API: ${baseUrl}`);
+    const apiUrl = `${baseUrl}/amc/application-manager/api/v2/organizations/${orgId}/environments/${environmentId}/deployments/${deploymentId}`;
+
+    outputChannel?.appendLine(`📡 Calling REST API: ${apiUrl}`);
 
     let accessToken = await context.secrets.get('anypoint.accessToken');
     if (!accessToken) {
@@ -1987,7 +2009,7 @@ async function fetchDeploymentDetails(
     }
 
     const issueRequest = async (token: string) => {
-        return axios.get(baseUrl, {
+        return axios.get(apiUrl, {
             headers: {
                 Authorization: `Bearer ${token}`,
                 Accept: 'application/json',
@@ -2055,8 +2077,11 @@ async function fetchApplicationDetails(
     deploymentDetails: any,
     currentDeployment: any
 ): Promise<any | undefined> {
+    // Get region-specific base URL
+    const baseUrl = await getBaseUrl(context);
+
     // Try to get application ID from various sources
-    const applicationId = deploymentDetails?.applicationId 
+    const applicationId = deploymentDetails?.applicationId
         || deploymentDetails?.application?.id
         || deploymentDetails?.application?.applicationId
         || currentDeployment?.applicationId
@@ -2067,7 +2092,7 @@ async function fetchApplicationDetails(
         return undefined;
     }
 
-    const baseUrl = `${BASE_URL}/amc/application-manager/api/v2/organizations/${orgId}/environments/${environmentId}/applications/${applicationId}`;
+    const apiUrl = `${baseUrl}/amc/application-manager/api/v2/organizations/${orgId}/environments/${environmentId}/applications/${applicationId}`;
 
     let accessToken = await context.secrets.get('anypoint.accessToken');
     if (!accessToken) {
@@ -2075,7 +2100,7 @@ async function fetchApplicationDetails(
     }
 
     const issueRequest = async (token: string) => {
-        return axios.get(baseUrl, {
+        return axios.get(apiUrl, {
             headers: {
                 Authorization: `Bearer ${token}`,
                 Accept: 'application/json',
@@ -2489,6 +2514,7 @@ function createUnauthorizedError(url: string): AxiosError {
 }
 
 function buildArtifactUrlCandidates(
+    baseUrl: string,
     orgId: string,
     environmentId: string,
     deploymentId: string,
@@ -2505,7 +2531,7 @@ function buildArtifactUrlCandidates(
     };
 
     // CloudHub 2.0 specific endpoints (these are the most likely to work)
-    const ch2Base = `${BASE_URL}/amc/application-manager/api/v2/organizations/${orgId}/environments/${environmentId}`;
+    const ch2Base = `${baseUrl}/amc/application-manager/api/v2/organizations/${orgId}/environments/${environmentId}`;
     
     // Try deployment-specific artifact endpoints first
     add(`${ch2Base}/deployments/${deploymentId}/artifact`);
@@ -2516,10 +2542,10 @@ function buildArtifactUrlCandidates(
     
     // Alternative CloudHub 2.0 API bases
     const ch2AltBases = [
-        `${BASE_URL}/amc/application-manager/api/v1/organizations/${orgId}/environments/${environmentId}`,
-        `${BASE_URL}/amc/application-manager/organizations/${orgId}/environments/${environmentId}`,
-        `${BASE_URL}/cloudhub-2/api/v1/organizations/${orgId}/environments/${environmentId}`,
-        `${BASE_URL}/cloudhub-2/organizations/${orgId}/environments/${environmentId}`,
+        `${baseUrl}/amc/application-manager/api/v1/organizations/${orgId}/environments/${environmentId}`,
+        `${baseUrl}/amc/application-manager/organizations/${orgId}/environments/${environmentId}`,
+        `${baseUrl}/cloudhub-2/api/v1/organizations/${orgId}/environments/${environmentId}`,
+        `${baseUrl}/cloudhub-2/organizations/${orgId}/environments/${environmentId}`,
     ];
     
     ch2AltBases.forEach(altBase => {
@@ -2528,7 +2554,7 @@ function buildArtifactUrlCandidates(
     });
     
     // CloudHub 1.0 style endpoints (for backward compatibility)
-    const cloudhubOrgBase = `${BASE_URL}/cloudhub/api/v2/organizations/${orgId}/environments/${environmentId}`;
+    const cloudhubOrgBase = `${baseUrl}/cloudhub/api/v2/organizations/${orgId}/environments/${environmentId}`;
     add(`${cloudhubOrgBase}/deployments/${deploymentId}/artifact`);
     add(`${cloudhubOrgBase}/deployments/${deploymentId}/artifact/download`);
 
@@ -2546,12 +2572,12 @@ function buildArtifactUrlCandidates(
         add(`${ch2Base}/applications/${applicationId}/artifact?download=true`);
         add(`${ch2Base}/applications/${applicationId}/artifact?environmentId=${environmentId}&organizationId=${orgId}`);
 
-        const cloudhubOrgBaseApps = `${BASE_URL}/cloudhub/api/v2/organizations/${orgId}/environments/${environmentId}`;
+        const cloudhubOrgBaseApps = `${baseUrl}/cloudhub/api/v2/organizations/${orgId}/environments/${environmentId}`;
         add(`${cloudhubOrgBaseApps}/applications/${applicationId}/artifact`);
         add(`${cloudhubOrgBaseApps}/applications/${applicationId}/artifact/download`);
         add(`${cloudhubOrgBaseApps}/applications/${applicationId}/deployments/${deploymentId}/artifact`);
 
-        const runtimeFabricOrgBase = `${BASE_URL}/runtimefabric/api/v1/organizations/${orgId}/environments/${environmentId}`;
+        const runtimeFabricOrgBase = `${baseUrl}/runtimefabric/api/v1/organizations/${orgId}/environments/${environmentId}`;
         add(`${runtimeFabricOrgBase}/applications/${applicationId}/artifact`);
         add(`${runtimeFabricOrgBase}/applications/${applicationId}/artifact/download`);
     }
@@ -2562,7 +2588,7 @@ function buildArtifactUrlCandidates(
 
     if (applicationName) {
         const encodedName = encodeURIComponent(applicationName);
-        const cloudhubBase = `${BASE_URL}/cloudhub/api/v2`;
+        const cloudhubBase = `${baseUrl}/cloudhub/api/v2`;
         add(`${cloudhubBase}/applications/${encodedName}/deployments/${deploymentId}/artifact`);
         add(`${cloudhubBase}/applications/${encodedName}/deployments/${deploymentId}/artifact/download`);
         add(`${cloudhubBase}/applications/${encodedName}/deployments/${deploymentId}/artifact?environmentId=${environmentId}&organizationId=${orgId}`);
@@ -2572,7 +2598,7 @@ function buildArtifactUrlCandidates(
         add(`${cloudhubBase}/organizations/${orgId}/environments/${environmentId}/applications/${encodedName}/artifact`);
         add(`${cloudhubBase}/organizations/${orgId}/environments/${environmentId}/applications/${encodedName}/artifact/download`);
 
-        const runtimeFabricBase = `${BASE_URL}/runtimefabric/api/v1`;
+        const runtimeFabricBase = `${baseUrl}/runtimefabric/api/v1`;
         add(`${runtimeFabricBase}/applications/${encodedName}/artifact`);
         add(`${runtimeFabricBase}/applications/${encodedName}/artifact/download`);
         add(`${runtimeFabricBase}/organizations/${orgId}/environments/${environmentId}/applications/${encodedName}/artifact`);
@@ -2637,7 +2663,7 @@ function buildArtifactUrlCandidates(
         
         if (applicationName) {
             const encodedName = encodeURIComponent(applicationName);
-            const cloudhubRoot = `${BASE_URL}/cloudhub/api/v2`;
+            const cloudhubRoot = `${baseUrl}/cloudhub/api/v2`;
             add(`${cloudhubRoot}/applications/${encodedName}/versions/${deploymentVersion}/artifact`);
             add(`${cloudhubRoot}/applications/${encodedName}/versions/${deploymentVersion}/artifact/download`);
         }
@@ -2658,29 +2684,29 @@ function buildArtifactUrlCandidates(
         outputChannel?.appendLine(`   Maven URL: ${mavenUrl}`);
 
         // Exchange artifact download endpoints
-        add(`${BASE_URL}/exchange/api/v2/organizations/${orgId}/assets/${groupId}/${assetId}/${version}/artifact/download`);
-        add(`${BASE_URL}/exchange/api/v2/organizations/${orgId}/assets/${groupId}/${assetId}/${version}/artifact`);
-        add(`${BASE_URL}/exchange/api/v2/assets/${groupId}/${assetId}/${version}/artifact/download`);
-        add(`${BASE_URL}/exchange/api/v2/assets/${groupId}/${assetId}/${version}/artifact`);
+        add(`${baseUrl}/exchange/api/v2/organizations/${orgId}/assets/${groupId}/${assetId}/${version}/artifact/download`);
+        add(`${baseUrl}/exchange/api/v2/organizations/${orgId}/assets/${groupId}/${assetId}/${version}/artifact`);
+        add(`${baseUrl}/exchange/api/v2/assets/${groupId}/${assetId}/${version}/artifact/download`);
+        add(`${baseUrl}/exchange/api/v2/assets/${groupId}/${assetId}/${version}/artifact`);
         
         // Exchange file endpoints
-        add(`${BASE_URL}/exchange/api/v2/organizations/${orgId}/assets/${groupId}/${assetId}/${version}/files`);
-        add(`${BASE_URL}/exchange/api/v2/assets/${groupId}/${assetId}/${version}/files`);
+        add(`${baseUrl}/exchange/api/v2/organizations/${orgId}/assets/${groupId}/${assetId}/${version}/files`);
+        add(`${baseUrl}/exchange/api/v2/assets/${groupId}/${assetId}/${version}/files`);
         
         // Exchange asset manager endpoints (where S3 URLs come from)
-        add(`${BASE_URL}/exchange/asset-manager/api/v1/organizations/${orgId}/assets/${groupId}/${assetId}/${version}/artifact/download`);
-        add(`${BASE_URL}/exchange/asset-manager/api/v1/assets/${groupId}/${assetId}/${version}/artifact/download`);
+        add(`${baseUrl}/exchange/asset-manager/api/v1/organizations/${orgId}/assets/${groupId}/${assetId}/${version}/artifact/download`);
+        add(`${baseUrl}/exchange/asset-manager/api/v1/assets/${groupId}/${assetId}/${version}/artifact/download`);
         
         // CloudHub artifact resolution endpoints (these may return S3 URLs)
-        add(`${BASE_URL}/amc/application-manager/api/v2/organizations/${orgId}/environments/${environmentId}/artifacts/${groupId}/${assetId}/${version}/download`);
-        add(`${BASE_URL}/amc/application-manager/api/v1/organizations/${orgId}/environments/${environmentId}/artifacts/${groupId}/${assetId}/${version}/download`);
+        add(`${baseUrl}/amc/application-manager/api/v2/organizations/${orgId}/environments/${environmentId}/artifacts/${groupId}/${assetId}/${version}/download`);
+        add(`${baseUrl}/amc/application-manager/api/v1/organizations/${orgId}/environments/${environmentId}/artifacts/${groupId}/${assetId}/${version}/download`);
     }
     
     // Generic Exchange endpoints using deployment metadata
     if (applicationName) {
         const encodedName = encodeURIComponent(applicationName);
-        add(`${BASE_URL}/exchange/api/v2/organizations/${orgId}/assets/${orgId}/${encodedName}/1.0.0/artifact/download`);
-        add(`${BASE_URL}/exchange/asset-manager/api/v1/organizations/${orgId}/assets/${orgId}/${encodedName}/1.0.0/artifact/download`);
+        add(`${baseUrl}/exchange/api/v2/organizations/${orgId}/assets/${orgId}/${encodedName}/1.0.0/artifact/download`);
+        add(`${baseUrl}/exchange/asset-manager/api/v1/organizations/${orgId}/assets/${orgId}/${encodedName}/1.0.0/artifact/download`);
     }
 
     // Additional endpoints for manually deployed applications
@@ -2694,7 +2720,7 @@ function buildArtifactUrlCandidates(
     add(`${ch2Base}/deployments/${deploymentId}/assets/artifact.jar`);
     
     // CloudHub file storage API endpoints
-    const fileStorageBase = `${BASE_URL}/cloudhub/api/v2/organizations/${orgId}/environments/${environmentId}`;
+    const fileStorageBase = `${baseUrl}/cloudhub/api/v2/organizations/${orgId}/environments/${environmentId}`;
     add(`${fileStorageBase}/deployments/${deploymentId}/files/artifact`);
     add(`${fileStorageBase}/deployments/${deploymentId}/files/artifact.jar`);
     add(`${fileStorageBase}/deployments/${deploymentId}/assets/artifact`);
@@ -2708,8 +2734,8 @@ function buildArtifactUrlCandidates(
         add(`${ch2Base}/applications/${applicationId}/assets/application.jar`);
         
         // Storage service endpoints
-        add(`${BASE_URL}/amc/storage/api/v1/organizations/${orgId}/environments/${environmentId}/applications/${applicationId}/artifact`);
-        add(`${BASE_URL}/amc/storage/api/v1/organizations/${orgId}/environments/${environmentId}/applications/${applicationId}/files/artifact.jar`);
+        add(`${baseUrl}/amc/storage/api/v1/organizations/${orgId}/environments/${environmentId}/applications/${applicationId}/artifact`);
+        add(`${baseUrl}/amc/storage/api/v1/organizations/${orgId}/environments/${environmentId}/applications/${applicationId}/files/artifact.jar`);
     }
     
     // Application file endpoints with applicationName
@@ -2720,17 +2746,17 @@ function buildArtifactUrlCandidates(
         add(`${fileStorageBase}/applications/${encodedName}/assets/artifact`);
         
         // Storage service with app name
-        add(`${BASE_URL}/amc/storage/api/v1/organizations/${orgId}/environments/${environmentId}/applications/${encodedName}/artifact`);
-        add(`${BASE_URL}/amc/storage/api/v1/organizations/${orgId}/environments/${environmentId}/applications/${encodedName}/files/artifact.jar`);
+        add(`${baseUrl}/amc/storage/api/v1/organizations/${orgId}/environments/${environmentId}/applications/${encodedName}/artifact`);
+        add(`${baseUrl}/amc/storage/api/v1/organizations/${orgId}/environments/${environmentId}/applications/${encodedName}/files/artifact.jar`);
     }
     
     // CloudHub internal artifact store (used for manual uploads)
-    add(`${BASE_URL}/cloudhub/api/v2/artifacts/${orgId}/${environmentId}/${deploymentId}/artifact`);
-    add(`${BASE_URL}/cloudhub/api/v2/artifacts/${orgId}/${environmentId}/${deploymentId}/artifact.jar`);
+    add(`${baseUrl}/cloudhub/api/v2/artifacts/${orgId}/${environmentId}/${deploymentId}/artifact`);
+    add(`${baseUrl}/cloudhub/api/v2/artifacts/${orgId}/${environmentId}/${deploymentId}/artifact.jar`);
     
     // MuleSoft internal artifact repository endpoints
-    add(`${BASE_URL}/amc/artifact-repository/api/v1/organizations/${orgId}/environments/${environmentId}/deployments/${deploymentId}/artifact`);
-    add(`${BASE_URL}/amc/artifact-repository/api/v1/organizations/${orgId}/environments/${environmentId}/deployments/${deploymentId}/files/artifact.jar`);
+    add(`${baseUrl}/amc/artifact-repository/api/v1/organizations/${orgId}/environments/${environmentId}/deployments/${deploymentId}/artifact`);
+    add(`${baseUrl}/amc/artifact-repository/api/v1/organizations/${orgId}/environments/${environmentId}/deployments/${deploymentId}/files/artifact.jar`);
 
     // Try replica-specific endpoints
     if (Array.isArray(deployment?.replicas) && deployment.replicas.length > 0) {
@@ -2992,7 +3018,10 @@ async function downloadArtifactFromExchange(
     outputChannel?: vscode.OutputChannel
 ): Promise<ArrayBuffer | undefined> {
     const { groupId, assetId, version, classifier, packaging } = coordinates;
-    
+
+    // Get region-specific base URL
+    const baseUrl = await getBaseUrl(context);
+
     // Get access token from active account
     const { AccountService } = await import('../controllers/accountService.js');
     const accountService = new AccountService(context);
@@ -3024,7 +3053,7 @@ async function downloadArtifactFromExchange(
     ].filter((type, index, arr) => arr.indexOf(type) === index); // Remove duplicates
 
     for (const pkgType of packagingTypes) {
-        const base = `${BASE_URL}/exchange/api/v1/assets/${encodedGroup}/${encodedAsset}/${encodedVersion}/download`;
+        const base = `${baseUrl}/exchange/api/v1/assets/${encodedGroup}/${encodedAsset}/${encodedVersion}/download`;
         const params = new URLSearchParams();
         
         if (classifier) {

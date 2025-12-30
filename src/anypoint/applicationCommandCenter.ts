@@ -1,5 +1,5 @@
 import * as vscode from 'vscode';
-import { BASE_URL, ARM_BASE, HYBRID_APPLICATIONS_ENDPOINT } from '../constants';
+import { BASE_URL, ARM_BASE, HYBRID_APPLICATIONS_ENDPOINT, getBaseUrl, getArmBase, getHybridApplicationsEndpoint } from '../constants';
 import { ApiHelper } from '../controllers/apiHelper';
 import { AccountService } from '../controllers/accountService';
 import { showRealTimeLogs } from './realTimeLogs';
@@ -450,6 +450,9 @@ async function fetchApplicationData(
 
     const organizationID = activeAccount.organizationId;
 
+    // Get region-specific base URL
+    const baseUrl = await getBaseUrl(context);
+
     // Get all environments for comparison mode
     let allEnvironments: any[] = [];
     try {
@@ -480,28 +483,28 @@ async function fetchApplicationData(
             // CloudHub 1.0 data fetching
             const [appData, deployments, schedulers, logs] = await Promise.allSettled([
                 // Application details
-                apiHelper.get(`${BASE_URL}/cloudhub/api/applications/${applicationDomain}`, {
+                apiHelper.get(`${baseUrl}/cloudhub/api/applications/${applicationDomain}`, {
                     headers: {
                         'X-ANYPNT-ENV-ID': environmentId,
                         'X-ANYPNT-ORG-ID': organizationID,
                     },
                 }),
                 // Deployment history
-                apiHelper.get(`${BASE_URL}/cloudhub/api/v2/applications/${applicationDomain}/deployments?orderByDate=DESC&limit=10`, {
+                apiHelper.get(`${baseUrl}/cloudhub/api/v2/applications/${applicationDomain}/deployments?orderByDate=DESC&limit=10`, {
                     headers: {
                         'X-ANYPNT-ENV-ID': environmentId,
                         'X-ANYPNT-ORG-ID': organizationID,
                     },
                 }),
                 // Schedulers
-                apiHelper.get(`${BASE_URL}/cloudhub/api/applications/${applicationDomain}/schedules`, {
+                apiHelper.get(`${baseUrl}/cloudhub/api/applications/${applicationDomain}/schedules`, {
                     headers: {
                         'X-ANYPNT-ENV-ID': environmentId,
                         'X-ANYPNT-ORG-ID': organizationID,
                     },
                 }),
                 // Recent logs
-                apiHelper.get(`${BASE_URL}/cloudhub/api/v2/applications/${applicationDomain}/deployments`, {
+                apiHelper.get(`${baseUrl}/cloudhub/api/v2/applications/${applicationDomain}/deployments`, {
                     headers: {
                         'X-ANYPNT-ENV-ID': environmentId,
                         'X-ANYPNT-ORG-ID': organizationID,
@@ -509,7 +512,7 @@ async function fetchApplicationData(
                 }).then(async (deploymentsResp) => {
                     if (deploymentsResp.status === 200 && deploymentsResp.data?.data?.[0]?.deploymentId) {
                         const latestDeploymentId = deploymentsResp.data.data[0].deploymentId;
-                        return apiHelper.get(`${BASE_URL}/cloudhub/api/v2/applications/${applicationDomain}/deployments/${latestDeploymentId}/logs?limit=100`, {
+                        return apiHelper.get(`${baseUrl}/cloudhub/api/v2/applications/${applicationDomain}/deployments/${latestDeploymentId}/logs?limit=100`, {
                             headers: {
                                 'X-ANYPNT-ENV-ID': environmentId,
                                 'X-ANYPNT-ORG-ID': organizationID,
@@ -533,13 +536,13 @@ async function fetchApplicationData(
 
             const [appData, specs, replicas, schedulers] = await Promise.allSettled([
                 // Application/deployment details
-                apiHelper.get(`${BASE_URL}/amc/application-manager/api/v2/organizations/${organizationID}/environments/${environmentId}/deployments/${deploymentId}`),
+                apiHelper.get(`${baseUrl}/amc/application-manager/api/v2/organizations/${organizationID}/environments/${environmentId}/deployments/${deploymentId}`),
                 // Deployment specs
-                apiHelper.get(`${BASE_URL}/amc/application-manager/api/v2/organizations/${organizationID}/environments/${environmentId}/deployments/${deploymentId}/specs`),
+                apiHelper.get(`${baseUrl}/amc/application-manager/api/v2/organizations/${organizationID}/environments/${environmentId}/deployments/${deploymentId}/specs`),
                 // Replica status
-                apiHelper.get(`${BASE_URL}/amc/application-manager/api/v2/organizations/${organizationID}/environments/${environmentId}/deployments/${deploymentId}/replicas`),
+                apiHelper.get(`${baseUrl}/amc/application-manager/api/v2/organizations/${organizationID}/environments/${environmentId}/deployments/${deploymentId}/replicas`),
                 // Schedulers (CH2 only)
-                fetchCH2Schedulers(context, organizationID, environmentId, deploymentId)
+                fetchCH2Schedulers(context, baseUrl, organizationID, environmentId, deploymentId)
             ]);
 
             if (appData.status === 'fulfilled') dataPromises.application = appData.value.data;
@@ -653,6 +656,7 @@ async function fetchApplicationData(
             }
 
             dataPromises.schedulers = await fetchHybridSchedulers(
+                context,
                 apiHelper,
                 appIdentifier,
                 organizationID,
@@ -696,6 +700,7 @@ async function fetchApplicationData(
     // Fetch Visualizer metrics if application data is available (CloudHub only, not Hybrid)
     const visualizerMetrics = dataPromises.application && cloudhubVersion !== 'HYBRID' ? await fetchVisualizerMetrics(
         context,
+        baseUrl,
         environmentId,
         organizationID,
         applicationDomain,
@@ -756,6 +761,8 @@ async function fetchPerformanceMetrics(
     options: PerformanceMetricOptions = {}
 ): Promise<{ cpu: number[]; memory: number[]; timestamps: number[]; source: 'monitoring' | 'observability' | 'simulated'; cpuLabel?: string; memoryLabel?: string }> {
     const apiHelper = new ApiHelper(context);
+    const baseUrl = await getBaseUrl(context);
+
     const resource = determineMonitoringResourceIdentifier(
         cloudhubVersion,
         options.applicationData,
@@ -767,6 +774,7 @@ async function fetchPerformanceMetrics(
     if (cloudhubVersion === 'HYBRID') {
         const queryMetricsFirst = await tryFetchMonitoringQueryMetrics(
             apiHelper,
+            baseUrl,
             organizationId,
             environmentId,
             pickFirstString(
@@ -783,6 +791,7 @@ async function fetchPerformanceMetrics(
 
     const monitoringMetrics = await tryFetchMonitoringMetrics(
         apiHelper,
+        baseUrl,
         organizationId,
         environmentId,
         resource,
@@ -795,6 +804,7 @@ async function fetchPerformanceMetrics(
     if (cloudhubVersion !== 'HYBRID') {
         const queryMetrics = await tryFetchMonitoringQueryMetrics(
             apiHelper,
+            baseUrl,
             organizationId,
             environmentId,
             pickFirstString(
@@ -812,7 +822,7 @@ async function fetchPerformanceMetrics(
     try {
         const endTime = Date.now();
         const startTime = endTime - (24 * 60 * 60 * 1000);
-        const metricsUrl = `${BASE_URL}/observability/api/v1/metrics:search?offset=0&limit=100`;
+        const metricsUrl = `${baseUrl}/observability/api/v1/metrics:search?offset=0&limit=100`;
         const response = await apiHelper.post(metricsUrl, {
             query: {
                 metrics: ['app.cpu', 'app.memory'],
@@ -859,6 +869,7 @@ async function fetchPerformanceMetrics(
 
 async function tryFetchMonitoringMetrics(
     apiHelper: ApiHelper,
+    baseUrl: string,
     organizationId: string,
     environmentId: string,
     resource: MonitoringResourceIdentifier | undefined,
@@ -877,6 +888,7 @@ async function tryFetchMonitoringMetrics(
 
         const [cpuResponse, memoryResponse] = await Promise.allSettled([
             apiHelper.get(buildMonitoringMetricsUrl(
+                baseUrl,
                 organizationId,
                 environmentId,
                 resource,
@@ -885,6 +897,7 @@ async function tryFetchMonitoringMetrics(
                 queryWindow
             )),
             apiHelper.get(buildMonitoringMetricsUrl(
+                baseUrl,
                 organizationId,
                 environmentId,
                 resource,
@@ -924,6 +937,7 @@ async function tryFetchMonitoringMetrics(
 
 async function tryFetchMonitoringQueryMetrics(
     apiHelper: ApiHelper,
+    baseUrl: string,
     organizationId: string,
     environmentId: string,
     applicationId?: string
@@ -940,7 +954,7 @@ async function tryFetchMonitoringQueryMetrics(
             to: to.toISOString(),
             detailed: 'true'
         });
-        const url = `${BASE_URL}/monitoring/query/api/v1/organizations/${organizationId}/environments/${environmentId}/applications/${encodeURIComponent(applicationId)}?${params.toString()}`;
+        const url = `${baseUrl}/monitoring/query/api/v1/organizations/${organizationId}/environments/${environmentId}/applications/${encodeURIComponent(applicationId)}?${params.toString()}`;
         console.log(`Command Center: Fetching Monitoring Query metrics for app ${applicationId}`);
         const response = await apiHelper.get(url, {
             headers: {
@@ -1000,6 +1014,7 @@ async function tryFetchMonitoringQueryMetrics(
 }
 
 function buildMonitoringMetricsUrl(
+    baseUrl: string,
     organizationId: string,
     environmentId: string,
     resource: MonitoringResourceIdentifier,
@@ -1015,7 +1030,7 @@ function buildMonitoringMetricsUrl(
         query.set('worker_id', params.workerId);
     }
     const encodedResource = encodeURIComponent(resource.id);
-    return `${BASE_URL}/monitoring/api/metrics/organizations/${organizationId}/environments/${environmentId}/resources/${resource.type}/${encodedResource}/metrics/${metricId}/fields/${field}?${query.toString()}`;
+    return `${baseUrl}/monitoring/api/metrics/organizations/${organizationId}/environments/${environmentId}/resources/${resource.type}/${encodedResource}/metrics/${metricId}/fields/${field}?${query.toString()}`;
 }
 
 interface MonitoringMetricPoint {
@@ -1508,6 +1523,7 @@ const VISUALIZER_METRIC_QUERIES: VisualizerMetricQuery[] = [
 
 async function fetchVisualizerMetrics(
     context: vscode.ExtensionContext,
+    baseUrl: string,
     environmentId: string,
     organizationId: string,
     applicationName: string,
@@ -1523,7 +1539,7 @@ async function fetchVisualizerMetrics(
     const appIdentifier = deriveVisualizerAppId(applicationData, applicationName, cloudhubVersion);
 
     try {
-        const bootResponse = await apiHelper.get(`${BASE_URL}/monitoring/api/visualizer/api/bootdata`);
+        const bootResponse = await apiHelper.get(`${baseUrl}/monitoring/api/visualizer/api/bootdata`);
         const dataSources = bootResponse.data?.Settings?.datasources;
         if (!dataSources) {
             return {
@@ -1572,7 +1588,7 @@ async function fetchVisualizerMetrics(
         const panels: VisualizerMetricPanel[] = [];
         const queryPromises = VISUALIZER_METRIC_QUERIES.map(async (queryDef) => {
             const influxQuery = buildVisualizerQuery(queryDef, condition, timezone, rangeMinutes);
-            const url = buildDatasourceUrl(datasourceId, database, influxQuery);
+            const url = buildDatasourceUrl(baseUrl, datasourceId, database, influxQuery);
             logVisualizerCurl(queryDef.id, url, organizationId, environmentId);
             try {
                 const response = await apiHelper.get(url);
@@ -1628,13 +1644,14 @@ async function fetchVisualizerMetrics(
 
 async function fetchCH2Schedulers(
     context: vscode.ExtensionContext,
+    baseUrl: string,
     organizationId: string,
     environmentId: string,
     deploymentId: string
 ): Promise<any[]> {
     try {
         const apiHelper = new ApiHelper(context);
-        const url = `${BASE_URL}/amc/application-manager/api/v2/organizations/${organizationId}/environments/${environmentId}/deployments/${deploymentId}/schedulers`;
+        const url = `${baseUrl}/amc/application-manager/api/v2/organizations/${organizationId}/environments/${environmentId}/deployments/${deploymentId}/schedulers`;
         const response = await apiHelper.get(url);
         const data = response.data;
         if (Array.isArray(data)) {
@@ -1651,6 +1668,7 @@ async function fetchCH2Schedulers(
 }
 
 async function fetchHybridSchedulers(
+    context: vscode.ExtensionContext,
     apiHelper: ApiHelper,
     applicationId: string,
     organizationId: string,
@@ -1663,35 +1681,38 @@ async function fetchHybridSchedulers(
         'X-ANYPNT-ORG-ID': organizationId
     };
 
+    // Get region-specific ARM base URL
+    const armBase = await getArmBase(context);
+
     const serverArtifactId = applicationData?.serverArtifacts?.[0]?.id;
     const deploymentId = applicationData?.deploymentId || applicationData?.id || applicationId;
     const candidateUrls: string[] = [
         `${hybridApplicationsEndpoint}/${applicationId}/schedules`,
         `${hybridApplicationsEndpoint}/${applicationId}/schedulers`,
-        `${ARM_BASE}/applications/${applicationId}/schedules`,
-        `${ARM_BASE}/applications/${applicationId}/schedulers`,
-        `${ARM_BASE}/environments/${environmentId}/applications/${applicationId}/schedules`,
-        `${ARM_BASE}/environments/${environmentId}/applications/${applicationId}/schedulers`,
-        `${ARM_BASE}/environment/${environmentId}/applications/${applicationId}/schedules`,
-        `${ARM_BASE}/environment/${environmentId}/applications/${applicationId}/schedulers`,
-        `${ARM_BASE}/organizations/${organizationId}/environments/${environmentId}/applications/${applicationId}/schedules`,
-        `${ARM_BASE}/organizations/${organizationId}/environments/${environmentId}/applications/${applicationId}/schedulers`,
-        `${ARM_BASE}/organizations/${organizationId}/environment/${environmentId}/applications/${applicationId}/schedules`,
-        `${ARM_BASE}/organizations/${organizationId}/environment/${environmentId}/applications/${applicationId}/schedulers`
+        `${armBase}/applications/${applicationId}/schedules`,
+        `${armBase}/applications/${applicationId}/schedulers`,
+        `${armBase}/environments/${environmentId}/applications/${applicationId}/schedules`,
+        `${armBase}/environments/${environmentId}/applications/${applicationId}/schedulers`,
+        `${armBase}/environment/${environmentId}/applications/${applicationId}/schedules`,
+        `${armBase}/environment/${environmentId}/applications/${applicationId}/schedulers`,
+        `${armBase}/organizations/${organizationId}/environments/${environmentId}/applications/${applicationId}/schedules`,
+        `${armBase}/organizations/${organizationId}/environments/${environmentId}/applications/${applicationId}/schedulers`,
+        `${armBase}/organizations/${organizationId}/environment/${environmentId}/applications/${applicationId}/schedules`,
+        `${armBase}/organizations/${organizationId}/environment/${environmentId}/applications/${applicationId}/schedulers`
     ];
 
     if (deploymentId && deploymentId !== applicationId) {
-        candidateUrls.push(`${ARM_BASE}/deployments/${deploymentId}/schedules`);
-        candidateUrls.push(`${ARM_BASE}/deployments/${deploymentId}/schedulers`);
-        candidateUrls.push(`${ARM_BASE}/environments/${environmentId}/deployments/${deploymentId}/schedules`);
-        candidateUrls.push(`${ARM_BASE}/environments/${environmentId}/deployments/${deploymentId}/schedulers`);
-        candidateUrls.push(`${ARM_BASE}/environment/${environmentId}/deployments/${deploymentId}/schedules`);
-        candidateUrls.push(`${ARM_BASE}/environment/${environmentId}/deployments/${deploymentId}/schedulers`);
+        candidateUrls.push(`${armBase}/deployments/${deploymentId}/schedules`);
+        candidateUrls.push(`${armBase}/deployments/${deploymentId}/schedulers`);
+        candidateUrls.push(`${armBase}/environments/${environmentId}/deployments/${deploymentId}/schedules`);
+        candidateUrls.push(`${armBase}/environments/${environmentId}/deployments/${deploymentId}/schedulers`);
+        candidateUrls.push(`${armBase}/environment/${environmentId}/deployments/${deploymentId}/schedules`);
+        candidateUrls.push(`${armBase}/environment/${environmentId}/deployments/${deploymentId}/schedulers`);
     }
 
     if (serverArtifactId) {
-        candidateUrls.push(`${ARM_BASE}/serverArtifacts/${serverArtifactId}/schedules`);
-        candidateUrls.push(`${ARM_BASE}/serverArtifacts/${serverArtifactId}/schedulers`);
+        candidateUrls.push(`${armBase}/serverArtifacts/${serverArtifactId}/schedules`);
+        candidateUrls.push(`${armBase}/serverArtifacts/${serverArtifactId}/schedulers`);
     }
 
     for (const url of candidateUrls) {
@@ -1774,12 +1795,12 @@ function normalizeHybridSchedulerEntry(entry: any): any {
     return normalized;
 }
 
-function buildDatasourceUrl(datasourceId: number, database: string, query: string): string {
+function buildDatasourceUrl(baseUrl: string, datasourceId: number, database: string, query: string): string {
     const params = new URLSearchParams();
     params.append('db', `"${database}"`);
     params.append('q', query);
     params.append('epoch', 'ms');
-    return `${BASE_URL}/monitoring/api/visualizer/api/datasources/proxy/${datasourceId}/query?${params.toString()}`;
+    return `${baseUrl}/monitoring/api/visualizer/api/datasources/proxy/${datasourceId}/query?${params.toString()}`;
 }
 
 function deriveVisualizerAppId(
@@ -2560,6 +2581,7 @@ export async function showApplicationCommandCenter(
         // Fetch both CH1 and CH2 applications
         const apiHelper = new ApiHelper(context);
         const organizationID = activeAccount.organizationId;
+        const baseUrl = await getBaseUrl(context);
         const envHeaders = {
             'X-ANYPNT-ENV-ID': environmentId,
             'X-ANYPNT-ORG-ID': organizationID
@@ -2569,7 +2591,7 @@ export async function showApplicationCommandCenter(
 
         // Fetch CloudHub 1.0 applications
         try {
-            const ch1Response = await apiHelper.get(`${BASE_URL}/cloudhub/api/applications`, {
+            const ch1Response = await apiHelper.get(`${baseUrl}/cloudhub/api/applications`, {
                 headers: envHeaders,
             });
 
@@ -2591,7 +2613,7 @@ export async function showApplicationCommandCenter(
         // Fetch CloudHub 2.0 applications
         try {
             console.log(`🚀 Command Center: Fetching CH2 apps for org ${organizationID}, env ${environmentId}`);
-            const ch2Response = await apiHelper.get(`${BASE_URL}/amc/application-manager/api/v2/organizations/${organizationID}/environments/${environmentId}/deployments`);
+            const ch2Response = await apiHelper.get(`${baseUrl}/amc/application-manager/api/v2/organizations/${organizationID}/environments/${environmentId}/deployments`);
 
             console.log(`🚀 Command Center: CH2 API response status: ${ch2Response.status}`);
             console.log(`🚀 Command Center: CH2 response data type:`, typeof ch2Response.data);
@@ -2618,7 +2640,7 @@ export async function showApplicationCommandCenter(
                 const appsWithSpecs = await Promise.all(ch2Apps.map(async (app: any) => {
                     let specificationId = app.id;
                     try {
-                        const specsUrl = `${BASE_URL}/amc/application-manager/api/v2/organizations/${organizationID}/environments/${environmentId}/deployments/${app.id}/specs`;
+                        const specsUrl = `${baseUrl}/amc/application-manager/api/v2/organizations/${organizationID}/environments/${environmentId}/deployments/${app.id}/specs`;
                         const specsResponse = await apiHelper.get(specsUrl);
                         if (specsResponse.status === 200 && specsResponse.data) {
                             const specs = Array.isArray(specsResponse.data) ? specsResponse.data : specsResponse.data.data || [];
@@ -2873,7 +2895,7 @@ export async function showApplicationCommandCenter(
                         break;
 
                     case 'restartApp':
-                        await handleRestartApplication(context, appInfo, environmentId, organizationID);
+                        await handleRestartApplication(context, baseUrl, appInfo, environmentId, organizationID);
                         vscode.window.showInformationMessage(`Restart initiated for ${appInfo.domain}`);
                         // Refresh data after action
                         setTimeout(async () => {
@@ -2892,7 +2914,7 @@ export async function showApplicationCommandCenter(
                         break;
 
                     case 'stopApp':
-                        await handleStopApplication(context, appInfo, environmentId, organizationID);
+                        await handleStopApplication(context, baseUrl, appInfo, environmentId, organizationID);
                         vscode.window.showInformationMessage(`Stop initiated for ${appInfo.domain}`);
                         setTimeout(async () => {
                             const updatedData = await fetchApplicationData(
@@ -2910,7 +2932,7 @@ export async function showApplicationCommandCenter(
                         break;
 
                     case 'startApp':
-                        await handleStartApplication(context, appInfo, environmentId, organizationID);
+                        await handleStartApplication(context, baseUrl, appInfo, environmentId, organizationID);
                         vscode.window.showInformationMessage(`Start initiated for ${appInfo.domain}`);
                         setTimeout(async () => {
                             const updatedData = await fetchApplicationData(
@@ -2974,6 +2996,7 @@ export async function showApplicationCommandCenter(
  */
 async function handleRestartApplication(
     context: vscode.ExtensionContext,
+    baseUrl: string,
     appInfo: any,
     environmentId: string,
     organizationID: string
@@ -2981,14 +3004,14 @@ async function handleRestartApplication(
     const apiHelper = new ApiHelper(context);
 
     if (appInfo.cloudhubVersion === 'CH1') {
-        await apiHelper.post(`${BASE_URL}/cloudhub/api/applications/${appInfo.domain}/restart`, {}, {
+        await apiHelper.post(`${baseUrl}/cloudhub/api/applications/${appInfo.domain}/restart`, {}, {
             headers: {
                 'X-ANYPNT-ENV-ID': environmentId,
                 'X-ANYPNT-ORG-ID': organizationID,
             },
         });
     } else if (appInfo.cloudhubVersion === 'CH2') {
-        await apiHelper.post(`${BASE_URL}/amc/application-manager/api/v2/organizations/${organizationID}/environments/${environmentId}/deployments/${appInfo.deploymentId}/restart`);
+        await apiHelper.post(`${baseUrl}/amc/application-manager/api/v2/organizations/${organizationID}/environments/${environmentId}/deployments/${appInfo.deploymentId}/restart`);
     } else if (appInfo.cloudhubVersion === 'HYBRID') {
         const hybridId = resolveHybridAppIdentifier(appInfo);
         const params = new URLSearchParams();
@@ -3002,6 +3025,7 @@ async function handleRestartApplication(
  */
 async function handleStopApplication(
     context: vscode.ExtensionContext,
+    baseUrl: string,
     appInfo: any,
     environmentId: string,
     organizationID: string
@@ -3009,7 +3033,7 @@ async function handleStopApplication(
     const apiHelper = new ApiHelper(context);
 
     if (appInfo.cloudhubVersion === 'CH1') {
-        await apiHelper.post(`${BASE_URL}/cloudhub/api/applications/${appInfo.domain}/status`,
+        await apiHelper.post(`${baseUrl}/cloudhub/api/applications/${appInfo.domain}/status`,
             { status: 'STOPPED' },
             {
                 headers: {
@@ -3030,6 +3054,7 @@ async function handleStopApplication(
  */
 async function handleStartApplication(
     context: vscode.ExtensionContext,
+    baseUrl: string,
     appInfo: any,
     environmentId: string,
     organizationID: string
@@ -3037,7 +3062,7 @@ async function handleStartApplication(
     const apiHelper = new ApiHelper(context);
 
     if (appInfo.cloudhubVersion === 'CH1') {
-        await apiHelper.post(`${BASE_URL}/cloudhub/api/applications/${appInfo.domain}/status`,
+        await apiHelper.post(`${baseUrl}/cloudhub/api/applications/${appInfo.domain}/status`,
             { status: 'STARTED' },
             {
                 headers: {

@@ -269,13 +269,16 @@ async function updateApplicationStatus(
   applicationName: string,
   status: 'stop' | 'start' | 'restart',
   envId: string,
-  apiHelper: ApiHelper
+  apiHelper: ApiHelper,
+  context?: vscode.ExtensionContext
 ): Promise<void> {
-  const url = `https://anypoint.mulesoft.com/cloudhub/api/applications/${applicationName}/status`;
+  const { getBaseUrl } = await import('../constants.js');
+  const baseUrl = context ? await getBaseUrl(context) : 'https://anypoint.mulesoft.com';
+  const url = `${baseUrl}/cloudhub/api/applications/${applicationName}/status`;
   const headers = {
     'x-anypnt-env-id': envId
   };
-  
+
   await apiHelper.post(url, { status }, { headers });
 }
 

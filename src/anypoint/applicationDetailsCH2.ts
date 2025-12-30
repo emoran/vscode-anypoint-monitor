@@ -215,8 +215,10 @@ async function getCH2DeploymentById(
   envId: string,
   deploymentId: string
 ): Promise<any> {
+  const { getBaseUrl } = await import('../constants.js');
+  const baseUrl = await getBaseUrl(context);
   const apiHelper = new ApiHelper(context);
-  const url = `https://anypoint.mulesoft.com/amc/application-manager/api/v2/organizations/${orgId}/environments/${envId}/deployments/${deploymentId}`;
+  const url = `${baseUrl}/amc/application-manager/api/v2/organizations/${orgId}/environments/${envId}/deployments/${deploymentId}`;
   
   try {
     console.log('Fetching CH2 deployment details from:', url);
@@ -287,8 +289,10 @@ async function getCH2DeploymentSpecs(
   envId: string,
   deploymentId: string
 ): Promise<any[]> {
+  const { getBaseUrl } = await import('../constants.js');
+  const baseUrl = await getBaseUrl(context);
   const apiHelper = new ApiHelper(context);
-  const url = `https://anypoint.mulesoft.com/amc/application-manager/api/v2/organizations/${orgId}/environments/${envId}/deployments/${deploymentId}/specs`;
+  const url = `${baseUrl}/amc/application-manager/api/v2/organizations/${orgId}/environments/${envId}/deployments/${deploymentId}/specs`;
   
   try {
     console.log('Fetching CH2 deployment specs from:', url);
@@ -367,6 +371,8 @@ async function getCH2DeploymentLogs(
   } = {}
 ): Promise<any[]> {
   try {
+    const { getBaseUrl } = await import('../constants.js');
+    const baseUrl = await getBaseUrl(context);
     const apiHelper = new ApiHelper(context);
 
     // Set default options
@@ -394,7 +400,7 @@ async function getCH2DeploymentLogs(
       queryParams.append('search', finalOptions.search);
     }
 
-    const url = `https://anypoint.mulesoft.com/amc/application-manager/api/v2/organizations/${orgId}/environments/${envId}/deployments/${deploymentId}/specs/${specificationId}/logs?${queryParams.toString()}`;
+    const url = `${baseUrl}/amc/application-manager/api/v2/organizations/${orgId}/environments/${envId}/deployments/${deploymentId}/specs/${specificationId}/logs?${queryParams.toString()}`;
     
     console.log('Fetching CH2 logs from:', url);
 
@@ -706,8 +712,10 @@ async function fetchCH2Schedulers(
   deploymentId: string
 ): Promise<any[]> {
   try {
+    const { getBaseUrl } = await import('../constants.js');
+    const baseUrl = await getBaseUrl(context);
     const apiHelper = new ApiHelper(context);
-    const url = `https://anypoint.mulesoft.com/amc/application-manager/api/v2/organizations/${orgId}/environments/${envId}/deployments/${deploymentId}/schedulers`;
+    const url = `${baseUrl}/amc/application-manager/api/v2/organizations/${orgId}/environments/${envId}/deployments/${deploymentId}/schedulers`;
     
     console.log('Fetching CH2 schedulers from:', url);
 
@@ -868,9 +876,11 @@ async function fetchCH2Alerts(
   deploymentId: string
 ): Promise<any[]> {
   try {
+    const { getBaseUrl } = await import('../constants.js');
+    const baseUrl = await getBaseUrl(context);
     const apiHelper = new ApiHelper(context);
     // This endpoint might not exist in CH2, check documentation
-    const url = `https://anypoint.mulesoft.com/amc/application-manager/api/v2/organizations/${orgId}/environments/${envId}/deployments/${deploymentId}/alerts`;
+    const url = `${baseUrl}/amc/application-manager/api/v2/organizations/${orgId}/environments/${envId}/deployments/${deploymentId}/alerts`;
     
     const response = await apiHelper.get(url);
 
@@ -890,7 +900,8 @@ async function updateCH2ApplicationStatus(
   applicationName: string,
   status: 'stop' | 'start' | 'restart',
   apiHelper: ApiHelper,
-  deploymentId?: string
+  deploymentId?: string,
+  context?: vscode.ExtensionContext
 ): Promise<void> {
   try {
     // If we don't have deployment ID, we need to get it first
@@ -898,9 +909,13 @@ async function updateCH2ApplicationStatus(
       throw new Error('Deployment ID is required for CloudHub 2.0 operations');
     }
 
+    // Get region-specific base URL
+    const { getBaseUrl } = await import('../constants.js');
+    const baseUrl = context ? await getBaseUrl(context) : 'https://anypoint.mulesoft.com';
+
     // Note: CloudHub 2.0 API for start/stop might be different
     // This is a placeholder - you may need to adjust based on actual CloudHub 2.0 API
-    const url = `https://anypoint.mulesoft.com/amc/application-manager/api/v2/deployments/${deploymentId}/${status}`;
+    const url = `${baseUrl}/amc/application-manager/api/v2/deployments/${deploymentId}/${status}`;
     
     const resp = await apiHelper.post(url, { action: status });
     

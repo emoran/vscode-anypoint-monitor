@@ -1,6 +1,6 @@
 import * as vscode from 'vscode';
 import axios from 'axios';
-import { BASE_URL } from '../constants';
+import { BASE_URL, getBaseUrl } from '../constants';
 import { refreshAccessToken } from '../controllers/oauthService';
 import { AccountService } from '../controllers/accountService.js';
 import { ApiHelper } from '../controllers/apiHelper.js';
@@ -237,11 +237,14 @@ async function fetchCH1Logs(
     
     const organizationID = activeAccount.organizationId;
 
+    // Get region-specific base URL
+    const baseUrl = await getBaseUrl(context);
+
     // Get deployment info first if not already available
     let deploymentId = session.deploymentId;
     if (!deploymentId) {
-        const deploymentsURL = `${BASE_URL}/cloudhub/api/v2/applications/${session.applicationDomain}/deployments?orderByDate=DESC`;
-        
+        const deploymentsURL = `${baseUrl}/cloudhub/api/v2/applications/${session.applicationDomain}/deployments?orderByDate=DESC`;
+
         try {
             const deploymentsResponse = await apiHelper.get(deploymentsURL, {
                 headers: {
@@ -262,8 +265,8 @@ async function fetchCH1Logs(
     // Fetch logs since last timestamp
     const startTime = session.lastLogTimestamp;
     const endTime = Date.now();
-    
-    const logsURL = `${BASE_URL}/cloudhub/api/v2/applications/${session.applicationDomain}/deployments/${deploymentId}/logs?startTime=${startTime}&endTime=${endTime}&limit=100`;
+
+    const logsURL = `${baseUrl}/cloudhub/api/v2/applications/${session.applicationDomain}/deployments/${deploymentId}/logs?startTime=${startTime}&endTime=${endTime}&limit=100`;
     
     try {
         const logsResponse = await apiHelper.get(logsURL, {
@@ -294,15 +297,15 @@ async function fetchCH2Logs(
     session: RealTimeLogSession
 ): Promise<LogEntry[]> {
     const accountService = new AccountService(context);
-    
+
     const activeAccount = await accountService.getActiveAccount();
     if (!activeAccount) {
         throw new Error('No active account found. Please log in.');
     }
-    
+
     const organizationID = activeAccount.organizationId;
     const accessToken = await accountService.getActiveAccountAccessToken();
-    
+
     if (!accessToken) {
         throw new Error('No access token found for active account');
     }
@@ -312,35 +315,43 @@ async function fetchCH2Logs(
         throw new Error('CloudHub 2.0 requires deploymentId and specificationId');
     }
 
-    // CH2 logs API endpoint - use the working URL format
+    // Get region to determine which API to use
+    const regionId = activeAccount.region || 'us';
+    const baseUrl = await getBaseUrl(context);
+
+    // CH2 logs API endpoint - use region-specific URL
     // API expects timestamps as Long values (milliseconds since epoch), not ISO strings
     const startTimeMs = session.lastLogTimestamp;
     const endTimeMs = Date.now();
-    
-    // Build query parameters like the working implementation
+
+    // Build query parameters
     const queryParams = new URLSearchParams();
     queryParams.append('limit', '100');
     queryParams.append('offset', '0');
     queryParams.append('startTime', startTimeMs.toString());
     queryParams.append('endTime', endTimeMs.toString());
-    
-    // Use the working base URL format
-    const logsURL = `https://anypoint.mulesoft.com/amc/application-manager/api/v2/organizations/${organizationID}/environments/${session.environmentId}/deployments/${session.deploymentId}/specs/${session.specificationId}/logs?${queryParams.toString()}`;
-    
+
+    // Use region-specific base URL - all regions use Application Manager API for logs
+    const logsURL = `${baseUrl}/amc/application-manager/api/v2/organizations/${organizationID}/environments/${session.environmentId}/deployments/${session.deploymentId}/specs/${session.specificationId}/logs?${queryParams.toString()}`;
+
+    console.log(`Real-time logs CH2: Region: ${regionId}`);
     console.log(`Real-time logs CH2: Fetching from URL: ${logsURL}`);
     console.log(`Real-time logs CH2: Organization ID: ${organizationID}`);
     console.log(`Real-time logs CH2: Environment ID: ${session.environmentId}`);
     console.log(`Real-time logs CH2: Deployment ID: ${session.deploymentId}`);
     console.log(`Real-time logs CH2: Specification ID: ${session.specificationId}`);
     console.log(`Real-time logs CH2: Time range: ${startTimeMs} (${new Date(startTimeMs).toISOString()}) to ${endTimeMs} (${new Date(endTimeMs).toISOString()})`);
-    
+
+    // Build headers - EU/GOV may need additional headers (TBD based on testing)
+    const headers: Record<string, string> = {
+        'Authorization': `Bearer ${accessToken}`,
+        'Content-Type': 'application/json'
+    };
+
     try {
         const response = await fetch(logsURL, {
             method: 'GET',
-            headers: {
-                'Authorization': `Bearer ${accessToken}`,
-                'Content-Type': 'application/json'
-            }
+            headers
         });
 
         console.log(`Real-time logs CH2: Response status: ${response.status}`);
@@ -359,9 +370,8 @@ async function fetchCH2Logs(
                 if (!newAccessToken) {
                     throw new Error('Failed to get refreshed access token');
                 }
-                // Rebuild URL with new token for retry
-                const retryURL = `https://anypoint.mulesoft.com/amc/application-manager/api/v2/organizations/${organizationID}/environments/${session.environmentId}/deployments/${session.deploymentId}/specs/${session.specificationId}/logs?${queryParams.toString()}`;
-                const retryResponse = await fetch(retryURL, {
+                // Retry with new token - use same region-specific URL
+                const retryResponse = await fetch(logsURL, {
                     method: 'GET',
                     headers: {
                         'Authorization': `Bearer ${newAccessToken}`,
@@ -707,11 +717,14 @@ async function fetchFullCH1Logs(session: RealTimeLogSession): Promise<LogEntry[]
     
     const organizationID = activeAccount.organizationId;
 
+    // Get region-specific base URL
+    const baseUrl = await getBaseUrl(context);
+
     // Get deployment info
     let deploymentId = session.deploymentId;
     if (!deploymentId) {
-        const deploymentsURL = `${BASE_URL}/cloudhub/api/v2/applications/${session.applicationDomain}/deployments?orderByDate=DESC`;
-        
+        const deploymentsURL = `${baseUrl}/cloudhub/api/v2/applications/${session.applicationDomain}/deployments?orderByDate=DESC`;
+
         const deploymentsResponse = await apiHelper.get(deploymentsURL, {
             headers: {
                 'X-ANYPNT-ENV-ID': session.environmentId,
@@ -724,8 +737,8 @@ async function fetchFullCH1Logs(session: RealTimeLogSession): Promise<LogEntry[]
     // Fetch logs for a longer time period (last 24 hours or more)
     const endTime = Date.now();
     const startTime = endTime - (7 * 24 * 60 * 60 * 1000); // Last 7 days
-    
-    const logsURL = `${BASE_URL}/cloudhub/api/v2/applications/${session.applicationDomain}/deployments/${deploymentId}/logs?startTime=${startTime}&endTime=${endTime}&limit=2000`;
+
+    const logsURL = `${baseUrl}/cloudhub/api/v2/applications/${session.applicationDomain}/deployments/${deploymentId}/logs?startTime=${startTime}&endTime=${endTime}&limit=2000`;
     
     const logsResponse = await apiHelper.get(logsURL, {
         headers: {
@@ -746,19 +759,25 @@ async function fetchFullCH2Logs(session: RealTimeLogSession): Promise<LogEntry[]
     console.log('Export: Starting fetchFullCH2Logs');
     const context = session.context;
     const accountService = new AccountService(context);
-    
+
     const activeAccount = await accountService.getActiveAccount();
     if (!activeAccount) {
         throw new Error('No active account found. Please log in.');
     }
-    
+
     let accessToken = await accountService.getActiveAccountAccessToken();
     if (!accessToken) {
         throw new Error('No access token found for active account');
     }
-    
+
     const organizationID = activeAccount.organizationId;
 
+    // Get region-specific base URL
+    const regionId = activeAccount.region || 'us';
+    const baseUrl = await getBaseUrl(context);
+
+    console.log('Export: Region:', regionId);
+    console.log('Export: Base URL:', baseUrl);
     console.log('Export: Organization ID:', organizationID);
     console.log('Export: Environment ID:', session.environmentId);
     console.log('Export: Deployment ID:', session.deploymentId);
@@ -771,7 +790,7 @@ async function fetchFullCH2Logs(session: RealTimeLogSession): Promise<LogEntry[]
     // Fetch logs for last 7 days to get more comprehensive data (API might limit longer periods)
     const endTimeMs = Date.now();
     const startTimeMs = endTimeMs - (7 * 24 * 60 * 60 * 1000); // Last 7 days
-    
+
     console.log('Export: Time range:', new Date(startTimeMs).toISOString(), 'to', new Date(endTimeMs).toISOString());
     
     // CloudHub 2.0 API appears to have a hard limit of 10 logs per request
@@ -807,12 +826,13 @@ async function fetchFullCH2Logs(session: RealTimeLogSession): Promise<LogEntry[]
         
         const queryParams = new URLSearchParams();
         queryParams.append('limit', pageSize.toString());
-        queryParams.append('offset', offset.toString()); 
+        queryParams.append('offset', offset.toString());
         queryParams.append('startTime', startTimeMs.toString());
         queryParams.append('endTime', endTimeMs.toString());
-        
-        const logsURL = `https://anypoint.mulesoft.com/amc/application-manager/api/v2/organizations/${organizationID}/environments/${session.environmentId}/deployments/${session.deploymentId}/specs/${session.specificationId}/logs?${queryParams.toString()}`;
-        
+
+        // Use region-specific base URL
+        const logsURL = `${baseUrl}/amc/application-manager/api/v2/organizations/${organizationID}/environments/${session.environmentId}/deployments/${session.deploymentId}/specs/${session.specificationId}/logs?${queryParams.toString()}`;
+
         console.log(`Export: Fetching page URL: ${logsURL}`);
         
         // Retry logic for failed requests

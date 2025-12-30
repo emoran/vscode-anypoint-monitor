@@ -43,7 +43,9 @@
       "Bash(git push:*)",
       "Bash(git rebase:*)",
       "Bash(git stash:*)",
-      "Bash(git reset:*)"
+      "Bash(git reset:*)",
+      "Bash(awk:*)",
+      "Read(//Users/emoran/Desktop/**)"
     ],
     "deny": []
   }

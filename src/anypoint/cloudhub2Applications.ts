@@ -2,7 +2,7 @@
 import * as vscode from 'vscode';
 import * as fs from 'fs';
 import { ApiHelper } from '../controllers/apiHelper.js';
-import { BASE_URL } from '../constants';
+import { BASE_URL, getBaseUrl } from '../constants';
 
 // ==================== MAIN ENTRY POINTS ====================
 
@@ -1101,14 +1101,34 @@ async function handleCh2BulkAction(
   const apiHelper = new ApiHelper(context);
   const desiredState = normalizedAction === 'START' ? 'STARTED' : 'STOPPED';
 
+  // Get region-specific base URL
+  const baseUrl = await getBaseUrl(context);
+
+  // Get region to determine which API to use
+  const { AccountService } = await import('../controllers/accountService.js');
+  const accountService = new AccountService(context);
+  const activeAccount = await accountService.getActiveAccount();
+  const regionId = activeAccount?.region || 'us';
+
   const deploymentIds = (deployments || []).filter(id => !!id);
   if (!deploymentIds.length) {
     throw new Error('No deployment IDs found for the selected applications.');
   }
 
   for (const deploymentId of deploymentIds) {
+    // US region uses ADAM API, EU/GOV may use different endpoint
+    // Note: Bulk actions may need different handling per region
+    let url: string;
+    if (regionId === 'us') {
+      url = `${baseUrl}/amc/adam/api/organizations/${orgId}/environments/${envId}/deployments/${deploymentId}`;
+    } else {
+      // For EU/GOV, use ARM API pattern (may need adjustment based on actual API)
+      url = `${baseUrl}/amc/adam/api/organizations/${orgId}/environments/${envId}/deployments/${deploymentId}`;
+      console.log(`CloudHub 2.0 Bulk Action: Using ADAM API for ${regionId.toUpperCase()} region (may need adjustment)`);
+    }
+
     const response = await apiHelper.patch(
-      `${BASE_URL}/amc/adam/api/organizations/${orgId}/environments/${envId}/deployments/${deploymentId}`,
+      url,
       { application: { desiredState } }
     );
 
@@ -1189,7 +1209,7 @@ export async function getStoredOrgAndEnvInfo(context: vscode.ExtensionContext): 
 }
 
 /**
- * Step 1: Get all deployments for the environment - FIXED to handle 'items' property
+ * Step 1: Get all deployments for the environment - FIXED to handle 'items' property and region-specific APIs
  */
 export async function getCH2Deployments(
   context: vscode.ExtensionContext,
@@ -1197,11 +1217,38 @@ export async function getCH2Deployments(
   envId: string
 ): Promise<any[]> {
   try {
-    const url = `https://anypoint.mulesoft.com/amc/application-manager/api/v2/organizations/${orgId}/environments/${envId}/deployments`;
+    const { getBaseUrl } = await import('../constants.js');
+    const { AccountService } = await import('../controllers/accountService.js');
+    const baseUrl = await getBaseUrl(context);
     const apiHelper = new ApiHelper(context);
 
+    // Get region to determine which API to use
+    const accountService = new AccountService(context);
+    const activeAccount = await accountService.getActiveAccount();
+    const regionId = activeAccount?.region || 'us';
+
+    // US region uses Application Manager API (original working endpoint)
+    // EU/GOV use ARM API (unified endpoint)
+    let url: string;
+    let requestConfig: any = {};
+
+    if (regionId === 'us') {
+      url = `${baseUrl}/amc/application-manager/api/v2/organizations/${orgId}/environments/${envId}/deployments`;
+      console.log(`CloudHub 2.0 Deployments: Using Application Manager API for US region`);
+    } else {
+      url = `${baseUrl}/armui/api/v2/applications`;
+      console.log(`CloudHub 2.0 Deployments: Using ARM API for ${regionId.toUpperCase()} region`);
+
+      // ARM API requires org and env as headers instead of URL path
+      requestConfig.headers = {
+        'X-Anypnt-Org-Id': orgId,
+        'X-Anypnt-Env-Id': envId
+      };
+      console.log(`CloudHub 2.0 Deployments: Adding ARM API headers - Org: ${orgId}, Env: ${envId}`);
+    }
+
     console.log('Fetching CH2 deployments from:', url);
-    const response = await apiHelper.get(url);
+    const response = await apiHelper.get(url, requestConfig);
 
     if (response.status !== 200) {
       console.error('CloudHub 2.0 deployments API error:', response.status, response.data);
@@ -1236,7 +1283,7 @@ export async function getCH2Deployments(
       const arrayProps = Object.keys(deploymentsData as any).filter(key =>
         Array.isArray((deploymentsData as any)[key])
       );
-      
+
       if (arrayProps.length > 0) {
         console.log(`🔍 Found array properties: ${arrayProps.join(', ')}`);
         deployments = (deploymentsData as any)[arrayProps[0]];
@@ -1244,8 +1291,39 @@ export async function getCH2Deployments(
       }
     }
 
+    // For EU/GOV ARM API: Filter for CloudHub 2.0 apps only
+    if (regionId !== 'us') {
+      const ch2Apps = deployments.filter((app: any) =>
+        app.target?.type === 'MC' &&
+        app.target?.subtype === 'shared-space'
+      );
+      console.log(`Filtered ${ch2Apps.length} CloudHub 2.0 apps from ${deployments.length} total deployments`);
+
+      // Transform ARM API format to match Application Manager API format
+      deployments = ch2Apps.map((app: any) => ({
+        id: app.id,
+        deploymentId: app.id,
+        name: app.artifact?.name || 'Unknown',
+        domain: app.artifact?.name || 'Unknown',
+        creationDate: app.artifact?.createTime ? new Date(app.artifact.createTime).toISOString() : undefined,
+        lastModifiedDate: app.artifact?.lastUpdateTime ? new Date(app.artifact.lastUpdateTime).toISOString() : undefined,
+        currentRuntimeVersion: app.muleVersion?.version || 'N/A',
+        lastSuccessfulRuntimeVersion: app.muleVersion?.version || 'N/A',
+        muleVersion: app.muleVersion?.version || 'N/A',  // Command Center checks for this first
+        region: app.target?.name || app.target?.provider || 'Unknown',  // Region info from target
+        application: {
+          status: app.application?.status || app.lastReportedStatus || 'UNKNOWN',
+          domain: app.artifact?.name || 'Unknown'
+        },
+        target: app.target,
+        // Keep original data for reference
+        _originalArmData: app
+      }));
+      console.log(`Transformed ${deployments.length} apps from ARM API format to Application Manager format`);
+    }
+
     console.log(`Retrieved ${deployments.length} deployments`);
-    
+
     // Debug: Log the first deployment to see its structure
     if (deployments.length > 0) {
       console.log('📋 First deployment structure:', Object.keys(deployments[0]));
