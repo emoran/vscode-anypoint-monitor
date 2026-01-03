@@ -938,12 +938,25 @@ function getEnvironmentComparisonHtml(
 async function exportEnvironmentComparisonData(comparisonData: any) {
   try {
     const csvContent = generateEnvironmentComparisonCSV(comparisonData);
-    
+
+    // Determine default save location
+    let defaultUri: vscode.Uri;
+    const workspaceFolders = vscode.workspace.workspaceFolders;
+
+    if (workspaceFolders && workspaceFolders.length > 0) {
+      // Use workspace folder if available
+      defaultUri = vscode.Uri.joinPath(workspaceFolders[0].uri, 'environment-comparison.csv');
+    } else {
+      // Fallback to home directory
+      const homeDir = process.env.HOME || process.env.USERPROFILE || '';
+      defaultUri = vscode.Uri.file(`${homeDir}/environment-comparison.csv`);
+    }
+
     // Prompt for save location
     const uri = await vscode.window.showSaveDialog({
       filters: { 'CSV Files': ['csv'] },
       saveLabel: 'Save Environment Comparison as CSV',
-      defaultUri: vscode.Uri.file('environment-comparison.csv')
+      defaultUri: defaultUri
     });
 
     if (uri) {
@@ -964,12 +977,11 @@ function generateEnvironmentComparisonCSV(comparisonData: any): string {
   }
 
   const environments = comparisonData.environments || [];
-  const applications = comparisonData.applications || {};
+  const applications = Object.values(comparisonData.applications) as any[];
 
   // Create headers
   const baseHeaders = [
     'Application Name',
-    'Normalized Name',
     'Platform Type',
     'Total Environments',
     'Deployed Environments'
@@ -986,8 +998,7 @@ function generateEnvironmentComparisonCSV(comparisonData: any): string {
       `${env.name} - Region`,
       `${env.name} - Workers/Replicas`,
       `${env.name} - Worker Type/Resources`,
-      `${env.name} - Last Update`,
-      `${env.name} - Created Date`
+      `${env.name} - URL`
     );
   });
 
@@ -995,58 +1006,65 @@ function generateEnvironmentComparisonCSV(comparisonData: any): string {
 
   // Generate rows
   const rows: string[][] = [];
-  
-  Object.entries(applications).forEach(([normalizedName, deployments]: [string, any]) => {
-    if (!Array.isArray(deployments) || deployments.length === 0) return;
 
-    // Group deployments by original application name
-    const appGroups: { [originalName: string]: any[] } = {};
-    deployments.forEach((deployment: any) => {
-      const originalName = deployment.originalName || deployment.name || normalizedName;
-      if (!appGroups[originalName]) {
-        appGroups[originalName] = [];
-      }
-      appGroups[originalName].push(deployment);
-    });
+  applications.forEach((app: any) => {
+    const row: string[] = [];
 
-    // Create a row for each unique original application name
-    Object.entries(appGroups).forEach(([originalName, appDeployments]) => {
-      const row: string[] = [];
-      
-      // Base information
-      row.push(
-        `"${originalName}"`,
-        `"${normalizedName}"`,
-        appDeployments.map(d => d.type).join(', '),
-        environments.length.toString(),
-        appDeployments.length.toString()
-      );
+    // Count deployed environments
+    const deployedEnvCount = environments.filter((env: any) => app.environments && app.environments[env.id]).length;
 
-      // Environment-specific data
-      environments.forEach((env: any) => {
-        const deployment = appDeployments.find(d => d.environmentId === env.id);
-        
-        if (deployment && deployment.deploymentData) {
-          const data = deployment.deploymentData;
-          row.push(
-            `"${data.status || 'N/A'}"`,
-            `"${data.version || 'N/A'}"`,
-            `"${data.runtime || 'N/A'}"`,
-            `"${data.filename || 'N/A'}"`,
-            `"${data.region || 'N/A'}"`,
-            `"${data.workers || data.replicas || 'N/A'}"`,
-            `"${data.workerType || (data.cpuReserved && data.memoryReserved ? `${data.cpuReserved} CPU, ${data.memoryReserved} MB` : 'N/A')}"`,
-            `"${data.lastUpdateTime ? formatDateForCSV(data.lastUpdateTime) : 'N/A'}"`,
-            `"${data.creationDate ? formatDateForCSV(data.creationDate) : 'N/A'}"`
-          );
-        } else {
-          // No deployment in this environment
-          row.push('', '', '', '', '', '', '', '', '');
+    // Base information
+    row.push(
+      `"${app.name || 'N/A'}"`,
+      `"${app.type || 'N/A'}"`,
+      environments.length.toString(),
+      deployedEnvCount.toString()
+    );
+
+    // Environment-specific data
+    environments.forEach((env: any) => {
+      const deployment = app.environments ? app.environments[env.id] : null;
+
+      if (deployment) {
+        // Extract workers/replicas info
+        let workersOrReplicas = 'N/A';
+        if (app.type === 'CH1' && deployment.workers) {
+          workersOrReplicas = deployment.workers.toString();
+        } else if (app.type === 'CH2' && deployment.replicas) {
+          workersOrReplicas = deployment.replicas.toString();
         }
-      });
 
-      rows.push(row);
+        // Extract worker type or resources
+        let workerTypeOrResources = 'N/A';
+        if (app.type === 'CH1' && deployment.workerType) {
+          workerTypeOrResources = deployment.workerType;
+        } else if (app.type === 'CH2' && deployment.cpuReserved && deployment.memoryReserved) {
+          workerTypeOrResources = `${deployment.cpuReserved} CPU, ${deployment.memoryReserved} MB`;
+        }
+
+        // Extract URL
+        let url = 'N/A';
+        if (app.type === 'CH1' && deployment.fullDomain && deployment.fullDomain !== 'N/A') {
+          url = `https://${deployment.fullDomain}`;
+        }
+
+        row.push(
+          `"${deployment.status || 'N/A'}"`,
+          `"${deployment.version || 'N/A'}"`,
+          `"${deployment.runtime || 'N/A'}"`,
+          `"${deployment.filename || 'N/A'}"`,
+          `"${deployment.region || 'N/A'}"`,
+          `"${workersOrReplicas}"`,
+          `"${workerTypeOrResources}"`,
+          `"${url}"`
+        );
+      } else {
+        // No deployment in this environment - add empty columns
+        row.push('""', '""', '""', '""', '""', '""', '""', '""');
+      }
     });
+
+    rows.push(row);
   });
 
   // Combine headers and rows
