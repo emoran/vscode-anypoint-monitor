@@ -1,15 +1,86 @@
-.vscode/**
+# Source files - only include compiled output
+src/**
 **/*.ts
+!out/**/*.d.ts
+
+# Build artifacts
 **/*.map
+.vscode-test/**
+.vscode-test.mjs
+out/test/**
+
+# Development files
+.vscode/**
+.vscode-test*
 .gitignore
+.git/**
+.gitattributes
 **/tsconfig.json
 **/tsconfig.base.json
 contributing.md
 .travis.yml
-client/node_modules/**
-!client/node_modules/vscode-jsonrpc/**
-!client/node_modules/vscode-languageclient/**
-!client/node_modules/vscode-languageserver-protocol/**
-!client/node_modules/vscode-languageserver-types/**
-!client/node_modules/{minimatch,brace-expansion,concat-map,balanced-match}/**
-!client/node_modules/{semver,lru-cache,yallist}/**
+.eslintrc*
+eslint.config.*
+
+# IDE and environment files
+.claude/**
+.expo/**
+.venv/**
+.env*
+*.code-workspace
+
+# Test files
+**/test/**
+**/*.test.js
+**/*.spec.js
+
+# Documentation (keep only what's needed)
+.github/**
+docs/**
+
+# Exclude ALL node_modules, then selectively include only runtime deps
+node_modules/**
+
+# Include only production dependencies (axios, open, jszip) and their direct deps
+!node_modules/axios/**
+!node_modules/open/**
+!node_modules/jszip/**
+!node_modules/follow-redirects/**
+!node_modules/form-data/**
+!node_modules/proxy-from-env/**
+!node_modules/asynckit/**
+!node_modules/combined-stream/**
+!node_modules/delayed-stream/**
+!node_modules/is-docker/**
+!node_modules/is-wsl/**
+!node_modules/define-lazy-prop/**
+!node_modules/is-inside-container/**
+!node_modules/lie/**
+!node_modules/immediate/**
+!node_modules/pako/**
+!node_modules/readable-stream/**
+!node_modules/setimmediate/**
+!node_modules/mime-db/**
+!node_modules/mime-types/**
+!node_modules/inherits/**
+!node_modules/buffer/**
+!node_modules/base64-js/**
+!node_modules/ieee754/**
+!node_modules/string_decoder/**
+!node_modules/safe-buffer/**
+!node_modules/util-deprecate/**
+!node_modules/core-util-is/**
+
+# Exclude package manager files
+**/package-lock.json
+**/yarn.lock
+**/.yarn/**
+
+# Miscellaneous
+*.vsix
+**/.DS_Store
+**/.editorconfig
+**/.eslintcache
+**/npm-debug.log*
+**/yarn-debug.log*
+**/yarn-error.log*

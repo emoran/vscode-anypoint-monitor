@@ -45,7 +45,9 @@
       "Bash(git stash:*)",
       "Bash(git reset:*)",
       "Bash(awk:*)",
-      "Read(//Users/emoran/Desktop/**)"
+      "Read(//Users/emoran/Desktop/**)",
+      "Bash(npx vsce:*)",
+      "Bash(npm ls:*)"
     ],
     "deny": []
   }
