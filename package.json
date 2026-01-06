@@ -1,7 +1,7 @@
 {
   "name": "anypoint-monitor",
   "displayName": "Anypoint Monitor",
-  "description": "Monitor, manage, and deploy MuleSoft Anypoint Platform applications directly in VS Code. Real-time CloudHub 1.0/2.0 monitoring, API management, multi-account support, and live log streaming for MuleSoft developers.",
+  "description": "CloudHub 1.0/2.0 monitoring and multi-account management for MuleSoft. Real-time logs, API management, application diagrams, and DataWeave playground - all in VS Code.",
   "publisher": "EdgarMoran",
   "version": "0.0.56",
   "engines": {
@@ -22,7 +22,7 @@
   "homepage": "https://github.com/emoran/vscode-anypoint-monitor#readme",
   "icon": "logo.png",
   "galleryBanner": {
-    "color": "#001F3F",
+    "color": "#214866",
     "theme": "dark"
   },
   "screenshots": [
@@ -30,10 +30,10 @@
       "path": "screenshots/Screenshot1.png"
     },
     {
-      "path": "screenshots/Screensho2.png"
+      "path": "screenshots/Screenshot2.png"
     },
     {
-      "path": "screenshots/Screensho3.png"
+      "path": "screenshots/Screenshot3.png"
     },
     {
       "path": "screenshots/Screenshot4.png"
@@ -53,30 +53,30 @@
     "anypoint",
     "mulesoft",
     "cloudhub",
-    "api management",
+    "cloudhub-monitoring",
+    "anypoint-platform",
+    "cloudhub-2.0",
+    "api-management",
+    "mule-runtime",
     "monitoring",
-    "anypoint platform",
+    "observability",
+    "logs",
+    "real-time-logs",
     "integration",
-    "mule",
-    "api",
-    "cloudhub 2.0",
-    "runtime manager",
-    "anypoint studio",
-    "salesforce",
-    "integration platform",
-    "ipaas",
-    "enterprise integration",
-    "microservices",
-    "deployment",
     "devops",
-    "cicd",
+    "api",
+    "rest-api",
+    "mulesoft-ambassador",
+    "enterprise-integration",
+    "ipaas",
+    "multi-account",
+    "deployment",
     "dataweave"
   ],
   "categories": [
     "Programming Languages",
-    "Snippets",
-    "Debuggers",
-    "Other"
+    "Other",
+    "Testing" 
   ],
   "activationEvents": [
     "onCommand:anypoint-monitor.userInfo",
