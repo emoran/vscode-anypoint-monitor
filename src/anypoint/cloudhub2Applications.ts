@@ -3,6 +3,7 @@ import * as vscode from 'vscode';
 import * as fs from 'fs';
 import { ApiHelper } from '../controllers/apiHelper.js';
 import { BASE_URL, getBaseUrl } from '../constants';
+import { getGitHubStarBannerHtml, getGitHubStarBannerStyles, getGitHubStarBannerScript } from '../utils/starPrompt.js';
 
 // ==================== MAIN ENTRY POINTS ====================
 
@@ -199,6 +200,15 @@ panel.webview.onDidReceiveMessage(async (message) => {
         } catch (error: any) {
           console.error('❌ Bulk action failed:', error);
           vscode.window.showErrorMessage(`Failed to ${message.action?.toLowerCase?.() || 'update'} applications: ${error.message}`);
+        }
+        break;
+
+      case 'openGitHubRepo':
+        try {
+          await vscode.env.openExternal(vscode.Uri.parse(message.url));
+        } catch (error: any) {
+          console.error('Failed to open GitHub URL:', error);
+          vscode.window.showErrorMessage(`Failed to open GitHub: ${error.message}`);
         }
         break;
 
@@ -641,6 +651,9 @@ function getCloudHub2ApplicationsHtml(
               width: 100%;
             }
           }
+
+          /* GitHub Star Banner Styles */
+          ${getGitHubStarBannerStyles()}
         </style>
       </head>
       <body>
@@ -1043,6 +1056,10 @@ function getCloudHub2ApplicationsHtml(
           // Initial render
           renderTable();
         </script>
+
+        <!-- GitHub Star Banner -->
+        ${getGitHubStarBannerHtml()}
+        ${getGitHubStarBannerScript()}
       </body>
     </html>
   `;

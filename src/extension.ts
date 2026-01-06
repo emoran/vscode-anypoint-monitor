@@ -30,6 +30,7 @@ import { showApplicationDiagram } from "./anypoint/applicationDiagram";
 import { showDataWeavePlayground } from "./anypoint/dataweavePlayground";
 import { showApplicationCommandCenter } from "./anypoint/applicationCommandCenter";
 import { registerCommandPalettePanel } from "./anypoint/commandPalettePanel";
+import { StarPromptManager } from "./utils/starPrompt";
 
 interface EnvironmentOption {
 	label: string;
@@ -171,6 +172,9 @@ export function activate(context: vscode.ExtensionContext) {
 	// Initialize account service and migrate existing account if needed
 	const accountService = new AccountService(context);
 
+	// Initialize GitHub star prompt manager
+	const starPromptManager = new StarPromptManager(context);
+
 	// Run automatic migration for existing users
 	accountService.checkAndPromptMigration().then(migrated => {
 		if (migrated) {
@@ -211,6 +215,8 @@ export function activate(context: vscode.ExtensionContext) {
                         await getEnvironments(context);
                         // Update status bar after successful login
                         await updateAccountStatusBar(context);
+                        // Track successful command execution for star prompt
+                        await starPromptManager.trackCommandExecution();
                 }
                 catch (error: any) {
                         vscode.window.showErrorMessage(`Login failed: ${error.message || error}`);
@@ -235,7 +241,8 @@ export function activate(context: vscode.ExtensionContext) {
 	const userInfo = vscode.commands.registerCommand('anypoint-monitor.userInfo', async () => {
 		try {
 			await getUserInfo(context);
-		} 
+			await starPromptManager.trackCommandExecution();
+		}
 		catch (error: any) {
 			vscode.window.showErrorMessage(`Error: ${error.message || error}`);
 		}
@@ -244,7 +251,8 @@ export function activate(context: vscode.ExtensionContext) {
 	const organizationInformation = vscode.commands.registerCommand('anypoint-monitor.organizationInfo', async () => {
 		try {
 			await getOrganizationInfo(context);
-		} 
+			await starPromptManager.trackCommandExecution();
+		}
 		catch (error: any) {
 			vscode.window.showErrorMessage(`Error: ${error.message || error}`);
 		}
@@ -279,6 +287,7 @@ export function activate(context: vscode.ExtensionContext) {
 				return;
 			}
 			await getCH1Applications(context, selectedEnvironmentId);
+			await starPromptManager.trackCommandExecution();
 		} catch (error: any) {
 			vscode.window.showErrorMessage(`Error: ${error.message}`);
 		}
@@ -291,6 +300,7 @@ export function activate(context: vscode.ExtensionContext) {
 				return;
 			}
 			await getCH2Applications(context, selectedEnvironmentId);
+			await starPromptManager.trackCommandExecution();
 		} catch (error: any) {
 			vscode.window.showErrorMessage(`Error: ${error.message}`);
 		}
@@ -364,11 +374,13 @@ export function activate(context: vscode.ExtensionContext) {
 
         const retrieveAPIManagerAPIsCmd = vscode.commands.registerCommand('anypoint-monitor.retrieveAPIManagerAPIs', async () => {
                 await retrieveAPIManagerAPIs(context);
+                await starPromptManager.trackCommandExecution();
         });
 
 	const communityEventsCmd = vscode.commands.registerCommand('anypoint-monitor.communityEvents', async () => {
 		try {
 			await showCommunityEvents(context);
+			await starPromptManager.trackCommandExecution();
 		} catch (error: any) {
 			vscode.window.showErrorMessage(`Error loading community events: ${error.message}`);
 		}
@@ -558,21 +570,22 @@ export function activate(context: vscode.ExtensionContext) {
 			// Show real-time logs with appropriate parameters
 			if (selectedApp.cloudhubVersion === 'CH2') {
 				await showRealTimeLogs(
-					context, 
-					selectedEnvironmentId, 
-					selectedApp.domain, 
+					context,
+					selectedEnvironmentId,
+					selectedApp.domain,
 					'CH2',
 					selectedApp.deploymentId,
 					selectedApp.specificationId
 				);
 			} else {
 				await showRealTimeLogs(
-					context, 
-					selectedEnvironmentId, 
-					selectedApp.domain, 
+					context,
+					selectedEnvironmentId,
+					selectedApp.domain,
 					'CH1'
 				);
 			}
+			await starPromptManager.trackCommandExecution();
 		} catch (error: any) {
 			vscode.window.showErrorMessage(`Error starting real-time logs: ${error.message}`);
 		}

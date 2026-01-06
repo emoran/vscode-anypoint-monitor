@@ -3,6 +3,7 @@ import * as fs from 'fs';
 import { ApiHelper } from '../controllers/apiHelper.js';
 import { AccountService } from '../controllers/accountService.js';
 import { BASE_URL, getBaseUrl } from '../constants';
+import { getGitHubStarBannerHtml, getGitHubStarBannerStyles, getGitHubStarBannerScript } from '../utils/starPrompt.js';
 
 /**
  * Creates a webview panel and displays a detailed table of applications
@@ -84,6 +85,13 @@ export async function showApplicationsWebview1(
       } catch (error: any) {
         console.error('Failed to refresh CloudHub 1.0 apps:', error);
         vscode.window.showErrorMessage(`Failed to refresh applications: ${error.message}`);
+      }
+    } else if (message.command === 'openGitHubRepo') {
+      try {
+        await vscode.env.openExternal(vscode.Uri.parse(message.url));
+      } catch (error: any) {
+        console.error('Failed to open GitHub URL:', error);
+        vscode.window.showErrorMessage(`Failed to open GitHub: ${error.message}`);
       }
     }
   });
@@ -510,6 +518,9 @@ function getApplicationsHtml(
             color: var(--text-link-hover);
             text-decoration: underline;
           }
+
+          /* GitHub Star Banner Styles */
+          ${getGitHubStarBannerStyles()}
         </style>
       </head>
       <body>
@@ -871,6 +882,10 @@ function getApplicationsHtml(
           // Initial render
           renderTable();
         </script>
+
+        <!-- GitHub Star Banner -->
+        ${getGitHubStarBannerHtml()}
+        ${getGitHubStarBannerScript()}
       </body>
     </html>
   `;

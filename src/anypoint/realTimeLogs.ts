@@ -5,6 +5,7 @@ import { refreshAccessToken } from '../controllers/oauthService';
 import { AccountService } from '../controllers/accountService.js';
 import { ApiHelper } from '../controllers/apiHelper.js';
 import * as fs from 'fs';
+import { getGitHubStarBannerHtml, getGitHubStarBannerStyles, getGitHubStarBannerScript } from '../utils/starPrompt.js';
 
 interface LogEntry {
     timestamp: number;
@@ -108,6 +109,14 @@ export async function showRealTimeLogs(
             case 'setRefreshRate':
                 console.log('Real-time logs: Setting refresh rate to:', message.rate);
                 await setRefreshRate(session, message.rate);
+                break;
+            case 'openGitHubRepo':
+                try {
+                    await vscode.env.openExternal(vscode.Uri.parse(message.url));
+                } catch (error: any) {
+                    console.error('Failed to open GitHub URL:', error);
+                    vscode.window.showErrorMessage(`Failed to open GitHub: ${error.message}`);
+                }
                 break;
             default:
                 console.log('Real-time logs: Unknown command:', message.command);
@@ -1586,6 +1595,9 @@ function getRealTimeLogsHtml(
             }
         }
 
+        /* GitHub Star Banner Styles */
+        ${getGitHubStarBannerStyles()}
+
     </style>
 </head>
 <body>
@@ -2048,6 +2060,10 @@ function getRealTimeLogsHtml(
             console.error('Error stack:', error.stack);
         }
     </script>
+
+    <!-- GitHub Star Banner -->
+    ${getGitHubStarBannerHtml()}
+    ${getGitHubStarBannerScript()}
 </body>
 </html>
     `;
