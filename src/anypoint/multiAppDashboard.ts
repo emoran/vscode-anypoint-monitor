@@ -485,18 +485,19 @@ async function fetchSingleAppMetrics(
     environmentId: string,
     organizationId: string
 ): Promise<MetricsBatchResponse> {
+    const to = new Date();
+    const from = new Date(to.getTime() - 15 * 60 * 1000); // Last 15 minutes
+
+    const params = new URLSearchParams({
+        from: from.toISOString(),
+        to: to.toISOString(),
+        detailed: 'false'
+    });
+
+    const appIdentifier = app.deploymentId || app.domain;
+    const url = `${baseUrl}/monitoring/query/api/v1/organizations/${organizationId}/environments/${environmentId}/applications/${encodeURIComponent(appIdentifier)}?${params.toString()}`;
+
     try {
-        const to = new Date();
-        const from = new Date(to.getTime() - 15 * 60 * 1000); // Last 15 minutes
-
-        const params = new URLSearchParams({
-            from: from.toISOString(),
-            to: to.toISOString(),
-            detailed: 'false'
-        });
-
-        const appIdentifier = app.deploymentId || app.domain;
-        const url = `${baseUrl}/monitoring/query/api/v1/organizations/${organizationId}/environments/${environmentId}/applications/${encodeURIComponent(appIdentifier)}?${params.toString()}`;
 
         if (METRICS_DEBUG_LOG) {
             console.log('Multi-App Dashboard: Metrics request', {
