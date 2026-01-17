@@ -24,6 +24,8 @@ interface ApplicationSummary {
         requestsPerMin?: number;
         errorRate?: number;
     };
+    metricsError?: string;
+    metricsStatus?: number;
     runtimeVersion?: string;
     replicas?: number;
     workers?: number;
@@ -32,6 +34,7 @@ interface ApplicationSummary {
     lastUpdated?: number;
     deploymentId?: string;
     specificationId?: string;
+    memoryLimitMB?: number;
     rawData?: any;
 }
 
@@ -68,6 +71,7 @@ interface MetricsBatchResponse {
         errorRate?: number;
     };
     error?: string;
+    status?: number;
 }
 
 // ============================================================================
@@ -77,6 +81,7 @@ interface MetricsBatchResponse {
 const METRICS_BATCH_SIZE = 5;
 const METRICS_BATCH_DELAY = 300;
 const METRICS_TIMEOUT = 8000;
+const METRICS_DEBUG_LOG = true;
 
 // ============================================================================
 // MAIN ENTRY POINT
@@ -318,7 +323,7 @@ function normalizeToArray(data: any): any[] {
 }
 
 function normalizeCH1App(app: any): ApplicationSummary {
-    return {
+    const normalized: ApplicationSummary = {
         id: app.domain || app.id || `ch1-${Date.now()}`,
         name: app.domain || app.name || 'Unknown',
         domain: app.domain || app.name || 'Unknown',
@@ -335,13 +340,15 @@ function normalizeCH1App(app: any): ApplicationSummary {
         lastUpdated: app.lastUpdateTime ? new Date(app.lastUpdateTime).getTime() : undefined,
         rawData: app
     };
+    normalized.memoryLimitMB = resolveMemoryLimitMB(normalized);
+    return normalized;
 }
 
 function normalizeCH2App(app: any): ApplicationSummary {
     const appName = app.name || app.artifact?.name || app.application?.domain || 'Unknown';
     const status = app.application?.status || app.status || app.lastReportedStatus || 'UNKNOWN';
 
-    return {
+    const normalized: ApplicationSummary = {
         id: app.id || `ch2-${Date.now()}`,
         name: appName,
         domain: appName,
@@ -358,12 +365,14 @@ function normalizeCH2App(app: any): ApplicationSummary {
         deploymentId: app.id,
         rawData: app
     };
+    normalized.memoryLimitMB = resolveMemoryLimitMB(normalized);
+    return normalized;
 }
 
 function normalizeHybridApp(app: any): ApplicationSummary {
     const appName = app.name || app.artifact?.name || 'Unknown';
 
-    return {
+    const normalized: ApplicationSummary = {
         id: app.id || `hybrid-${Date.now()}`,
         name: appName,
         domain: appName,
@@ -377,6 +386,8 @@ function normalizeHybridApp(app: any): ApplicationSummary {
         lastUpdated: app.lastUpdateTime ? new Date(app.lastUpdateTime).getTime() : undefined,
         rawData: app
     };
+    normalized.memoryLimitMB = resolveMemoryLimitMB(normalized);
+    return normalized;
 }
 
 // ============================================================================
@@ -419,6 +430,14 @@ async function handleLoadMetrics(
             const app = batch[idx];
             if (result.status === 'fulfilled' && result.value.success && result.value.metrics) {
                 app.metrics = result.value.metrics;
+                app.metricsError = undefined;
+                app.metricsStatus = undefined;
+            } else if (result.status === 'fulfilled') {
+                app.metricsError = result.value.error || 'Metrics unavailable';
+                app.metricsStatus = result.value.status;
+            } else {
+                app.metricsError = 'Metrics request failed';
+                app.metricsStatus = undefined;
             }
             // Recalculate health with metrics
             const health = calculateApplicationHealth(app, app.metrics);
@@ -436,6 +455,8 @@ async function handleLoadMetrics(
             updatedApps: batch.map(app => ({
                 id: app.id,
                 metrics: app.metrics,
+                metricsError: app.metricsError,
+                metricsStatus: app.metricsStatus,
                 healthScore: app.healthScore,
                 healthStatus: app.healthStatus
             }))
@@ -477,6 +498,15 @@ async function fetchSingleAppMetrics(
         const appIdentifier = app.deploymentId || app.domain;
         const url = `${baseUrl}/monitoring/query/api/v1/organizations/${organizationId}/environments/${environmentId}/applications/${encodeURIComponent(appIdentifier)}?${params.toString()}`;
 
+        if (METRICS_DEBUG_LOG) {
+            console.log('Multi-App Dashboard: Metrics request', {
+                appId: app.id,
+                appName: app.name,
+                appIdentifier,
+                url
+            });
+        }
+
         const response = await Promise.race([
             apiHelper.get(url, {
                 headers: {
@@ -489,12 +519,44 @@ async function fetchSingleAppMetrics(
 
         if (response.status === 200 && response.data) {
             const metrics = extractMetricsFromResponse(response.data);
-            return { appId: app.id, success: true, metrics };
+            if (METRICS_DEBUG_LOG) {
+                const dataKeys = typeof response.data === 'object' && response.data
+                    ? Object.keys(response.data).slice(0, 25)
+                    : [];
+                const metricsKeys = response.data?.metrics && typeof response.data.metrics === 'object'
+                    ? Object.keys(response.data.metrics).slice(0, 25)
+                    : [];
+                console.log('Multi-App Dashboard: Metrics response', {
+                    appId: app.id,
+                    appName: app.name,
+                    status: response.status,
+                    dataKeys,
+                    metricsKeys,
+                    metrics
+                });
+            }
+            return { appId: app.id, success: true, metrics, status: response.status };
         }
 
-        return { appId: app.id, success: false, error: 'No data' };
+        console.warn('Multi-App Dashboard: Metrics request failed', {
+            appId: app.id,
+            appName: app.name,
+            status: response.status,
+            url
+        });
+
+        return { appId: app.id, success: false, error: `HTTP ${response.status}`, status: response.status };
     } catch (error: any) {
-        return { appId: app.id, success: false, error: error.message || 'Timeout' };
+        const status = error?.response?.status;
+        console.warn('Multi-App Dashboard: Metrics request error', {
+            appId: app.id,
+            appName: app.name,
+            status,
+            url,
+            message: error?.message,
+            data: error?.response?.data
+        });
+        return { appId: app.id, success: false, error: error.message || 'Timeout', status };
     }
 }
 
@@ -507,30 +569,105 @@ function extractMetricsFromResponse(data: any): MetricsBatchResponse['metrics'] 
             if (data.metrics['cpu-usage']) {
                 const cpuData = data.metrics['cpu-usage'];
                 const lastValue = Array.isArray(cpuData) ? cpuData[cpuData.length - 1] : cpuData;
-                metrics.cpu = lastValue?.value ?? lastValue?.avg ?? undefined;
+                metrics.cpu = normalizeCpuValue(lastValue?.value ?? lastValue?.avg ?? undefined);
             }
             if (data.metrics['memory-usage']) {
                 const memData = data.metrics['memory-usage'];
                 const lastValue = Array.isArray(memData) ? memData[memData.length - 1] : memData;
-                metrics.memory = lastValue?.value ?? lastValue?.avg ?? undefined;
-                if (metrics.memory) {
-                    metrics.memory = Math.round(metrics.memory / (1024 * 1024)); // Convert to MB
-                }
+                const normalizedMemory = normalizeMemoryValue(lastValue?.value ?? lastValue?.avg ?? undefined);
+                metrics.memory = normalizedMemory !== undefined ? Math.round(normalizedMemory) : undefined;
             }
         }
 
         // Alternative structure
         if (data.cpu !== undefined) {
-            metrics.cpu = data.cpu;
+            metrics.cpu = normalizeCpuValue(data.cpu);
         }
         if (data.memory !== undefined) {
-            metrics.memory = Math.round(data.memory / (1024 * 1024));
+            const normalizedMemory = normalizeMemoryValue(data.memory);
+            metrics.memory = normalizedMemory !== undefined ? Math.round(normalizedMemory) : undefined;
         }
     } catch (error) {
         console.warn('Error extracting metrics:', error);
     }
 
     return metrics;
+}
+
+function normalizeCpuValue(value?: number): number | undefined {
+    if (typeof value !== 'number' || Number.isNaN(value)) {
+        return undefined;
+    }
+    const normalized = value <= 1 ? value * 100 : value;
+    return Math.max(0, Math.min(100, normalized));
+}
+
+function normalizeMemoryValue(value?: number): number | undefined {
+    if (typeof value !== 'number' || Number.isNaN(value)) {
+        return undefined;
+    }
+    if (value > 1024 * 1024) {
+        return value / (1024 * 1024);
+    }
+    if (value > 1024) {
+        return value / 1024;
+    }
+    return value;
+}
+
+function resolveMemoryLimitMB(app: ApplicationSummary): number {
+    const candidates = [
+        app.rawData?.workers?.type?.memory,
+        app.rawData?.workers?.type?.memoryInMB,
+        app.rawData?.workerType?.memory,
+        app.rawData?.resources?.memory,
+        app.rawData?.target?.resources?.memory,
+        app.rawData?.memoryReserved
+    ];
+
+    for (const candidate of candidates) {
+        const parsed = parseMemoryLimitMB(candidate);
+        if (parsed !== undefined) {
+            return parsed;
+        }
+    }
+
+    const workerTypeName = app.workerType || app.rawData?.workers?.type?.name || app.rawData?.workerType?.name;
+    if (typeof workerTypeName === 'string') {
+        const parsed = parseMemoryLimitFromString(workerTypeName);
+        if (parsed !== undefined) {
+            return parsed;
+        }
+    }
+
+    return 1024;
+}
+
+function parseMemoryLimitMB(value: unknown): number | undefined {
+    if (typeof value === 'number' && !Number.isNaN(value)) {
+        const normalized = normalizeMemoryValue(value);
+        return normalized !== undefined ? Math.round(normalized) : undefined;
+    }
+    if (typeof value === 'string') {
+        return parseMemoryLimitFromString(value);
+    }
+    return undefined;
+}
+
+function parseMemoryLimitFromString(value: string): number | undefined {
+    const match = value.match(/(\d+(?:\.\d+)?)\s*(GB|MB)\b/i);
+    if (!match) {
+        const numeric = Number(value);
+        if (!Number.isNaN(numeric)) {
+            return Math.round(numeric);
+        }
+        return undefined;
+    }
+    const amount = Number(match[1]);
+    if (Number.isNaN(amount)) {
+        return undefined;
+    }
+    return match[2].toUpperCase() === 'GB' ? Math.round(amount * 1024) : Math.round(amount);
 }
 
 // ============================================================================
@@ -557,8 +694,16 @@ function calculateApplicationHealth(
         score -= 20; // Unknown or transitional state
     }
 
+    const cpu = normalizeCpuValue(metrics?.cpu ?? app.metrics?.cpu);
+    const memory = normalizeMemoryValue(metrics?.memory ?? app.metrics?.memory);
+    const errorRate = metrics?.errorRate ?? app.metrics?.errorRate;
+    const hasAnyMetrics = cpu !== undefined || memory !== undefined || errorRate !== undefined;
+
+    if (runningStatuses.includes(status) && !hasAnyMetrics) {
+        score -= 25;
+    }
+
     // CPU threshold (20 points)
-    const cpu = metrics?.cpu ?? app.metrics?.cpu;
     if (cpu !== undefined) {
         if (cpu > 90) {
             score -= 20;
@@ -568,10 +713,8 @@ function calculateApplicationHealth(
     }
 
     // Memory threshold (20 points)
-    const memory = metrics?.memory ?? app.metrics?.memory;
     if (memory !== undefined && app.cloudhubVersion !== 'HYBRID') {
-        // Estimate memory percentage (assume 1GB allocation as default)
-        const memoryLimit = 1024; // MB
+        const memoryLimit = app.memoryLimitMB ?? resolveMemoryLimitMB(app);
         const memoryPercent = (memory / memoryLimit) * 100;
         if (memoryPercent > 90) {
             score -= 20;
@@ -581,7 +724,6 @@ function calculateApplicationHealth(
     }
 
     // Error rate (20 points)
-    const errorRate = metrics?.errorRate ?? app.metrics?.errorRate;
     if (errorRate !== undefined) {
         if (errorRate > 10) {
             score -= 20;
@@ -965,7 +1107,7 @@ function getMultiAppDashboardHtml(data: DashboardData): string {
 
     <script>
         const vscode = acquireVsCodeApi();
-        let applications = ${JSON.stringify(applications)};
+    let applications = ${JSON.stringify(applications)};
         let currentSort = { column: 'name', direction: 'asc' };
 
         // Listen for messages from extension
@@ -1007,6 +1149,8 @@ function getMultiAppDashboardHtml(data: DashboardData): string {
                     applications[appIdx].metrics = app.metrics;
                     applications[appIdx].healthScore = app.healthScore;
                     applications[appIdx].healthStatus = app.healthStatus;
+                    applications[appIdx].metricsError = app.metricsError;
+                    applications[appIdx].metricsStatus = app.metricsStatus;
                     updateAppRow(applications[appIdx]);
                 }
             });
@@ -1039,7 +1183,8 @@ function getMultiAppDashboardHtml(data: DashboardData): string {
             const healthCell = row.querySelector('.health-cell');
             if (healthCell) {
                 const icon = app.healthStatus === 'healthy' ? '&#9679;' : app.healthStatus === 'warning' ? '&#9679;' : '&#9679;';
-                healthCell.innerHTML = '<div class="health-indicator ' + app.healthStatus + '"><span class="health-icon">' + icon + '</span><span class="health-score">' + app.healthScore + '%</span></div>';
+                const tooltip = buildHealthTooltip(app);
+                healthCell.innerHTML = '<div class="health-indicator ' + app.healthStatus + '" data-tooltip="' + escapeHtmlJS(tooltip) + '" aria-label="' + escapeHtmlJS(tooltip) + '" tabindex="0"><span class="health-icon">' + icon + '</span><span class="health-score">' + app.healthScore + '%</span></div>';
             }
 
             // Update metrics cells
@@ -1162,12 +1307,13 @@ function getMultiAppDashboardHtml(data: DashboardData): string {
             const healthIcon = app.healthStatus === 'healthy' ? '&#9679;' : '&#9679;';
             const statusClass = ['RUNNING', 'STARTED', 'APPLIED'].includes(app.applicationStatus?.toUpperCase()) ? 'status-running' : 'status-stopped';
             const typeIcon = app.cloudhubVersion === 'CH1' ? '&#9729;' : app.cloudhubVersion === 'CH2' ? '&#9730;' : '&#9731;';
+            const tooltip = buildHealthTooltip(app);
 
             return '<tr class="app-row ' + app.healthStatus + '" data-app-id="' + app.id + '">' +
                 '<td class="app-name"><span class="type-icon">' + typeIcon + '</span> ' + escapeHtmlJS(app.name) + '</td>' +
                 '<td><span class="type-badge ' + app.cloudhubVersion.toLowerCase() + '">' + app.cloudhubVersion + '</span></td>' +
                 '<td><span class="status-badge ' + statusClass + '">' + (app.applicationStatus || 'Unknown') + '</span></td>' +
-                '<td class="health-cell"><div class="health-indicator ' + app.healthStatus + '"><span class="health-icon">' + healthIcon + '</span><span class="health-score">' + app.healthScore + '%</span></div></td>' +
+                '<td class="health-cell"><div class="health-indicator ' + app.healthStatus + '" data-tooltip="' + escapeHtmlJS(tooltip) + '" aria-label="' + escapeHtmlJS(tooltip) + '" tabindex="0"><span class="health-icon">' + healthIcon + '</span><span class="health-score">' + app.healthScore + '%</span></div></td>' +
                 '<td class="cpu-cell">' + (app.metrics?.cpu !== undefined ? app.metrics.cpu.toFixed(1) + '%' : 'N/A') + '</td>' +
                 '<td class="mem-cell">' + (app.metrics?.memory !== undefined ? app.metrics.memory + ' MB' : 'N/A') + '</td>' +
                 '<td class="actions-cell">' +
@@ -1175,6 +1321,82 @@ function getMultiAppDashboardHtml(data: DashboardData): string {
                     '<button class="action-btn" onclick="openLogs(\\'' + app.id + '\\')" title="View Logs">&#128203;</button>' +
                 '</td>' +
             '</tr>';
+        }
+
+        function buildHealthTooltip(app) {
+            const lines = [];
+            const status = (app.applicationStatus || '').toUpperCase();
+            const runningStatuses = ['RUNNING', 'STARTED', 'APPLIED', 'DEPLOYING'];
+            const stoppedStatuses = ['STOPPED', 'UNDEPLOYED', 'NOT_RUNNING'];
+            const cpu = normalizeCpuValue(app.metrics?.cpu);
+            const memory = normalizeMemoryValue(app.metrics?.memory);
+            const errorRate = app.metrics?.errorRate;
+            const hasAnyMetrics = cpu !== undefined || memory !== undefined || errorRate !== undefined;
+
+            lines.push('Score: ' + app.healthScore + '% (' + app.healthStatus + ')');
+
+            if (app.metricsError) {
+                const statusLabel = app.metricsStatus ? 'HTTP ' + app.metricsStatus : 'Unknown error';
+                lines.push('Metrics: ' + app.metricsError + ' (' + statusLabel + ')');
+            }
+
+            if (runningStatuses.includes(status)) {
+                lines.push('Status: ' + status + ' (0)');
+            } else if (stoppedStatuses.includes(status)) {
+                lines.push('Status: ' + (status || 'UNKNOWN') + ' (-40)');
+            } else {
+                lines.push('Status: ' + (status || 'UNKNOWN') + ' (-20)');
+            }
+
+            if (runningStatuses.includes(status) && !hasAnyMetrics) {
+                lines.push('Metrics: missing while running (-25)');
+            }
+
+            if (cpu !== undefined) {
+                const cpuPenalty = cpu > 90 ? -20 : cpu > 75 ? -10 : 0;
+                lines.push('CPU: ' + cpu.toFixed(1) + '% (' + cpuPenalty + ')');
+            } else {
+                lines.push('CPU: N/A');
+            }
+
+            if (memory !== undefined && app.cloudhubVersion !== 'HYBRID') {
+                const limit = app.memoryLimitMB || 1024;
+                const memoryPercent = (memory / limit) * 100;
+                const memPenalty = memoryPercent > 90 ? -20 : memoryPercent > 75 ? -10 : 0;
+                lines.push('Memory: ' + Math.round(memory) + ' MB of ' + limit + ' MB (' + memPenalty + ')');
+            } else if (app.cloudhubVersion !== 'HYBRID') {
+                lines.push('Memory: N/A');
+            }
+
+            if (errorRate !== undefined) {
+                const errPenalty = errorRate > 10 ? -20 : errorRate > 5 ? -10 : errorRate > 1 ? -5 : 0;
+                lines.push('Error rate: ' + errorRate.toFixed(1) + '% (' + errPenalty + ')');
+            } else {
+                lines.push('Error rate: N/A');
+            }
+
+            return lines.join('\\n');
+        }
+
+        function normalizeCpuValue(value) {
+            if (typeof value !== 'number' || Number.isNaN(value)) {
+                return undefined;
+            }
+            const normalized = value <= 1 ? value * 100 : value;
+            return Math.max(0, Math.min(100, normalized));
+        }
+
+        function normalizeMemoryValue(value) {
+            if (typeof value !== 'number' || Number.isNaN(value)) {
+                return undefined;
+            }
+            if (value > 1024 * 1024) {
+                return value / (1024 * 1024);
+            }
+            if (value > 1024) {
+                return value / 1024;
+            }
+            return value;
         }
 
         function escapeHtmlJS(str) {
@@ -1190,6 +1412,7 @@ function renderAppRow(app: ApplicationSummary): string {
     const healthIcon = '&#9679;';
     const statusClass = ['RUNNING', 'STARTED', 'APPLIED'].includes(app.applicationStatus?.toUpperCase()) ? 'status-running' : 'status-stopped';
     const typeIcon = app.cloudhubVersion === 'CH1' ? '&#9729;' : app.cloudhubVersion === 'CH2' ? '&#9730;' : '&#9731;';
+    const tooltip = buildHealthTooltip(app);
 
     return `
         <tr class="app-row ${app.healthStatus}" data-app-id="${app.id}">
@@ -1197,7 +1420,7 @@ function renderAppRow(app: ApplicationSummary): string {
             <td><span class="type-badge ${app.cloudhubVersion.toLowerCase()}">${app.cloudhubVersion}</span></td>
             <td><span class="status-badge ${statusClass}">${app.applicationStatus || 'Unknown'}</span></td>
             <td class="health-cell">
-                <div class="health-indicator ${app.healthStatus}">
+                <div class="health-indicator ${app.healthStatus}" data-tooltip="${escapeHtml(tooltip)}" aria-label="${escapeHtml(tooltip)}" tabindex="0">
                     <span class="health-icon">${healthIcon}</span>
                     <span class="health-score">${app.healthScore}%</span>
                 </div>
@@ -1217,6 +1440,61 @@ function escapeHtml(str: string): string {
     return str.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
 }
 
+function buildHealthTooltip(app: ApplicationSummary): string {
+    const lines: string[] = [];
+    const status = app.applicationStatus?.toUpperCase() || '';
+    const runningStatuses = ['RUNNING', 'STARTED', 'APPLIED', 'DEPLOYING'];
+    const stoppedStatuses = ['STOPPED', 'UNDEPLOYED', 'NOT_RUNNING'];
+    const cpu = normalizeCpuValue(app.metrics?.cpu);
+    const memory = normalizeMemoryValue(app.metrics?.memory);
+    const errorRate = app.metrics?.errorRate;
+    const hasAnyMetrics = cpu !== undefined || memory !== undefined || errorRate !== undefined;
+
+    lines.push(`Score: ${app.healthScore}% (${app.healthStatus})`);
+
+    if (app.metricsError) {
+        const statusLabel = app.metricsStatus ? `HTTP ${app.metricsStatus}` : 'Unknown error';
+        lines.push(`Metrics: ${app.metricsError} (${statusLabel})`);
+    }
+
+    if (runningStatuses.includes(status)) {
+        lines.push(`Status: ${status || 'UNKNOWN'} (0)`);
+    } else if (stoppedStatuses.includes(status)) {
+        lines.push(`Status: ${status || 'UNKNOWN'} (-40)`);
+    } else {
+        lines.push(`Status: ${status || 'UNKNOWN'} (-20)`);
+    }
+
+    if (runningStatuses.includes(status) && !hasAnyMetrics) {
+        lines.push('Metrics: missing while running (-25)');
+    }
+
+    if (cpu !== undefined) {
+        const cpuPenalty = cpu > 90 ? -20 : cpu > 75 ? -10 : 0;
+        lines.push(`CPU: ${cpu.toFixed(1)}% (${cpuPenalty})`);
+    } else {
+        lines.push('CPU: N/A');
+    }
+
+    if (memory !== undefined && app.cloudhubVersion !== 'HYBRID') {
+        const limit = app.memoryLimitMB ?? 1024;
+        const memoryPercent = (memory / limit) * 100;
+        const memPenalty = memoryPercent > 90 ? -20 : memoryPercent > 75 ? -10 : 0;
+        lines.push(`Memory: ${Math.round(memory)} MB of ${limit} MB (${memPenalty})`);
+    } else if (app.cloudhubVersion !== 'HYBRID') {
+        lines.push('Memory: N/A');
+    }
+
+    if (errorRate !== undefined) {
+        const errPenalty = errorRate > 10 ? -20 : errorRate > 5 ? -10 : errorRate > 1 ? -5 : 0;
+        lines.push(`Error rate: ${errorRate.toFixed(1)}% (${errPenalty})`);
+    } else {
+        lines.push('Error rate: N/A');
+    }
+
+    return lines.join('\n');
+}
+
 function getBaseStyles(): string {
     return `
         :root {
@@ -1224,12 +1502,14 @@ function getBaseStyles(): string {
             --background-secondary: #161b22;
             --surface-primary: #21262d;
             --surface-secondary: #30363d;
+            --surface-accent: #0d1117;
             --text-primary: #f0f6fc;
             --text-secondary: #7d8590;
             --text-muted: #656d76;
             --accent-blue: #58a6ff;
             --accent-light: #79c0ff;
             --border-primary: #30363d;
+            --border-muted: #21262d;
             --success: #3fb950;
             --warning: #d29922;
             --error: #f85149;
@@ -1242,16 +1522,23 @@ function getBaseStyles(): string {
         }
 
         body {
-            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, sans-serif;
-            background-color: var(--background-primary);
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', 'Oxygen', 'Ubuntu', 'Cantarell', sans-serif;
+            background: var(--background-primary);
             color: var(--text-primary);
             line-height: 1.5;
+            padding: 24px;
+            overflow-x: hidden;
         }
 
         .container {
             max-width: 1400px;
             margin: 0 auto;
-            padding: 20px;
+            animation: fadeIn 0.6s ease-out;
+        }
+
+        @keyframes fadeIn {
+            from { opacity: 0; transform: translateY(20px); }
+            to { opacity: 1; transform: translateY(0); }
         }
     `;
 }
@@ -1264,13 +1551,33 @@ function getDashboardStyles(): string {
             justify-content: space-between;
             align-items: center;
             margin-bottom: 24px;
-            padding-bottom: 16px;
-            border-bottom: 1px solid var(--border-primary);
+            padding: 24px;
+            background: var(--background-secondary);
+            border: 1px solid var(--border-primary);
+            border-radius: 12px;
+            animation: slideDown 0.6s ease-out;
+            position: relative;
+            overflow: hidden;
+        }
+
+        .dashboard-header::before {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            height: 4px;
+            background: linear-gradient(90deg, var(--accent-blue), var(--success), var(--accent-light));
+        }
+
+        @keyframes slideDown {
+            from { opacity: 0; transform: translateY(-30px); }
+            to { opacity: 1; transform: translateY(0); }
         }
 
         .dashboard-header h1 {
             font-size: 24px;
-            font-weight: 600;
+            font-weight: 700;
             margin-bottom: 8px;
         }
 
@@ -1281,18 +1588,21 @@ function getDashboardStyles(): string {
 
         .badge {
             padding: 4px 12px;
-            border-radius: 12px;
+            border-radius: 6px;
             font-size: 12px;
             font-weight: 500;
+            border: 1px solid var(--border-primary);
+            background: var(--surface-primary);
+            color: var(--text-secondary);
         }
 
         .env-badge {
-            background: var(--accent-blue);
-            color: white;
+            background: var(--surface-primary);
+            color: var(--text-primary);
         }
 
         .org-badge {
-            background: var(--surface-secondary);
+            background: var(--surface-primary);
             color: var(--text-secondary);
         }
 
@@ -1311,31 +1621,35 @@ function getDashboardStyles(): string {
             display: flex;
             align-items: center;
             gap: 6px;
-            padding: 8px 16px;
-            border: none;
-            border-radius: 6px;
+            padding: 10px 18px;
+            border: 1px solid var(--border-primary);
+            border-radius: 8px;
             font-size: 14px;
-            font-weight: 500;
+            font-weight: 600;
             cursor: pointer;
-            transition: all 0.2s;
+            transition: all 0.3s ease;
         }
 
         .btn-primary {
-            background: var(--accent-blue);
-            color: white;
+            background: var(--surface-primary);
+            color: var(--text-primary);
         }
 
         .btn-primary:hover {
-            background: var(--accent-light);
+            background: var(--surface-secondary);
+            border-color: var(--accent-blue);
+            transform: translateY(-2px);
         }
 
         .btn-secondary {
-            background: var(--surface-secondary);
+            background: var(--surface-primary);
             color: var(--text-primary);
         }
 
         .btn-secondary:hover {
-            background: var(--surface-primary);
+            background: var(--surface-secondary);
+            border-color: var(--accent-blue);
+            transform: translateY(-2px);
         }
 
         /* Summary Cards */
@@ -1347,11 +1661,14 @@ function getDashboardStyles(): string {
         }
 
         .summary-card {
+            position: relative;
             background: var(--surface-primary);
-            border-radius: 12px;
+            border-radius: 8px;
             padding: 20px;
             text-align: center;
             border: 1px solid var(--border-primary);
+            transition: all 0.3s ease;
+            animation: slideUp 0.6s ease-out 0.1s both;
         }
 
         .summary-card .card-icon {
@@ -1376,6 +1693,12 @@ function getDashboardStyles(): string {
             margin-top: 8px;
         }
 
+        .summary-card:hover {
+            background: var(--surface-secondary);
+            transform: translateY(-4px);
+            border-color: var(--accent-blue);
+        }
+
         .summary-card.healthy .card-icon { color: var(--success); }
         .summary-card.healthy .card-value { color: var(--success); }
         .summary-card.warning .card-icon { color: var(--warning); }
@@ -1392,6 +1715,7 @@ function getDashboardStyles(): string {
             padding: 12px 16px;
             background: var(--surface-primary);
             border-radius: 8px;
+            border: 1px solid var(--border-primary);
         }
 
         .progress-bar {
@@ -1448,6 +1772,10 @@ function getDashboardStyles(): string {
             cursor: pointer;
         }
 
+        .search-input::placeholder {
+            color: var(--text-muted);
+        }
+
         /* Table */
         .table-container {
             background: var(--surface-primary);
@@ -1486,7 +1814,7 @@ function getDashboardStyles(): string {
         }
 
         .app-row {
-            transition: background 0.2s;
+            transition: background 0.2s, transform 0.2s;
         }
 
         .app-row:hover {
@@ -1516,11 +1844,12 @@ function getDashboardStyles(): string {
             border-radius: 4px;
             font-size: 11px;
             font-weight: 600;
+            border: 1px solid var(--border-primary);
         }
 
-        .type-badge.ch1 { background: #2e4a62; color: #79c0ff; }
-        .type-badge.ch2 { background: #1f4a2e; color: #7ee787; }
-        .type-badge.hybrid { background: #4a3a1f; color: #e3b341; }
+        .type-badge.ch1 { background: var(--surface-primary); color: var(--accent-light); }
+        .type-badge.ch2 { background: var(--surface-primary); color: var(--success); }
+        .type-badge.hybrid { background: var(--surface-primary); color: var(--warning); }
 
         .status-badge {
             display: inline-block;
@@ -1528,6 +1857,7 @@ function getDashboardStyles(): string {
             border-radius: 12px;
             font-size: 11px;
             font-weight: 500;
+            border: 1px solid var(--border-primary);
         }
 
         .status-badge.status-running {
@@ -1544,6 +1874,13 @@ function getDashboardStyles(): string {
             display: flex;
             align-items: center;
             gap: 8px;
+            padding: 4px 10px;
+            border-radius: 999px;
+            background: var(--surface-primary);
+            border: 1px solid var(--border-primary);
+            width: fit-content;
+            position: relative;
+            cursor: help;
         }
 
         .health-indicator.healthy .health-icon { color: var(--success); }
@@ -1554,14 +1891,62 @@ function getDashboardStyles(): string {
             font-weight: 500;
         }
 
+        .health-indicator::after {
+            content: attr(data-tooltip);
+            position: absolute;
+            left: 50%;
+            bottom: calc(100% + 12px);
+            transform: translateX(-50%) translateY(6px);
+            background: var(--background-secondary);
+            border: 1px solid var(--border-primary);
+            color: var(--text-primary);
+            font-size: 12px;
+            line-height: 1.4;
+            padding: 8px 10px;
+            border-radius: 8px;
+            white-space: pre-line;
+            min-width: 200px;
+            max-width: 260px;
+            opacity: 0;
+            pointer-events: none;
+            box-shadow: 0 8px 24px rgba(0, 0, 0, 0.35);
+            z-index: 10;
+            transition: opacity 0.2s ease, transform 0.2s ease;
+        }
+
+        .health-indicator::before {
+            content: '';
+            position: absolute;
+            left: 50%;
+            bottom: calc(100% + 4px);
+            transform: translateX(-50%);
+            border: 6px solid transparent;
+            border-top-color: var(--background-secondary);
+            opacity: 0;
+            transition: opacity 0.2s ease;
+            z-index: 11;
+        }
+
+        .health-indicator:hover::after,
+        .health-indicator:focus-visible::after,
+        .health-indicator:hover::before,
+        .health-indicator:focus-visible::before {
+            opacity: 1;
+        }
+
+        .health-indicator:hover::after,
+        .health-indicator:focus-visible::after {
+            transform: translateX(-50%) translateY(0);
+        }
+
         .actions-cell {
             display: flex;
             gap: 8px;
         }
 
         .action-btn {
-            background: var(--surface-secondary);
-            border: none;
+            background: var(--surface-primary);
+            border: 1px solid var(--border-primary);
             border-radius: 6px;
             padding: 6px 10px;
             cursor: pointer;
@@ -1570,7 +1955,8 @@ function getDashboardStyles(): string {
         }
 
         .action-btn:hover {
-            background: var(--accent-blue);
+            background: var(--surface-secondary);
+            border-color: var(--accent-blue);
         }
 
         .no-apps {
@@ -1582,6 +1968,11 @@ function getDashboardStyles(): string {
         .sort-icon {
             font-size: 10px;
             margin-left: 4px;
+        }
+
+        @keyframes slideUp {
+            from { opacity: 0; transform: translateY(30px); }
+            to { opacity: 1; transform: translateY(0); }
         }
     `;
 }
