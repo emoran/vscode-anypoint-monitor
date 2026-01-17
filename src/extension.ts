@@ -29,6 +29,7 @@ import { BASE_URL, getBaseUrl } from "./constants";
 import { showApplicationDiagram } from "./anypoint/applicationDiagram";
 import { showDataWeavePlayground } from "./anypoint/dataweavePlayground";
 import { showApplicationCommandCenter } from "./anypoint/applicationCommandCenter";
+import { showMultiAppDashboard } from "./anypoint/multiAppDashboard";
 import { registerCommandPalettePanel } from "./anypoint/commandPalettePanel";
 import { StarPromptManager } from "./utils/starPrompt";
 
@@ -796,6 +797,20 @@ export function activate(context: vscode.ExtensionContext) {
 		}
 	});
 
+	// Multi-App Overview Dashboard
+	const multiAppDashboardCmd = vscode.commands.registerCommand('anypoint-monitor.multiAppDashboard', async () => {
+		try {
+			const selectedEnvironmentId = await selectEnvironment(context);
+			if (!selectedEnvironmentId) {
+				return;
+			}
+			await showMultiAppDashboard(context, selectedEnvironmentId);
+			await starPromptManager.trackCommandExecution();
+		} catch (error: any) {
+			vscode.window.showErrorMessage(`Error opening Multi-App Dashboard: ${error.message}`);
+		}
+	});
+
 	// Hybrid / On-Premises Commands
 	const getHybridApps = vscode.commands.registerCommand('anypoint-monitor.hybridApps', async () => {
 		try {
@@ -880,6 +895,7 @@ export function activate(context: vscode.ExtensionContext) {
 	context.subscriptions.push(deleteAllAccountsCmd);
 	context.subscriptions.push(migrateLegacyAccountCmd);
 	context.subscriptions.push(applicationCommandCenterCmd);
+	context.subscriptions.push(multiAppDashboardCmd);
 	context.subscriptions.push(getHybridApps);
 	context.subscriptions.push(getHybridServersCmd);
 	context.subscriptions.push(getHybridServerGroupsCmd);

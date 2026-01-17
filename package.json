@@ -101,6 +101,7 @@
     "onCommand:anypoint-monitor.deleteAllAccounts",
     "onCommand:anypoint-monitor.migrateLegacyAccount",
     "onCommand:anypoint-monitor.applicationCommandCenter",
+    "onCommand:anypoint-monitor.multiAppDashboard",
     "onCommand:anypoint-monitor.hybridApps",
     "onCommand:anypoint-monitor.hybridServers",
     "onCommand:anypoint-monitor.hybridServerGroups",
@@ -201,6 +202,10 @@
       {
         "command": "anypoint-monitor.applicationCommandCenter",
         "title": "AM: Application Command Center"
+      },
+      {
+        "command": "anypoint-monitor.multiAppDashboard",
+        "title": "AM: Multi-App Overview Dashboard"
       },
       {
         "command": "anypoint-monitor.hybridApps",
