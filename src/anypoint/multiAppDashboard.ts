@@ -391,7 +391,84 @@ function normalizeHybridApp(app: any): ApplicationSummary {
 }
 
 // ============================================================================
-// METRICS FETCHING
+// VISUALIZER DATASOURCE CACHE
+// ============================================================================
+
+interface VisualizerDatasource {
+    id: number;
+    database: string;
+    baseUrl: string;
+    fetchedAt: number;
+}
+
+let cachedDatasource: VisualizerDatasource | null = null;
+const DATASOURCE_CACHE_TTL = 5 * 60 * 1000; // 5 minutes
+
+async function getVisualizerDatasource(
+    apiHelper: ApiHelper,
+    baseUrl: string
+): Promise<VisualizerDatasource | null> {
+    // Return cached if still valid
+    if (cachedDatasource && (Date.now() - cachedDatasource.fetchedAt) < DATASOURCE_CACHE_TTL) {
+        return cachedDatasource;
+    }
+
+    try {
+        const bootResponse = await apiHelper.get(`${baseUrl}/monitoring/api/visualizer/api/bootdata`);
+        const dataSources = bootResponse.data?.Settings?.datasources;
+
+        if (!dataSources) {
+            console.warn('Multi-App Dashboard: No datasources returned from monitoring boot endpoint');
+            return null;
+        }
+
+        const datasourcesArray = Object.values(dataSources) as any[];
+        const influxCandidates = datasourcesArray.filter((source: any) =>
+            (source?.type === 'influxdb') || source?.meta?.id === 'influxdb'
+        );
+
+        const influxEntry = influxCandidates.find((source: any) => {
+            const name = (source?.name || source?.meta?.name || '').toLowerCase();
+            return name === 'influxdb';
+        }) || influxCandidates[0];
+
+        if (!influxEntry) {
+            console.warn('Multi-App Dashboard: InfluxDB datasource not configured');
+            return null;
+        }
+
+        const datasourceId = Number(influxEntry.id || influxEntry.meta?.datasourceId || influxEntry.meta?.id);
+        const databaseRaw = influxEntry.database || influxEntry.jsonData?.database;
+        const database = typeof databaseRaw === 'string' ? databaseRaw.replace(/"/g, '') : undefined;
+
+        if (!datasourceId || !database) {
+            console.warn('Multi-App Dashboard: Incomplete datasource metadata');
+            return null;
+        }
+
+        cachedDatasource = {
+            id: datasourceId,
+            database,
+            baseUrl,
+            fetchedAt: Date.now()
+        };
+
+        if (METRICS_DEBUG_LOG) {
+            console.log('Multi-App Dashboard: Cached Visualizer datasource', {
+                datasourceId,
+                database
+            });
+        }
+
+        return cachedDatasource;
+    } catch (error: any) {
+        console.error('Multi-App Dashboard: Failed to get Visualizer datasource:', error?.message);
+        return null;
+    }
+}
+
+// ============================================================================
+// METRICS FETCHING (Using Visualizer API like Command Center)
 // ============================================================================
 
 async function handleLoadMetrics(
@@ -401,28 +478,67 @@ async function handleLoadMetrics(
 ): Promise<void> {
     const { applications, environmentId, organizationId } = dashboardData;
 
-    if (applications.length === 0) {
+    // Filter to only CloudHub apps (not Hybrid - they don't have Visualizer metrics)
+    const cloudhubApps = applications.filter(app => app.cloudhubVersion !== 'HYBRID');
+
+    if (cloudhubApps.length === 0) {
+        dashboardData.metricsLoadingState = 'complete';
+        panel.webview.postMessage({
+            command: 'metricsLoadingComplete',
+            summary: dashboardData.summary
+        });
         return;
     }
 
     dashboardData.metricsLoadingState = 'loading';
     panel.webview.postMessage({
         command: 'metricsLoadingStarted',
-        total: applications.length
+        total: cloudhubApps.length
     });
 
     const apiHelper = new ApiHelper(context);
     const baseUrl = await getBaseUrl(context);
 
+    // Get Visualizer datasource (cached)
+    const datasource = await getVisualizerDatasource(apiHelper, baseUrl);
+
+    if (!datasource) {
+        // Fallback: mark all as no metrics available
+        cloudhubApps.forEach(app => {
+            app.metricsError = 'Visualizer not available';
+            const health = calculateApplicationHealth(app, undefined);
+            app.healthScore = health.score;
+            app.healthStatus = health.status;
+        });
+
+        dashboardData.summary = calculateSummary(applications);
+        dashboardData.metricsLoadingState = 'complete';
+
+        panel.webview.postMessage({
+            command: 'metricsLoadingComplete',
+            summary: dashboardData.summary
+        });
+        return;
+    }
+
+    const timezone = Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC';
+
     // Process in batches
-    const batches = chunkArray(applications, METRICS_BATCH_SIZE);
+    const batches = chunkArray(cloudhubApps, METRICS_BATCH_SIZE);
     let completed = 0;
 
     for (let i = 0; i < batches.length; i++) {
         const batch = batches[i];
 
         const batchResults = await Promise.allSettled(
-            batch.map(app => fetchSingleAppMetrics(apiHelper, baseUrl, app, environmentId, organizationId))
+            batch.map(app => fetchAppVisualizerMetrics(
+                apiHelper,
+                datasource,
+                app,
+                environmentId,
+                organizationId,
+                timezone
+            ))
         );
 
         // Update metrics for each app
@@ -451,7 +567,7 @@ async function handleLoadMetrics(
         panel.webview.postMessage({
             command: 'metricsProgress',
             completed,
-            total: applications.length,
+            total: cloudhubApps.length,
             updatedApps: batch.map(app => ({
                 id: app.id,
                 metrics: app.metrics,
@@ -478,87 +594,230 @@ async function handleLoadMetrics(
     });
 }
 
-async function fetchSingleAppMetrics(
+async function fetchAppVisualizerMetrics(
     apiHelper: ApiHelper,
-    baseUrl: string,
+    datasource: VisualizerDatasource,
     app: ApplicationSummary,
     environmentId: string,
-    organizationId: string
+    organizationId: string,
+    timezone: string
 ): Promise<MetricsBatchResponse> {
-    const to = new Date();
-    const from = new Date(to.getTime() - 15 * 60 * 1000); // Last 15 minutes
+    const rangeMinutes = 15;
+    const appIdentifier = deriveAppIdentifier(app);
+    const condition = `("org_id" = '${organizationId}' AND "env_id" = '${environmentId}' AND "app_id" = '${appIdentifier}')`;
 
-    const params = new URLSearchParams({
-        from: from.toISOString(),
-        to: to.toISOString(),
-        detailed: 'false'
-    });
-
-    const appIdentifier = app.deploymentId || app.domain;
-    const url = `${baseUrl}/monitoring/query/api/v1/organizations/${organizationId}/environments/${environmentId}/applications/${encodeURIComponent(appIdentifier)}?${params.toString()}`;
+    if (METRICS_DEBUG_LOG) {
+        console.log('Multi-App Dashboard: Fetching Visualizer metrics', {
+            appId: app.id,
+            appName: app.name,
+            appIdentifier,
+            cloudhubVersion: app.cloudhubVersion
+        });
+    }
 
     try {
+        // Fetch CPU, Memory, and Error Rate in parallel
+        const [cpuResult, memoryResult, errorRateResult] = await Promise.allSettled([
+            fetchVisualizerMetric(apiHelper, datasource, 'jvm.cpu.operatingsystem', 'cpu', condition, timezone, rangeMinutes, 100),
+            fetchVisualizerMetric(apiHelper, datasource, 'jvm.memory', 'heap_used', condition, timezone, rangeMinutes, 1 / (1024 * 1024)),
+            fetchErrorRate(apiHelper, datasource, condition, timezone, rangeMinutes)
+        ]);
+
+        const metrics: MetricsBatchResponse['metrics'] = {};
+
+        if (cpuResult.status === 'fulfilled' && cpuResult.value !== undefined) {
+            metrics.cpu = Math.max(0, Math.min(100, cpuResult.value));
+        }
+
+        if (memoryResult.status === 'fulfilled' && memoryResult.value !== undefined) {
+            metrics.memory = Math.round(memoryResult.value);
+        }
+
+        if (errorRateResult.status === 'fulfilled' && errorRateResult.value !== undefined) {
+            metrics.errorRate = errorRateResult.value;
+        }
+
+        const hasMetrics = metrics.cpu !== undefined || metrics.memory !== undefined || metrics.errorRate !== undefined;
 
         if (METRICS_DEBUG_LOG) {
-            console.log('Multi-App Dashboard: Metrics request', {
+            console.log('Multi-App Dashboard: Visualizer metrics result', {
                 appId: app.id,
                 appName: app.name,
-                appIdentifier,
-                url
+                metrics,
+                hasMetrics
             });
         }
 
+        return {
+            appId: app.id,
+            success: hasMetrics,
+            metrics: hasMetrics ? metrics : undefined,
+            error: hasMetrics ? undefined : 'No metrics data'
+        };
+    } catch (error: any) {
+        console.warn('Multi-App Dashboard: Visualizer metrics error', {
+            appId: app.id,
+            appName: app.name,
+            error: error?.message
+        });
+        return {
+            appId: app.id,
+            success: false,
+            error: error?.message || 'Failed to fetch metrics'
+        };
+    }
+}
+
+async function fetchVisualizerMetric(
+    apiHelper: ApiHelper,
+    datasource: VisualizerDatasource,
+    measurement: string,
+    field: string,
+    condition: string,
+    timezone: string,
+    rangeMinutes: number,
+    scale: number
+): Promise<number | undefined> {
+    const query = `SELECT mean("${field}") FROM "${measurement}" WHERE ${condition} AND time >= now() - ${rangeMinutes}m GROUP BY time(1m) fill(none) tz('${timezone}')`;
+    const encodedQuery = encodeURIComponent(query);
+    const url = `${datasource.baseUrl}/monitoring/api/visualizer/api/datasources/proxy/${datasource.id}/query?db="${datasource.database}"&q=${encodedQuery}&epoch=ms`;
+
+    try {
         const response = await Promise.race([
-            apiHelper.get(url, {
-                headers: {
-                    'X-ANYPNT-ENV-ID': environmentId,
-                    'X-ANYPNT-ORG-ID': organizationId
-                }
-            }),
+            apiHelper.get(url),
             rejectAfterTimeout(METRICS_TIMEOUT)
         ]) as any;
 
-        if (response.status === 200 && response.data) {
-            const metrics = extractMetricsFromResponse(response.data);
-            if (METRICS_DEBUG_LOG) {
-                const dataKeys = typeof response.data === 'object' && response.data
-                    ? Object.keys(response.data).slice(0, 25)
-                    : [];
-                const metricsKeys = response.data?.metrics && typeof response.data.metrics === 'object'
-                    ? Object.keys(response.data.metrics).slice(0, 25)
-                    : [];
-                console.log('Multi-App Dashboard: Metrics response', {
-                    appId: app.id,
-                    appName: app.name,
-                    status: response.status,
-                    dataKeys,
-                    metricsKeys,
-                    metrics
-                });
+        if (response.status === 200 && response.data?.results?.[0]?.series?.[0]?.values) {
+            const values = response.data.results[0].series[0].values;
+            // Get the most recent non-null value
+            for (let i = values.length - 1; i >= 0; i--) {
+                const value = values[i][1];
+                if (value !== null && value !== undefined) {
+                    return value * scale;
+                }
             }
-            return { appId: app.id, success: true, metrics, status: response.status };
+        }
+        return undefined;
+    } catch (error) {
+        return undefined;
+    }
+}
+
+async function fetchErrorRate(
+    apiHelper: ApiHelper,
+    datasource: VisualizerDatasource,
+    condition: string,
+    timezone: string,
+    rangeMinutes: number
+): Promise<number | undefined> {
+    try {
+        // Fetch total requests and failed requests in parallel
+        // Use GROUP BY time(1m) and fill(0) to match Command Center query format
+        const totalQuery = `SELECT sum("avg_request_count") FROM "app_inbound_metric" WHERE ${condition} AND time >= now() - ${rangeMinutes}m GROUP BY time(1m) fill(0) tz('${timezone}')`;
+        const failedQuery = `SELECT sum("avg_request_count") FROM "app_inbound_metric" WHERE ${condition} AND "response_type" = 'FAILED' AND time >= now() - ${rangeMinutes}m GROUP BY time(1m) fill(0) tz('${timezone}')`;
+
+        if (METRICS_DEBUG_LOG) {
+            console.log('Multi-App Dashboard: Fetching error rate', { totalQuery, failedQuery });
         }
 
-        console.warn('Multi-App Dashboard: Metrics request failed', {
-            appId: app.id,
-            appName: app.name,
-            status: response.status,
-            url
-        });
+        const [totalResponse, failedResponse] = await Promise.all([
+            Promise.race([
+                apiHelper.get(`${datasource.baseUrl}/monitoring/api/visualizer/api/datasources/proxy/${datasource.id}/query?db="${datasource.database}"&q=${encodeURIComponent(totalQuery)}&epoch=ms`),
+                rejectAfterTimeout(METRICS_TIMEOUT)
+            ]) as Promise<any>,
+            Promise.race([
+                apiHelper.get(`${datasource.baseUrl}/monitoring/api/visualizer/api/datasources/proxy/${datasource.id}/query?db="${datasource.database}"&q=${encodeURIComponent(failedQuery)}&epoch=ms`),
+                rejectAfterTimeout(METRICS_TIMEOUT)
+            ]) as Promise<any>
+        ]);
 
-        return { appId: app.id, success: false, error: `HTTP ${response.status}`, status: response.status };
+        if (METRICS_DEBUG_LOG) {
+            console.log('Multi-App Dashboard: Error rate responses', {
+                totalStatus: totalResponse.status,
+                totalHasSeries: !!totalResponse.data?.results?.[0]?.series,
+                failedStatus: failedResponse.status,
+                failedHasSeries: !!failedResponse.data?.results?.[0]?.series
+            });
+        }
+
+        // Extract total request count
+        let totalRequests = 0;
+        if (totalResponse.status === 200 && totalResponse.data?.results?.[0]?.series?.[0]?.values) {
+            const values = totalResponse.data.results[0].series[0].values;
+            for (const row of values) {
+                if (row[1] !== null && row[1] !== undefined) {
+                    totalRequests += row[1];
+                }
+            }
+        }
+
+        // Extract failed request count
+        let failedRequests = 0;
+        if (failedResponse.status === 200 && failedResponse.data?.results?.[0]?.series?.[0]?.values) {
+            const values = failedResponse.data.results[0].series[0].values;
+            for (const row of values) {
+                if (row[1] !== null && row[1] !== undefined) {
+                    failedRequests += row[1];
+                }
+            }
+        }
+
+        if (METRICS_DEBUG_LOG) {
+            console.log('Multi-App Dashboard: Error rate counts', { totalRequests, failedRequests });
+        }
+
+        // Calculate error rate as percentage
+        if (totalRequests > 0) {
+            const errorRate = (failedRequests / totalRequests) * 100;
+            if (METRICS_DEBUG_LOG) {
+                console.log('Multi-App Dashboard: Error rate calculated', {
+                    totalRequests,
+                    failedRequests,
+                    errorRate: errorRate.toFixed(2) + '%'
+                });
+            }
+            return Math.round(errorRate * 100) / 100; // Round to 2 decimal places
+        }
+
+        // No requests in the time range - return 0 (no errors)
+        if (METRICS_DEBUG_LOG) {
+            console.log('Multi-App Dashboard: No requests found, returning 0% error rate');
+        }
+        return 0;
     } catch (error: any) {
-        const status = error?.response?.status;
-        console.warn('Multi-App Dashboard: Metrics request error', {
-            appId: app.id,
-            appName: app.name,
-            status,
-            url,
-            message: error?.message,
-            data: error?.response?.data
-        });
-        return { appId: app.id, success: false, error: error.message || 'Timeout', status };
+        if (METRICS_DEBUG_LOG) {
+            console.warn('Multi-App Dashboard: Error fetching error rate', {
+                message: error?.message,
+                stack: error?.stack
+            });
+        }
+        return undefined;
     }
+}
+
+function deriveAppIdentifier(app: ApplicationSummary): string {
+    // For CH1: use domain with cloudhub.io suffix
+    if (app.cloudhubVersion === 'CH1') {
+        const domain = app.domain || app.name;
+        // Check if already has cloudhub.io
+        if (domain.includes('.cloudhub.io')) {
+            return domain.toLowerCase();
+        }
+        // Try to derive from rawData
+        const fullDomain = app.rawData?.fullDomain ||
+                          app.rawData?.fullDomains?.[0] ||
+                          app.rawData?.dnsInfo?.fullDomain;
+        if (fullDomain) {
+            return fullDomain.toLowerCase();
+        }
+        // Build from region
+        const region = app.rawData?.region || app.region || 'us-e1';
+        return `${domain}.${region}.cloudhub.io`.toLowerCase();
+    }
+
+    // For CH2: use application name
+    return (app.name || app.domain).toLowerCase();
 }
 
 function extractMetricsFromResponse(data: any): MetricsBatchResponse['metrics'] {
