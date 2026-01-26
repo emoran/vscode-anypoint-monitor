@@ -1287,21 +1287,59 @@ function normalizeApplicationName(appName: string, environmentName: string): str
     return normalizedName || appName; // Fallback to original if normalization results in empty string
 }
 
+// Function to sort environments by priority: PRD > QUA > DEV (highest to lowest)
+// This provides better operational analysis workflow with production-first view
+function sortEnvironmentsByPriority(environments: any[]): any[] {
+    const envPriority: { [key: string]: number } = {
+        'prod': 100, 'production': 100, 'prd': 100,
+        'qua': 80, 'qa': 80, 'quality': 80,
+        'uat': 70, 'useracceptance': 70,
+        'stage': 60, 'staging': 60, 'stg': 60,
+        'dev': 40, 'develop': 40, 'development': 40,
+        'test': 30, 'testing': 30, 'tst': 30,
+        'sandbox': 20, 'sbx': 20, 'demo': 20
+    };
+
+    return [...environments].sort((a, b) => {
+        const aName = (a.name || '').toLowerCase();
+        const bName = (b.name || '').toLowerCase();
+        const aPriority = envPriority[aName] || 0;
+        const bPriority = envPriority[bName] || 0;
+        return bPriority - aPriority; // Higher priority first
+    });
+}
+
 // Function to find the best application group name
+// Prioritizes PRD/Production environment names as the canonical source
 function getBestApplicationGroupName(apps: any[]): string {
     if (!apps || apps.length === 0) return '';
-    
-    // Find the longest common name (likely the most descriptive)
-    const names = apps.map(app => app.originalName || app.name);
-    let bestName = names[0];
-    
-    for (const name of names) {
-        if (name.length > bestName.length) {
-            bestName = name;
+
+    // Environment priority order: PRD > QUA > UAT > STAGE > DEV > TEST
+    const envPriority: { [key: string]: number } = {
+        'prod': 100, 'production': 100, 'prd': 100,
+        'qua': 80, 'qa': 80, 'quality': 80,
+        'uat': 70, 'useracceptance': 70,
+        'stage': 60, 'staging': 60, 'stg': 60,
+        'dev': 40, 'develop': 40, 'development': 40,
+        'test': 30, 'testing': 30, 'tst': 30,
+        'sandbox': 20, 'sbx': 20, 'demo': 20
+    };
+
+    // Find the app from the highest priority environment
+    let bestApp = apps[0];
+    let bestPriority = 0;
+
+    for (const app of apps) {
+        const envName = (app.environmentName || '').toLowerCase();
+        const priority = envPriority[envName] || 0;
+
+        if (priority > bestPriority) {
+            bestPriority = priority;
+            bestApp = app;
         }
     }
-    
-    return bestName;
+
+    return bestApp.originalName || bestApp.name || '';
 }
 
 export async function getEnvironmentComparison(context: vscode.ExtensionContext) {
@@ -1345,8 +1383,11 @@ export async function getEnvironmentComparison(context: vscode.ExtensionContext)
         return;
     }
 
+    // Sort environments by priority: PRD → QUA → DEV
+    const sortedEnvironments = sortEnvironmentsByPriority(filteredEnvironments);
+
     const comparisonData: any = {
-        environments: filteredEnvironments,
+        environments: sortedEnvironments,
         applications: {}
     };
 
