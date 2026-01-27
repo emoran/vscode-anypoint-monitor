@@ -163,18 +163,21 @@ function getEnvironmentComparisonHtml(
         }
         
         .comparison-table-container {
-            overflow-x: auto;
+            overflow: auto;
             border: 1px solid var(--vscode-panel-border);
             border-radius: 6px;
             background-color: var(--vscode-panel-background);
+            max-height: calc(100vh - 280px);
+            position: relative;
         }
-        
+
         .comparison-table {
             width: 100%;
-            border-collapse: collapse;
+            border-collapse: separate;
+            border-spacing: 0;
             min-width: 800px;
         }
-        
+
         .comparison-table th,
         .comparison-table td {
             padding: 12px;
@@ -182,29 +185,34 @@ function getEnvironmentComparisonHtml(
             border-bottom: 1px solid var(--vscode-panel-border);
             vertical-align: top;
         }
-        
-        .comparison-table th {
-            background-color: var(--vscode-panel-background);
-            color: var(--vscode-foreground);
-            font-weight: 600;
+
+        .comparison-table thead {
             position: sticky;
             top: 0;
             z-index: 10;
-            border-bottom: 2px solid var(--vscode-panel-border);
         }
-        
+
+        .comparison-table th {
+            background-color: var(--vscode-editor-background);
+            color: var(--vscode-foreground);
+            font-weight: 600;
+            border-bottom: 2px solid var(--vscode-panel-border);
+            box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+        }
+
         .comparison-table th:first-child {
             position: sticky;
             left: 0;
-            z-index: 11;
-            background-color: var(--vscode-panel-background);
+            z-index: 12;
+            background-color: var(--vscode-editor-background);
             border-right: 1px solid var(--vscode-panel-border);
             min-width: 200px;
         }
-        
+
         .comparison-table td:first-child {
             position: sticky;
             left: 0;
+            z-index: 5;
             background-color: var(--vscode-panel-background);
             font-weight: 500;
             border-right: 1px solid var(--vscode-panel-border);
