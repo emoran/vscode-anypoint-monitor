@@ -1398,6 +1398,14 @@ export async function getEnvironmentComparison(context: vscode.ExtensionContext)
     // Sort environments by priority: PRD → QUA → DEV
     const sortedEnvironments = sortEnvironmentsByPriority(filteredEnvironments);
 
+    // Debug: Log sorted environments
+    console.log('Environment Comparison - Sorted Environments:', sortedEnvironments.map(e => ({
+        name: e.name,
+        type: e.type,
+        id: e.id,
+        priority: getEnvironmentPriority(e.name, e.type)
+    })));
+
     const comparisonData: any = {
         environments: sortedEnvironments,
         applications: {}

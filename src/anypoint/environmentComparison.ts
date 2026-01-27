@@ -106,6 +106,10 @@ function getEnvironmentComparisonHtml(
   const applications = Object.values(comparisonData.applications) as any[];
   const environments = comparisonData.environments || [];
 
+  // Debug: Log environments received
+  console.log('Environment Comparison HTML - Environments received:', environments.length);
+  console.log('Environment Comparison HTML - Environment names:', environments.map((e: any) => e.name));
+
   return `
 <!DOCTYPE html>
 <html lang="en">
@@ -276,7 +280,59 @@ function getEnvironmentComparisonHtml(
         .env-cell {
             min-width: 200px;
         }
-        
+
+        .env-header {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 4px;
+        }
+
+        .env-name {
+            font-weight: 600;
+            font-size: 13px;
+        }
+
+        .env-badge {
+            display: inline-block;
+            padding: 2px 8px;
+            border-radius: 10px;
+            font-size: 10px;
+            font-weight: 700;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+
+        .env-badge-prod {
+            background-color: #dc3545;
+            color: white;
+        }
+
+        .env-badge-qa {
+            background-color: #fd7e14;
+            color: white;
+        }
+
+        .env-badge-uat {
+            background-color: #6f42c1;
+            color: white;
+        }
+
+        .env-badge-stage {
+            background-color: #17a2b8;
+            color: white;
+        }
+
+        .env-badge-dev {
+            background-color: #28a745;
+            color: white;
+        }
+
+        .env-badge-test {
+            background-color: #6c757d;
+            color: white;
+        }
+
         .env-details {
             display: flex;
             flex-direction: column;
@@ -551,7 +607,40 @@ function getEnvironmentComparisonHtml(
             <thead>
                 <tr>
                     <th>Application Name</th>
-                    ${environments.map((env: any) => `<th class="env-cell">${env.name}</th>`).join('')}
+                    ${environments.map((env: any) => {
+                        const envType = (env.type || '').toLowerCase();
+                        const envName = (env.name || '').toLowerCase();
+                        let badge = '';
+                        let badgeClass = '';
+
+                        // Determine environment badge based on type or name
+                        if (envType.includes('prod') || envName.includes('prod') || envName.includes('prd')) {
+                            badge = 'PRD';
+                            badgeClass = 'env-badge-prod';
+                        } else if (envType.includes('qa') || envName.includes('qa') || envName.includes('qua') || envName.includes('quality')) {
+                            badge = 'QA';
+                            badgeClass = 'env-badge-qa';
+                        } else if (envType.includes('uat') || envName.includes('uat')) {
+                            badge = 'UAT';
+                            badgeClass = 'env-badge-uat';
+                        } else if (envType.includes('stag') || envName.includes('stag') || envName.includes('stg')) {
+                            badge = 'STG';
+                            badgeClass = 'env-badge-stage';
+                        } else if (envType.includes('sandbox') || envType.includes('dev') || envName.includes('dev') || envName.includes('sandbox')) {
+                            badge = 'DEV';
+                            badgeClass = 'env-badge-dev';
+                        } else if (envType.includes('test') || envName.includes('test')) {
+                            badge = 'TST';
+                            badgeClass = 'env-badge-test';
+                        }
+
+                        return `<th class="env-cell">
+                            <div class="env-header">
+                                <span class="env-name">${env.name || 'Unknown'}</span>
+                                ${badge ? `<span class="env-badge ${badgeClass}">${badge}</span>` : ''}
+                            </div>
+                        </th>`;
+                    }).join('')}
                 </tr>
             </thead>
             <tbody>
