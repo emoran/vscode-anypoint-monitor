@@ -1287,24 +1287,48 @@ function normalizeApplicationName(appName: string, environmentName: string): str
     return normalizedName || appName; // Fallback to original if normalization results in empty string
 }
 
+// Helper function to get environment priority by checking keywords within the name
+function getEnvironmentPriority(envName: string, envType?: string): number {
+    const name = (envName || '').toLowerCase();
+    const type = (envType || '').toLowerCase();
+
+    // Priority keywords ordered from highest to lowest
+    // Check both environment name and type
+    const priorityPatterns: { keywords: string[], priority: number }[] = [
+        { keywords: ['prod', 'production', 'prd', 'live', 'prem'], priority: 100 },
+        { keywords: ['qua', 'qa', 'quality'], priority: 80 },
+        { keywords: ['uat', 'useracceptance', 'acceptance'], priority: 70 },
+        { keywords: ['stage', 'staging', 'stg', 'preprod', 'pre-prod'], priority: 60 },
+        { keywords: ['dev', 'develop', 'development'], priority: 40 },
+        { keywords: ['test', 'testing', 'tst'], priority: 30 },
+        { keywords: ['sandbox', 'sbx', 'demo', 'trial'], priority: 20 }
+    ];
+
+    // First check environment type (if available) - this is more reliable
+    if (type) {
+        for (const pattern of priorityPatterns) {
+            if (pattern.keywords.some(kw => type.includes(kw))) {
+                return pattern.priority;
+            }
+        }
+    }
+
+    // Then check environment name for keywords
+    for (const pattern of priorityPatterns) {
+        if (pattern.keywords.some(kw => name.includes(kw))) {
+            return pattern.priority;
+        }
+    }
+
+    return 0; // Unknown environment type
+}
+
 // Function to sort environments by priority: PRD > QUA > DEV (highest to lowest)
 // This provides better operational analysis workflow with production-first view
 function sortEnvironmentsByPriority(environments: any[]): any[] {
-    const envPriority: { [key: string]: number } = {
-        'prod': 100, 'production': 100, 'prd': 100,
-        'qua': 80, 'qa': 80, 'quality': 80,
-        'uat': 70, 'useracceptance': 70,
-        'stage': 60, 'staging': 60, 'stg': 60,
-        'dev': 40, 'develop': 40, 'development': 40,
-        'test': 30, 'testing': 30, 'tst': 30,
-        'sandbox': 20, 'sbx': 20, 'demo': 20
-    };
-
     return [...environments].sort((a, b) => {
-        const aName = (a.name || '').toLowerCase();
-        const bName = (b.name || '').toLowerCase();
-        const aPriority = envPriority[aName] || 0;
-        const bPriority = envPriority[bName] || 0;
+        const aPriority = getEnvironmentPriority(a.name, a.type);
+        const bPriority = getEnvironmentPriority(b.name, b.type);
         return bPriority - aPriority; // Higher priority first
     });
 }
@@ -1314,24 +1338,12 @@ function sortEnvironmentsByPriority(environments: any[]): any[] {
 function getBestApplicationGroupName(apps: any[]): string {
     if (!apps || apps.length === 0) return '';
 
-    // Environment priority order: PRD > QUA > UAT > STAGE > DEV > TEST
-    const envPriority: { [key: string]: number } = {
-        'prod': 100, 'production': 100, 'prd': 100,
-        'qua': 80, 'qa': 80, 'quality': 80,
-        'uat': 70, 'useracceptance': 70,
-        'stage': 60, 'staging': 60, 'stg': 60,
-        'dev': 40, 'develop': 40, 'development': 40,
-        'test': 30, 'testing': 30, 'tst': 30,
-        'sandbox': 20, 'sbx': 20, 'demo': 20
-    };
-
     // Find the app from the highest priority environment
     let bestApp = apps[0];
     let bestPriority = 0;
 
     for (const app of apps) {
-        const envName = (app.environmentName || '').toLowerCase();
-        const priority = envPriority[envName] || 0;
+        const priority = getEnvironmentPriority(app.environmentName, app.environmentType);
 
         if (priority > bestPriority) {
             bestPriority = priority;
@@ -1429,6 +1441,7 @@ export async function getEnvironmentComparison(context: vscode.ExtensionContext)
                         normalizedName: normalizedName,
                         environmentId: env.id,
                         environmentName: env.name,
+                        environmentType: env.type,
                         type: 'CH1',
                         deploymentData: {
                             environmentName: env.name,
@@ -1515,6 +1528,7 @@ export async function getEnvironmentComparison(context: vscode.ExtensionContext)
                         normalizedName: normalizedName,
                         environmentId: env.id,
                         environmentName: env.name,
+                        environmentType: env.type,
                         type: 'CH2',
                         deploymentData: {
                         environmentName: env.name,
