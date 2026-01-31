@@ -77,25 +77,54 @@ panel.webview.onDidReceiveMessage(async (message) => {
         console.log('🚀 Processing openApplicationDetails command...');
         console.log('App name to open:', message.appName);
         console.log('App data:', JSON.stringify(message.appData, null, 2));
-        
+        console.log('Environment from message:', message.environment);
+        console.log('Environment from function param:', environment);
+
         // Get the environment info using multi-account system
         const { AccountService } = await import('../controllers/accountService.js');
         const accountService = new AccountService(context);
         const activeAccount = await accountService.getActiveAccount();
-        
-        let environmentInfo = { id: '', name: environment };
-        
+
+        // Use the environment from message or function parameter
+        const targetEnvironmentName = message.environment || environment;
+        let environmentInfo = { id: '', name: targetEnvironmentName };
+
         if (activeAccount) {
           const environmentsData = await accountService.getAccountData(activeAccount.id, 'environments');
           if (environmentsData) {
             try {
               const parsedEnvironments = JSON.parse(environmentsData);
               if (parsedEnvironments.data && parsedEnvironments.data.length > 0) {
-                environmentInfo = { 
-                  id: parsedEnvironments.data[0].id, 
-                  name: parsedEnvironments.data[0].name || environment 
-                };
-                console.log('✅ Retrieved environment info from multi-account system:', environmentInfo);
+                // Find the matching environment by name (case-insensitive)
+                const matchingEnv = parsedEnvironments.data.find((env: any) =>
+                  env.name?.toLowerCase() === targetEnvironmentName.toLowerCase() ||
+                  env.id === targetEnvironmentName
+                );
+
+                if (matchingEnv) {
+                  environmentInfo = {
+                    id: matchingEnv.id,
+                    name: matchingEnv.name || targetEnvironmentName
+                  };
+                  console.log('✅ Found matching environment:', environmentInfo);
+                } else {
+                  // Fallback: try to find by partial match
+                  const partialMatch = parsedEnvironments.data.find((env: any) =>
+                    env.name?.toLowerCase().includes(targetEnvironmentName.toLowerCase()) ||
+                    targetEnvironmentName.toLowerCase().includes(env.name?.toLowerCase())
+                  );
+
+                  if (partialMatch) {
+                    environmentInfo = {
+                      id: partialMatch.id,
+                      name: partialMatch.name || targetEnvironmentName
+                    };
+                    console.log('✅ Found partial matching environment:', environmentInfo);
+                  } else {
+                    console.warn('⚠️ Could not find matching environment for:', targetEnvironmentName);
+                    console.warn('⚠️ Available environments:', parsedEnvironments.data.map((e: any) => e.name));
+                  }
+                }
               }
             } catch (error) {
               console.error('❌ Failed to parse environments data:', error);

@@ -2732,20 +2732,33 @@ export async function showApplicationCommandCenter(
 
             if (!appInfo) {
                 // Create appInfo from preselected data
-                // Check if it's a Hybrid app by looking for cloudhubVersion or deploymentType
-                const isHybrid = preselectedAppData.cloudhubVersion === 'HYBRID' ||
-                                 preselectedAppData.deploymentType === 'HYBRID';
+                // Determine cloudhub version - check explicit marker first, then infer from data structure
+                let detectedVersion: 'CH1' | 'CH2' | 'HYBRID' = 'CH1';
+
+                if (preselectedAppData.cloudhubVersion === 'HYBRID' || preselectedAppData.deploymentType === 'HYBRID') {
+                    detectedVersion = 'HYBRID';
+                } else if (preselectedAppData.cloudhubVersion === 'CH2' ||
+                           preselectedAppData.target ||
+                           preselectedAppData.deploymentId ||
+                           preselectedAppData.replicas !== undefined) {
+                    detectedVersion = 'CH2';
+                }
+
+                console.log(`🔍 Detected cloudhub version: ${detectedVersion} for app: ${preselectedAppName}`);
+                console.log(`🔍 Detection criteria: cloudhubVersion=${preselectedAppData.cloudhubVersion}, target=${!!preselectedAppData.target}, deploymentId=${preselectedAppData.deploymentId}`);
 
                 appInfo = {
                     label: preselectedAppData.name || preselectedAppData.domain || preselectedAppName,
                     domain: preselectedAppData.domain || preselectedAppData.name || preselectedAppName,
-                    cloudhubVersion: isHybrid ? 'HYBRID' as const : (preselectedAppData.target ? 'CH2' as const : 'CH1' as const),
-                    deploymentId: preselectedAppData.id || preselectedAppData.target?.id || preselectedAppData.targetId,
+                    cloudhubVersion: detectedVersion,
+                    deploymentId: preselectedAppData.deploymentId || preselectedAppData.id || preselectedAppData.target?.id || preselectedAppData.targetId,
                     specificationId: preselectedAppData.specificationId,
-                    status: preselectedAppData.status || preselectedAppData.lastReportedStatus,
-                    applicationStatus: preselectedAppData.status || preselectedAppData.lastReportedStatus,
+                    status: preselectedAppData.status || preselectedAppData.application?.status || preselectedAppData.lastReportedStatus,
+                    applicationStatus: preselectedAppData.application?.status || preselectedAppData.status || preselectedAppData.lastReportedStatus,
                     rawData: preselectedAppData
                 };
+
+                console.log(`🔍 Created appInfo:`, JSON.stringify(appInfo, null, 2));
             }
             console.log(`🎯 Using preselected app: ${preselectedAppName}`, appInfo);
         } else {

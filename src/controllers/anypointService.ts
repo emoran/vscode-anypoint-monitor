@@ -1034,8 +1034,20 @@ export async function getCH2Applications(context: vscode.ExtensionContext, envir
 
         // Different response formats for different APIs
         if (regionId === 'us') {
-            // Application Manager API returns different format
-            transformedData = data;
+            // Application Manager API returns { items: [...] } format
+            // Add cloudhubVersion marker to each app for Command Center identification
+            const items = data.items || data.data || (Array.isArray(data) ? data : []);
+            const normalizedItems = items.map((app: any) => ({
+                ...app,
+                cloudhubVersion: 'CH2',
+                deploymentId: app.id,  // Ensure deploymentId is set
+                domain: app.name,      // Ensure domain is set for consistency
+            }));
+            transformedData = {
+                items: normalizedItems,
+                total: normalizedItems.length
+            };
+            console.log(`CloudHub 2.0: Normalized ${normalizedItems.length} apps from US Application Manager API`);
         } else {
             // ARM API returns: { data: [...], total: N, error: [...] }
             // Filter for CloudHub 2.0 apps only (target.type === "MC" and target.subtype === "shared-space")
@@ -1438,19 +1450,23 @@ export async function getEnvironmentComparison(context: vscode.ExtensionContext)
                     });
                     
                     const normalizedName = normalizeApplicationName(app.domain, env.name);
-                    
-                    // Group applications by normalized name
-                    if (!applicationGroups[normalizedName]) {
-                        applicationGroups[normalizedName] = [];
+                    const appType = 'CH1';
+
+                    // Group applications by normalized name AND platform type
+                    // This ensures same-named apps on CH1 and CH2 are kept separate
+                    const groupKey = `${normalizedName}__${appType}`;
+                    if (!applicationGroups[groupKey]) {
+                        applicationGroups[groupKey] = [];
                     }
-                    
+
                     const appInfo = {
                         originalName: app.domain,
                         normalizedName: normalizedName,
+                        groupKey: groupKey,
                         environmentId: env.id,
                         environmentName: env.name,
                         environmentType: env.type,
-                        type: 'CH1',
+                        type: appType,
                         deploymentData: {
                             environmentName: env.name,
                             status: app.status,
@@ -1478,7 +1494,7 @@ export async function getEnvironmentComparison(context: vscode.ExtensionContext)
                         }
                     };
                     
-                    applicationGroups[normalizedName].push(appInfo);
+                    applicationGroups[groupKey].push(appInfo);
                 });
             }
         } catch (error: any) {
@@ -1525,19 +1541,23 @@ export async function getEnvironmentComparison(context: vscode.ExtensionContext)
                     }
                     
                     const normalizedName = normalizeApplicationName(app.name, env.name);
-                    
-                    // Group applications by normalized name
-                    if (!applicationGroups[normalizedName]) {
-                        applicationGroups[normalizedName] = [];
+                    const appType = 'CH2';
+
+                    // Group applications by normalized name AND platform type
+                    // This ensures same-named apps on CH1 and CH2 are kept separate
+                    const groupKey = `${normalizedName}__${appType}`;
+                    if (!applicationGroups[groupKey]) {
+                        applicationGroups[groupKey] = [];
                     }
-                    
+
                     const appInfo = {
                         originalName: app.name,
                         normalizedName: normalizedName,
+                        groupKey: groupKey,
                         environmentId: env.id,
                         environmentName: env.name,
                         environmentType: env.type,
-                        type: 'CH2',
+                        type: appType,
                         deploymentData: {
                         environmentName: env.name,
                         status: app.status,
@@ -1567,8 +1587,8 @@ export async function getEnvironmentComparison(context: vscode.ExtensionContext)
                         monitoring: app.monitoring !== undefined ? app.monitoring : 'N/A'
                         }
                     };
-                    
-                    applicationGroups[normalizedName].push(appInfo);
+
+                    applicationGroups[groupKey].push(appInfo);
                 });
             }
         } catch (error: any) {
@@ -1577,21 +1597,25 @@ export async function getEnvironmentComparison(context: vscode.ExtensionContext)
     }
 
     // Process applicationGroups to create the final comparison structure
-    for (const [normalizedName, apps] of Object.entries(applicationGroups)) {
+    // Note: groupKey is formatted as "normalizedName__type" (e.g., "my-api__CH1")
+    for (const [groupKey, apps] of Object.entries(applicationGroups)) {
         const groupName = getBestApplicationGroupName(apps);
         const appType = apps[0]?.type || 'Unknown';
-        
-        comparisonData.applications[normalizedName] = {
+        // Extract the original normalized name from the groupKey
+        const normalizedName = apps[0]?.normalizedName || groupKey.split('__')[0];
+
+        comparisonData.applications[groupKey] = {
             name: groupName,
             normalizedName: normalizedName,
+            groupKey: groupKey,
             type: appType,
             environments: {},
             originalNames: [...new Set(apps.map(app => app.originalName))] // Track all original names
         };
-        
+
         // Populate environment data
         for (const app of apps) {
-            comparisonData.applications[normalizedName].environments[app.environmentId] = app.deploymentData;
+            comparisonData.applications[groupKey].environments[app.environmentId] = app.deploymentData;
         }
     }
 

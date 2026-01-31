@@ -110,6 +110,12 @@ export class CommandPaletteProvider implements vscode.TreeDataProvider<CommandTr
                     command: 'anypoint-monitor.applicationCommandCenter',
                     description: 'Unified application management dashboard',
                     icon: 'dashboard'
+                },
+                {
+                    label: 'Multi-App Overview',
+                    command: 'anypoint-monitor.multiAppDashboard',
+                    description: 'Overview dashboard with health metrics for all apps',
+                    icon: 'pulse'
                 }
             ]
         },

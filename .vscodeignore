@@ -1,5 +1,6 @@
 # Source files - only include compiled output
 src/**
+!src/resources/**
 **/*.ts
 !out/**/*.d.ts
 

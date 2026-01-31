@@ -3,7 +3,7 @@
   "displayName": "Anypoint Monitor",
   "description": "CloudHub 1.0/2.0 monitoring and multi-account management for MuleSoft. Real-time logs, API management, application diagrams, and DataWeave playground - all in VS Code.",
   "publisher": "EdgarMoran",
-  "version": "0.0.65",
+  "version": "0.0.66",
   "engines": {
     "vscode": "^1.96.0"
   },
@@ -238,7 +238,7 @@
         {
           "id": "anypoint-monitor",
           "title": "Anypoint Monitor",
-          "icon": "src/resources/logo-mono.svg"
+          "icon": "logo-mono.svg"
         }
       ]
     },
@@ -247,7 +247,7 @@
         {
           "id": "anypointCommandPalette",
           "name": "Command Palette",
-          "icon": "src/resources/logo.svg",
+          "icon": "logo-mono.svg",
           "contextualTitle": "Anypoint Monitor Commands"
         }
       ]
