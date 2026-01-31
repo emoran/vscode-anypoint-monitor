@@ -48,7 +48,8 @@
       "Read(//Users/emoran/Desktop/**)",
       "Bash(npx vsce:*)",
       "Bash(npm ls:*)",
-      "Bash(git show:*)"
+      "Bash(git show:*)",
+      "Bash(npm install:*)"
     ],
     "deny": []
   }

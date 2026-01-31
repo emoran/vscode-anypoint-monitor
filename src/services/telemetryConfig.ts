@@ -1,0 +1,1 @@
+export const TELEMETRY_CONNECTION_STRING = 'InstrumentationKey=99d396a3-0f4f-4120-9305-0f59098cbcdf;IngestionEndpoint=https://eastus-8.in.applicationinsights.azure.com/;LiveEndpoint=https://eastus.livediagnostics.monitor.azure.com/;ApplicationId=a31e2783-f206-4e88-839a-f06dd21825c7';

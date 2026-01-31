@@ -3,6 +3,7 @@ import { BASE_URL, ARM_BASE, HYBRID_APPLICATIONS_ENDPOINT, getBaseUrl, getArmBas
 import { ApiHelper } from '../controllers/apiHelper';
 import { AccountService } from '../controllers/accountService';
 import { showRealTimeLogs } from './realTimeLogs';
+import { telemetryService } from '../services/telemetryService';
 
 interface CommandCenterData {
     application: any;
@@ -2531,6 +2532,7 @@ export async function showApplicationCommandCenter(
     preselectedAppName?: string,
     preselectedAppData?: any
 ) {
+    telemetryService.trackPageView('applicationCommandCenter');
     try {
         const accountService = new AccountService(context);
         const activeAccount = await accountService.getActiveAccount();

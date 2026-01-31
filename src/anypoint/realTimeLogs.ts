@@ -6,6 +6,7 @@ import { AccountService } from '../controllers/accountService.js';
 import { ApiHelper } from '../controllers/apiHelper.js';
 import * as fs from 'fs';
 import { getGitHubStarBannerHtml, getGitHubStarBannerStyles, getGitHubStarBannerScript } from '../utils/starPrompt.js';
+import { telemetryService } from '../services/telemetryService';
 
 interface LogEntry {
     timestamp: number;
@@ -42,6 +43,7 @@ export async function showRealTimeLogs(
     deploymentId?: string,
     specificationId?: string
 ) {
+    telemetryService.trackPageView('realTimeLogs');
     const sessionKey = `${environmentId}-${applicationDomain}`;
     
     // Close existing session if any

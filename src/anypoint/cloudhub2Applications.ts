@@ -4,6 +4,7 @@ import * as fs from 'fs';
 import { ApiHelper } from '../controllers/apiHelper.js';
 import { BASE_URL, getBaseUrl } from '../constants';
 import { getGitHubStarBannerHtml, getGitHubStarBannerStyles, getGitHubStarBannerScript } from '../utils/starPrompt.js';
+import { telemetryService } from '../services/telemetryService';
 
 // ==================== MAIN ENTRY POINTS ====================
 
@@ -17,6 +18,7 @@ export async function showApplicationsWebview(
   applicationsData: any,
   environment: string
 ) {
+  telemetryService.trackPageView('cloudhub2Applications');
   // Get business group info
   const { AccountService } = await import('../controllers/accountService.js');
   const accountService = new AccountService(context);

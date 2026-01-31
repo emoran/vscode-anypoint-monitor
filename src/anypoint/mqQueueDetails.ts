@@ -1,4 +1,5 @@
 import * as vscode from 'vscode';
+import { telemetryService } from '../services/telemetryService';
 import { getAnypointMqAdminBase, getAnypointMqStatsBase } from '../constants.js';
 
 /**
@@ -14,6 +15,7 @@ export async function showQueueDetailsWebview(
   organizationID: string,
   isExchange: boolean = false
 ) {
+  telemetryService.trackPageView('mqQueueDetails');
   const destinationType = isExchange ? 'Exchange' : 'Queue';
 
   // Create the webview panel

@@ -1,10 +1,12 @@
 import * as vscode from 'vscode';
+import { telemetryService } from '../services/telemetryService';
 
 /**
  * Show DataWeave Playground in a webview panel
  * Embeds MuleSoft's official DataWeave Playground
  */
 export async function showDataWeavePlayground(context: vscode.ExtensionContext) {
+    telemetryService.trackPageView('dataweavePlayground');
     // Check if there's already an active panel
     const existingPanel = DataWeavePlaygroundPanel.currentPanel;
     if (existingPanel) {

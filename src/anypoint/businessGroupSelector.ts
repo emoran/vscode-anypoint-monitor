@@ -1,8 +1,10 @@
 import * as vscode from 'vscode';
 import { BusinessGroupService, BusinessGroup, FlatBusinessGroup } from '../controllers/businessGroupService';
 import { AccountService } from '../controllers/accountService';
+import { telemetryService } from '../services/telemetryService';
 
 export async function showBusinessGroupSelectorWebview(context: vscode.ExtensionContext): Promise<void> {
+    telemetryService.trackPageView('businessGroupSelector');
     console.log('Creating business group selector webview...');
     const accountService = new AccountService(context);
     const businessGroupService = new BusinessGroupService(context);

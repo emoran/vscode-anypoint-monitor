@@ -1,9 +1,11 @@
 import * as vscode from 'vscode';
+import { telemetryService } from '../services/telemetryService';
 
 export async function showEnvironmentComparisonWebview(
   context: vscode.ExtensionContext,
   comparisonData: any
 ) {
+  telemetryService.trackPageView('environmentComparison');
   const panel = vscode.window.createWebviewPanel(
     'environmentComparison',
     'Environment Comparison Table',

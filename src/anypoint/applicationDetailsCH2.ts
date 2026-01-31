@@ -3,6 +3,7 @@ import * as vscode from 'vscode';
 import * as fs from 'fs';
 import {getCH2Deployments } from './cloudhub2Applications';
 import { ApiHelper } from '../controllers/apiHelper.js';
+import { telemetryService } from '../services/telemetryService';
 
 // ==================== MAIN APPLICATION DETAILS WEBVIEW ====================
 
@@ -13,6 +14,7 @@ export async function showApplicationDetailsCH2Webview(
   appData: any,
   environmentId: string // FIXED: Changed to accept environment ID directly as string
 ) {
+  telemetryService.trackPageView('applicationDetailsCH2');
   console.log('🎯 === SHOW APPLICATION DETAILS CH2 WEBVIEW ===');
   console.log(`📱 Opening application details for: ${appName}`);
   console.log(`🌍 Environment ID: ${environmentId}`);

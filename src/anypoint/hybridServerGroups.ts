@@ -1,4 +1,5 @@
 import * as vscode from 'vscode';
+import { telemetryService } from '../services/telemetryService';
 
 /**
  * Creates a webview panel and displays Hybrid server groups
@@ -8,6 +9,7 @@ export function showHybridServerGroupsWebview(
   data: any,
   environmentId?: string
 ) {
+  telemetryService.trackPageView('hybridServerGroups');
   const groupsArray = Array.isArray(data) ? data : data.data || [];
 
   const panel = vscode.window.createWebviewPanel(

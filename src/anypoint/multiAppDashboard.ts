@@ -4,6 +4,7 @@ import { ApiHelper } from '../controllers/apiHelper';
 import { AccountService } from '../controllers/accountService';
 import { showApplicationCommandCenter } from './applicationCommandCenter';
 import { showRealTimeLogs } from './realTimeLogs';
+import { telemetryService } from '../services/telemetryService';
 
 // ============================================================================
 // INTERFACES
@@ -91,6 +92,7 @@ export async function showMultiAppDashboard(
     context: vscode.ExtensionContext,
     environmentId: string
 ): Promise<void> {
+    telemetryService.trackPageView('multiAppDashboard');
     const accountService = new AccountService(context);
     const activeAccount = await accountService.getActiveAccount();
 

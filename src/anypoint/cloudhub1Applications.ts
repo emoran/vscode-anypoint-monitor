@@ -4,6 +4,7 @@ import { ApiHelper } from '../controllers/apiHelper.js';
 import { AccountService } from '../controllers/accountService.js';
 import { BASE_URL, getBaseUrl } from '../constants';
 import { getGitHubStarBannerHtml, getGitHubStarBannerStyles, getGitHubStarBannerScript } from '../utils/starPrompt.js';
+import { telemetryService } from '../services/telemetryService';
 
 /**
  * Creates a webview panel and displays a detailed table of applications
@@ -16,6 +17,7 @@ export async function showApplicationsWebview1(
   environmentId?: string,
   environmentName?: string
 ) {
+  telemetryService.trackPageView('cloudhub1Applications');
   // Ensure the data is an array
   let appsArray = Array.isArray(data) ? data : [];
 

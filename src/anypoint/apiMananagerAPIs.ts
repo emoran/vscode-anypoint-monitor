@@ -2,6 +2,7 @@ import * as vscode from 'vscode';
 import * as fs from 'fs';
 import { ApiHelper } from '../controllers/apiHelper.js';
 import {showApiManagerAPIDetail} from '../anypoint/apiMananagerAPIDetail'; // adjust path if needed
+import { telemetryService } from '../services/telemetryService';
 
 // Keep references so we can update the same panel
 let currentPanel: vscode.WebviewPanel | undefined;
@@ -14,6 +15,7 @@ export async function showAPIManagerWebview(
   environmentId: string,
   organizationId: string
 ) {
+  telemetryService.trackPageView('apiManager');
   currentPanel = vscode.window.createWebviewPanel(
     'apiManagerAPIs',
     'API Manager - APIs',

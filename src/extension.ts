@@ -32,10 +32,26 @@ import { showApplicationCommandCenter } from "./anypoint/applicationCommandCente
 import { showMultiAppDashboard } from "./anypoint/multiAppDashboard";
 import { registerCommandPalettePanel } from "./anypoint/commandPalettePanel";
 import { StarPromptManager } from "./utils/starPrompt";
+import { telemetryService, TelemetryEvents } from "./services/telemetryService";
 
 interface EnvironmentOption {
 	label: string;
 	id: string;
+}
+
+function registerCommandWithTelemetry(commandId: string, handler: (...args: any[]) => Promise<void> | void): vscode.Disposable {
+	return vscode.commands.registerCommand(commandId, async (...args: any[]) => {
+		try {
+			const result = await handler(...args);
+			telemetryService.trackCommand(commandId, true);
+			return result;
+		} catch (error: any) {
+			const message = error?.message ? String(error.message).substring(0, 500) : 'unknown';
+			telemetryService.trackCommand(commandId, false, message);
+			telemetryService.trackError(error instanceof Error ? error : new Error(message), commandId);
+			throw error;
+		}
+	});
 }
 
 async function selectEnvironment(context: vscode.ExtensionContext): Promise<string | null> {
@@ -170,6 +186,13 @@ export async function updateAccountStatusBar(context: vscode.ExtensionContext) {
 }
 
 export function activate(context: vscode.ExtensionContext) {
+	void telemetryService.initialize(context);
+	context.subscriptions.push({
+		dispose: () => {
+			void telemetryService.dispose();
+		}
+	});
+
 	// Initialize account service and migrate existing account if needed
 	const accountService = new AccountService(context);
 
@@ -208,38 +231,54 @@ export function activate(context: vscode.ExtensionContext) {
 	// Register command palette side panel
 	registerCommandPalettePanel(context);
 
-	 // Register a command for the login
-        const loginCommand = vscode.commands.registerCommand('anypoint-monitor.login', async () => {
-                try {
-                        await loginToAnypointWithOAuth(context);
-                        await getUserInfo(context);
-                        await getEnvironments(context);
-                        // Update status bar after successful login
-                        await updateAccountStatusBar(context);
-                        // Track successful command execution for star prompt
-                        await starPromptManager.trackCommandExecution();
-                }
-                catch (error: any) {
-                        vscode.window.showErrorMessage(`Login failed: ${error.message || error}`);
-                        // Update status bar to show error state
-                        await updateAccountStatusBar(context);
-                }
-        });
+	// Register a command for the login
+	const loginCommand = registerCommandWithTelemetry('anypoint-monitor.login', async () => {
+		try {
+			await loginToAnypointWithOAuth(context);
+			await getUserInfo(context);
+			await getEnvironments(context);
+			// Update status bar after successful login
+			await updateAccountStatusBar(context);
+			// Track successful command execution for star prompt
+			await starPromptManager.trackCommandExecution();
+			telemetryService.trackEvent(TelemetryEvents.LOGIN_SUCCESS, {
+				command: 'anypoint-monitor.login'
+			});
+		}
+		catch (error: any) {
+			vscode.window.showErrorMessage(`Login failed: ${error.message || error}`);
+			// Update status bar to show error state
+			await updateAccountStatusBar(context);
+			telemetryService.trackEvent(TelemetryEvents.LOGIN_FAILED, {
+				command: 'anypoint-monitor.login',
+				message: error?.message ? String(error.message).substring(0, 500) : 'unknown'
+			});
+		}
+	});
 
-	const revokeAccessCommand = vscode.commands.registerCommand('anypoint-monitor.logout', async () => {
+	const revokeAccessCommand = registerCommandWithTelemetry('anypoint-monitor.logout', async () => {
 		try {
 			await revokeAnypointToken(context, 'access');
 			// Update status bar after logout
 			await updateAccountStatusBar(context);
+			telemetryService.trackEvent(TelemetryEvents.COMMAND_EXECUTED, {
+				commandName: 'anypoint-monitor.logout',
+				success: 'true'
+			});
 		} 
 		catch (err: any) {
 			vscode.window.showErrorMessage(`Failed to revoke access token: ${err.message}`);
 			// Update status bar to reflect error state
 			await updateAccountStatusBar(context);
+			telemetryService.trackEvent(TelemetryEvents.COMMAND_EXECUTED, {
+				commandName: 'anypoint-monitor.logout',
+				success: 'false',
+				errorMessage: err?.message ? String(err.message).substring(0, 500) : 'unknown'
+			});
 		}
 	});
 
-	const userInfo = vscode.commands.registerCommand('anypoint-monitor.userInfo', async () => {
+	const userInfo = registerCommandWithTelemetry('anypoint-monitor.userInfo', async () => {
 		try {
 			await getUserInfo(context);
 			await starPromptManager.trackCommandExecution();
@@ -249,7 +288,7 @@ export function activate(context: vscode.ExtensionContext) {
 		}
 	});
 
-	const organizationInformation = vscode.commands.registerCommand('anypoint-monitor.organizationInfo', async () => {
+	const organizationInformation = registerCommandWithTelemetry('anypoint-monitor.organizationInfo', async () => {
 		try {
 			await getOrganizationInfo(context);
 			await starPromptManager.trackCommandExecution();
@@ -259,7 +298,7 @@ export function activate(context: vscode.ExtensionContext) {
 		}
 	});
 
-	const applicationDiagramCmd = vscode.commands.registerCommand('anypoint-monitor.applicationDiagram', async () => {
+	const applicationDiagramCmd = registerCommandWithTelemetry('anypoint-monitor.applicationDiagram', async () => {
 		try {
 			const selectedEnvironmentId = await selectEnvironment(context);
 			if (!selectedEnvironmentId) {
@@ -272,7 +311,7 @@ export function activate(context: vscode.ExtensionContext) {
 		}
 	});
 
-	const devInfo = vscode.commands.registerCommand('anypoint-monitor.developerUtilities', async () => {
+	const devInfo = registerCommandWithTelemetry('anypoint-monitor.developerUtilities', async () => {
 		try {
 			await developerInfo(context);
 		} 
@@ -281,7 +320,7 @@ export function activate(context: vscode.ExtensionContext) {
 		}
 	});
 
-	const getCH1Apps = vscode.commands.registerCommand('anypoint-monitor.cloudhub1Apps', async () => {
+	const getCH1Apps = registerCommandWithTelemetry('anypoint-monitor.cloudhub1Apps', async () => {
 		try {
 			const selectedEnvironmentId = await selectEnvironment(context);
 			if (!selectedEnvironmentId) {
@@ -294,7 +333,7 @@ export function activate(context: vscode.ExtensionContext) {
 		}
 	});
 
-	const getApplications = vscode.commands.registerCommand('anypoint-monitor.cloudhub2Apps', async () => {
+	const getApplications = registerCommandWithTelemetry('anypoint-monitor.cloudhub2Apps', async () => {
 		try {
 			const selectedEnvironmentId = await selectEnvironment(context);
 			if (!selectedEnvironmentId) {
@@ -308,7 +347,7 @@ export function activate(context: vscode.ExtensionContext) {
 	});
 
 
-	const subcriptionExpiration = vscode.commands.registerCommand('anypoint-monitor.subscriptionExpiration', async () => {
+	const subcriptionExpiration = registerCommandWithTelemetry('anypoint-monitor.subscriptionExpiration', async () => {
 		try{
 			const accountService = new AccountService(context);
 			const userInfoStr = await accountService.getActiveAccountUserInfo();
@@ -354,7 +393,7 @@ export function activate(context: vscode.ExtensionContext) {
     	}
 	});
 
-	const retrieveAccessToken = vscode.commands.registerCommand('anypoint-monitor.retrieveAccessToken', async () => {
+	const retrieveAccessToken = registerCommandWithTelemetry('anypoint-monitor.retrieveAccessToken', async () => {
 		// Attempt to refresh the access token using your existing refresh logic
 		const didRefresh = await refreshTokenWithAccount(context);
 		if (!didRefresh) {
@@ -373,12 +412,12 @@ export function activate(context: vscode.ExtensionContext) {
 		vscode.window.showInformationMessage(`Access token: ${refreshedToken}`);
 	});
 
-        const retrieveAPIManagerAPIsCmd = vscode.commands.registerCommand('anypoint-monitor.retrieveAPIManagerAPIs', async () => {
+        const retrieveAPIManagerAPIsCmd = registerCommandWithTelemetry('anypoint-monitor.retrieveAPIManagerAPIs', async () => {
                 await retrieveAPIManagerAPIs(context);
                 await starPromptManager.trackCommandExecution();
         });
 
-	const communityEventsCmd = vscode.commands.registerCommand('anypoint-monitor.communityEvents', async () => {
+	const communityEventsCmd = registerCommandWithTelemetry('anypoint-monitor.communityEvents', async () => {
 		try {
 			await showCommunityEvents(context);
 			await starPromptManager.trackCommandExecution();
@@ -387,7 +426,7 @@ export function activate(context: vscode.ExtensionContext) {
 		}
 	});
 
-	const provideFeedbackCmd = vscode.commands.registerCommand('anypoint-monitor.provideFeedback', async () => {
+	const provideFeedbackCmd = registerCommandWithTelemetry('anypoint-monitor.provideFeedback', async () => {
 		try {
 			await provideFeedback(context);
 		} catch (error: any) {
@@ -395,7 +434,7 @@ export function activate(context: vscode.ExtensionContext) {
 		}
 	});
 
-	const auditAPIsCmd = vscode.commands.registerCommand('anypoint-monitor.auditAPIs', async () => {
+	const auditAPIsCmd = registerCommandWithTelemetry('anypoint-monitor.auditAPIs', async () => {
 		try {
 			const selectedEnvironmentId = await selectEnvironment(context);
 			if (!selectedEnvironmentId) {
@@ -407,7 +446,7 @@ export function activate(context: vscode.ExtensionContext) {
 		}
 	});
 
-	const realTimeLogsCmd = vscode.commands.registerCommand('anypoint-monitor.realTimeLogs', async () => {
+	const realTimeLogsCmd = registerCommandWithTelemetry('anypoint-monitor.realTimeLogs', async () => {
 		try {
 			const selectedEnvironmentId = await selectEnvironment(context);
 			if (!selectedEnvironmentId) {
@@ -592,7 +631,7 @@ export function activate(context: vscode.ExtensionContext) {
 		}
 	});
 
-	const environmentComparisonCmd = vscode.commands.registerCommand('anypoint-monitor.environmentComparison', async () => {
+	const environmentComparisonCmd = registerCommandWithTelemetry('anypoint-monitor.environmentComparison', async () => {
 		try {
 			await getEnvironmentComparison(context);
 		} catch (error: any) {
@@ -600,7 +639,7 @@ export function activate(context: vscode.ExtensionContext) {
 		}
 	});
 
-	const dataweavePlaygroundCmd = vscode.commands.registerCommand('anypoint-monitor.dataweavePlayground', async () => {
+	const dataweavePlaygroundCmd = registerCommandWithTelemetry('anypoint-monitor.dataweavePlayground', async () => {
 		try {
 			await showDataWeavePlayground(context);
 		} catch (error: any) {
@@ -608,7 +647,7 @@ export function activate(context: vscode.ExtensionContext) {
 		}
 	});
 
-	const accountManagerCmd = vscode.commands.registerCommand('anypoint-monitor.accountManager', async () => {
+	const accountManagerCmd = registerCommandWithTelemetry('anypoint-monitor.accountManager', async () => {
 		try {
 			await showAccountManagerWebview(context);
 		} catch (error: any) {
@@ -617,7 +656,7 @@ export function activate(context: vscode.ExtensionContext) {
 	});
 
 	// Command to select business group
-	const selectBusinessGroupCmd = vscode.commands.registerCommand('anypoint-monitor.selectBusinessGroup', async () => {
+	const selectBusinessGroupCmd = registerCommandWithTelemetry('anypoint-monitor.selectBusinessGroup', async () => {
 		try {
 			const { showBusinessGroupSelectorWebview } = await import('./anypoint/businessGroupSelector.js');
 			await showBusinessGroupSelectorWebview(context);
@@ -627,7 +666,7 @@ export function activate(context: vscode.ExtensionContext) {
 	});
 
 	// Command for status bar quick actions (accounts and business groups)
-	const statusBarQuickActionsCmd = vscode.commands.registerCommand('anypoint-monitor.statusBarQuickActions', async () => {
+	const statusBarQuickActionsCmd = registerCommandWithTelemetry('anypoint-monitor.statusBarQuickActions', async () => {
 		try {
 			const accountService = new AccountService(context);
 			const activeAccount = await accountService.getActiveAccount();
@@ -703,7 +742,7 @@ export function activate(context: vscode.ExtensionContext) {
 	});
 
 	// Command to delete all accounts and data
-	const deleteAllAccountsCmd = vscode.commands.registerCommand('anypoint-monitor.deleteAllAccounts', async () => {
+	const deleteAllAccountsCmd = registerCommandWithTelemetry('anypoint-monitor.deleteAllAccounts', async () => {
 		const confirmation = await vscode.window.showWarningMessage(
 			'This will delete all stored accounts, tokens, and extension data. This action cannot be undone.',
 			{ modal: true },
@@ -753,7 +792,7 @@ export function activate(context: vscode.ExtensionContext) {
 	});
 
 	// Manual migration command for existing users
-	const migrateLegacyAccountCmd = vscode.commands.registerCommand('anypoint-monitor.migrateLegacyAccount', async () => {
+	const migrateLegacyAccountCmd = registerCommandWithTelemetry('anypoint-monitor.migrateLegacyAccount', async () => {
 		try {
 			const accountService = new AccountService(context);
 
@@ -789,7 +828,7 @@ export function activate(context: vscode.ExtensionContext) {
 		}
 	});
 
-	const applicationCommandCenterCmd = vscode.commands.registerCommand('anypoint-monitor.applicationCommandCenter', async () => {
+	const applicationCommandCenterCmd = registerCommandWithTelemetry('anypoint-monitor.applicationCommandCenter', async () => {
 		try {
 			await showApplicationCommandCenter(context);
 		} catch (error: any) {
@@ -798,7 +837,7 @@ export function activate(context: vscode.ExtensionContext) {
 	});
 
 	// Multi-App Overview Dashboard
-	const multiAppDashboardCmd = vscode.commands.registerCommand('anypoint-monitor.multiAppDashboard', async () => {
+	const multiAppDashboardCmd = registerCommandWithTelemetry('anypoint-monitor.multiAppDashboard', async () => {
 		try {
 			const selectedEnvironmentId = await selectEnvironment(context);
 			if (!selectedEnvironmentId) {
@@ -812,7 +851,7 @@ export function activate(context: vscode.ExtensionContext) {
 	});
 
 	// Hybrid / On-Premises Commands
-	const getHybridApps = vscode.commands.registerCommand('anypoint-monitor.hybridApps', async () => {
+	const getHybridApps = registerCommandWithTelemetry('anypoint-monitor.hybridApps', async () => {
 		try {
 			const selectedEnvironmentId = await selectEnvironment(context);
 			if (!selectedEnvironmentId) {
@@ -824,7 +863,7 @@ export function activate(context: vscode.ExtensionContext) {
 		}
 	});
 
-	const getHybridServersCmd = vscode.commands.registerCommand('anypoint-monitor.hybridServers', async () => {
+	const getHybridServersCmd = registerCommandWithTelemetry('anypoint-monitor.hybridServers', async () => {
 		try {
 			const selectedEnvironmentId = await selectEnvironment(context);
 			if (!selectedEnvironmentId) {
@@ -836,7 +875,7 @@ export function activate(context: vscode.ExtensionContext) {
 		}
 	});
 
-	const getHybridServerGroupsCmd = vscode.commands.registerCommand('anypoint-monitor.hybridServerGroups', async () => {
+	const getHybridServerGroupsCmd = registerCommandWithTelemetry('anypoint-monitor.hybridServerGroups', async () => {
 		try {
 			const selectedEnvironmentId = await selectEnvironment(context);
 			if (!selectedEnvironmentId) {
@@ -848,7 +887,7 @@ export function activate(context: vscode.ExtensionContext) {
 		}
 	});
 
-	const getHybridClustersCmd = vscode.commands.registerCommand('anypoint-monitor.hybridClusters', async () => {
+	const getHybridClustersCmd = registerCommandWithTelemetry('anypoint-monitor.hybridClusters', async () => {
 		try {
 			const selectedEnvironmentId = await selectEnvironment(context);
 			if (!selectedEnvironmentId) {
@@ -860,7 +899,7 @@ export function activate(context: vscode.ExtensionContext) {
 		}
 	});
 
-	const getAnypointMQStatsCmd = vscode.commands.registerCommand('anypoint-monitor.mqStats', async () => {
+	const getAnypointMQStatsCmd = registerCommandWithTelemetry('anypoint-monitor.mqStats', async () => {
 		try {
 			const selectedEnvironmentId = await selectEnvironment(context);
 			if (!selectedEnvironmentId) {

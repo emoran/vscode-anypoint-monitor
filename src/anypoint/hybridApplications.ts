@@ -3,6 +3,7 @@ import * as fs from 'fs';
 import { ApiHelper } from '../controllers/apiHelper.js';
 import { AccountService } from '../controllers/accountService.js';
 import { HYBRID_APPLICATIONS_ENDPOINT } from '../constants';
+import { telemetryService } from '../services/telemetryService';
 
 /**
  * Creates a webview panel and displays Hybrid applications
@@ -14,6 +15,7 @@ export function showHybridApplicationsWebview(
   environmentId?: string,
   environmentName?: string
 ) {
+  telemetryService.trackPageView('hybridApplications');
   // Ensure the data is an array
   let appsArray = Array.isArray(data) ? data : data.data || [];
 

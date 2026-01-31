@@ -3,7 +3,7 @@
   "displayName": "Anypoint Monitor",
   "description": "CloudHub 1.0/2.0 monitoring and multi-account management for MuleSoft. Real-time logs, API management, application diagrams, and DataWeave playground - all in VS Code.",
   "publisher": "EdgarMoran",
-  "version": "0.0.66",
+  "version": "0.0.68",
   "engines": {
     "vscode": "^1.96.0"
   },
@@ -76,7 +76,7 @@
   "categories": [
     "Programming Languages",
     "Other",
-    "Testing" 
+    "Testing"
   ],
   "activationEvents": [
     "onCommand:anypoint-monitor.userInfo",
@@ -273,20 +273,33 @@
           "type": "string",
           "default": "",
           "description": "Client Secret for Anypoint Platform GOV region Connected App. Required for logging into GOV (GovCloud) region."
+        },
+        "anypointMonitor.telemetry.enabled": {
+          "type": "boolean",
+          "default": true,
+          "description": "Enable telemetry for Anypoint Monitor. Also respects VS Code telemetry settings."
+        },
+        "anypointMonitor.telemetry.connectionString": {
+          "type": "string",
+          "default": "",
+          "description": "Azure Application Insights connection string for extension telemetry."
         }
       }
     }
   },
   "scripts": {
-    "vscode:prepublish": "npm run compile",
+    "vscode:prepublish": "npm run telemetry:inject && npm run compile",
     "compile": "tsc -p ./",
     "watch": "tsc -watch -p ./",
     "pretest": "npm run compile && npm run lint",
     "lint": "eslint src",
     "test": "vscode-test",
-    "deploy": "vsce publish"
+    "deploy": "vsce publish",
+    "telemetry:inject": "node scripts/inject-telemetry.js",
+    "telemetry:clear": "node scripts/clear-telemetry.js"
   },
   "devDependencies": {
+    "@types/jszip": "^3.4.0",
     "@types/mocha": "^10.0.10",
     "@types/node": "20.x",
     "@types/vscode": "^1.96.0",
@@ -295,10 +308,10 @@
     "@vscode/test-cli": "^0.0.10",
     "@vscode/test-electron": "^2.4.1",
     "eslint": "^9.16.0",
-    "typescript": "^5.7.2",
-    "@types/jszip": "^3.4.0"
+    "typescript": "^5.7.2"
   },
   "dependencies": {
+    "applicationinsights": "^3.13.0",
     "axios": "^1.7.9",
     "jszip": "^3.10.1",
     "open": "^10.1.0"

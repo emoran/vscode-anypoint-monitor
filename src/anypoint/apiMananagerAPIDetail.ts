@@ -1,5 +1,6 @@
 import * as vscode from 'vscode';
 import { ApiHelper } from '../controllers/apiHelper.js';
+import { telemetryService } from '../services/telemetryService';
 
 /**
  * Displays a WebView with:
@@ -13,6 +14,7 @@ export async function showApiManagerAPIDetail(
   environmentId: string,
   organizationId: string
 ) {
+  telemetryService.trackPageView('apiManagerDetail');
   const panel = vscode.window.createWebviewPanel(
     'apiManagerAPIDetail',
     'API Manager - API Detail',

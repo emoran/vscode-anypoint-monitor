@@ -1,6 +1,7 @@
 import * as vscode from 'vscode';
 import * as fs from 'fs';
 import { ApiHelper } from '../controllers/apiHelper.js';
+import { telemetryService } from '../services/telemetryService';
 
 /** Flatten objects into dot-notation */
 function flattenObject(obj: any, parentKey = '', res: any = {}): any {
@@ -291,6 +292,7 @@ export async function showDashboardWebview(
   data: any,
   environment: string
 ) {
+  telemetryService.trackPageView('applicationDashboard');
   const envId = environment;
 
   data.application = data.application || {};

@@ -1,5 +1,6 @@
 import * as vscode from 'vscode';
 import * as fs from 'fs';
+import { telemetryService } from '../services/telemetryService';
 
 /**
  * Creates a webview panel and displays Hybrid servers (Mule Runtimes)
@@ -9,6 +10,7 @@ export function showHybridServersWebview(
   data: any,
   environmentId?: string
 ) {
+  telemetryService.trackPageView('hybridServers');
   const serversArray = Array.isArray(data) ? data : data.data || [];
 
   const panel = vscode.window.createWebviewPanel(

@@ -1,6 +1,7 @@
 import * as vscode from 'vscode';
 import * as fs from 'fs';
 import { showQueueDetailsWebview } from './mqQueueDetails.js';
+import { telemetryService } from '../services/telemetryService';
 
 /**
  * Creates a webview panel and displays AnypointMQ Statistics
@@ -9,6 +10,7 @@ export function showAnypointMQStatsWebview(
   context: vscode.ExtensionContext,
   data: any
 ) {
+  telemetryService.trackPageView('mqStats');
   // Create the webview panel
   const panel = vscode.window.createWebviewPanel(
     'mqStatsView',

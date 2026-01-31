@@ -1,6 +1,7 @@
 import * as vscode from 'vscode';
 import { BASE_URL, getBaseUrl } from '../constants';
 import { ApiHelper } from '../controllers/apiHelper.js';
+import { telemetryService } from '../services/telemetryService';
 
 interface APIInfo {
     environment: string;
@@ -187,6 +188,7 @@ async function getAPIPolicies(context: vscode.ExtensionContext, organizationID: 
 }
 
 async function showAPIAuditWebview(context: vscode.ExtensionContext, policyStatus: PolicyStatus, environmentId: string): Promise<void> {
+    telemetryService.trackPageView('apiAudit');
     const panel = vscode.window.createWebviewPanel(
         'apiAuditWebview',
         'API Audit Results',

@@ -3,8 +3,10 @@ import { AccountService, AnypointAccount } from '../controllers/accountService';
 import { loginToAnypointWithOAuth } from '../controllers/oauthService.js';
 import { getUserInfo, getEnvironments } from '../controllers/anypointService';
 import { RegionService } from '../controllers/regionService';
+import { telemetryService } from '../services/telemetryService';
 
 export async function showAccountManagerWebview(context: vscode.ExtensionContext): Promise<void> {
+    telemetryService.trackPageView('accountManager');
     console.log('Creating account manager webview...');
     const accountService = new AccountService(context);
 
