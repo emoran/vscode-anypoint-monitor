@@ -4,11 +4,103 @@ import { ApiHelper } from '../../controllers/apiHelper';
 import { getBaseUrl } from '../../constants';
 
 const COLLECTOR_TIMEOUT = 30000;
+const METRICS_QUERY_TIMEOUT = 8000;
 
 export interface MetricsCollectorResult {
     current: MetricSnapshot;
     baseline: MetricSnapshot;
     anomalies: Anomaly[];
+}
+
+/**
+ * Cached Visualizer datasource info so we only fetch bootdata once per session.
+ */
+interface VisualizerDatasource {
+    id: number;
+    database: string;
+    baseUrl: string;
+}
+
+let cachedDatasource: VisualizerDatasource | null = null;
+
+async function getVisualizerDatasource(apiHelper: ApiHelper, baseUrl: string): Promise<VisualizerDatasource | null> {
+    if (cachedDatasource) { return cachedDatasource; }
+
+    try {
+        const bootResponse = await apiHelper.get(`${baseUrl}/monitoring/api/visualizer/api/bootdata`);
+        const dataSources = bootResponse.data?.Settings?.datasources;
+        if (!dataSources) { return null; }
+
+        const datasourcesArray = Object.values(dataSources) as any[];
+        const influxCandidates = datasourcesArray.filter((source: any) =>
+            (source?.type === 'influxdb') || source?.meta?.id === 'influxdb'
+        );
+
+        const influxEntry = influxCandidates.find((source: any) => {
+            const name = (source?.name || source?.meta?.name || '').toLowerCase();
+            return name === 'influxdb';
+        }) || influxCandidates[0];
+
+        if (!influxEntry) { return null; }
+
+        const datasourceId = Number(influxEntry.id || influxEntry.meta?.datasourceId || influxEntry.meta?.id);
+        const databaseRaw = influxEntry.database || influxEntry.jsonData?.database;
+        const database = typeof databaseRaw === 'string' ? databaseRaw.replace(/"/g, '') : undefined;
+
+        if (!datasourceId || !database) { return null; }
+
+        cachedDatasource = { id: datasourceId, database, baseUrl };
+        return cachedDatasource;
+    } catch {
+        return null;
+    }
+}
+
+async function queryInflux(
+    apiHelper: ApiHelper,
+    datasource: VisualizerDatasource,
+    query: string
+): Promise<any> {
+    const encodedQuery = encodeURIComponent(query);
+    const url = `${datasource.baseUrl}/monitoring/api/visualizer/api/datasources/proxy/${datasource.id}/query?db="${datasource.database}"&q=${encodedQuery}&epoch=ms`;
+
+    const response = await Promise.race([
+        apiHelper.get(url),
+        new Promise<never>((_, reject) => setTimeout(() => reject(new Error('Visualizer query timeout')), METRICS_QUERY_TIMEOUT))
+    ]);
+
+    return (response as any).data;
+}
+
+function extractLatestValue(data: any, scale: number = 1): number | null {
+    try {
+        const values = data?.results?.[0]?.series?.[0]?.values;
+        if (!values || values.length === 0) { return null; }
+        for (let i = values.length - 1; i >= 0; i--) {
+            const v = values[i][1];
+            if (v !== null && v !== undefined) {
+                return v * scale;
+            }
+        }
+    } catch { /* ignore */ }
+    return null;
+}
+
+function extractMeanValue(data: any, scale: number = 1): number | null {
+    try {
+        const values = data?.results?.[0]?.series?.[0]?.values;
+        if (!values || values.length === 0) { return null; }
+        let sum = 0;
+        let count = 0;
+        for (const row of values) {
+            if (row[1] !== null && row[1] !== undefined) {
+                sum += row[1] * scale;
+                count++;
+            }
+        }
+        return count > 0 ? sum / count : null;
+    } catch { /* ignore */ }
+    return null;
 }
 
 export async function collectMetrics(
@@ -28,21 +120,63 @@ export async function collectMetrics(
         const apiHelper = new ApiHelper(context);
         const baseUrl = await getBaseUrl(context);
 
-        const [currentMetrics, baselineMetrics] = await Promise.allSettled([
-            fetchMetricsWithTimeout(apiHelper, baseUrl, appId, organizationId, environmentId, timeWindow.start, timeWindow.end),
-            fetchBaselineMetrics(apiHelper, baseUrl, appId, organizationId, environmentId, timeWindow.start)
-        ]);
-
-        if (currentMetrics.status === 'fulfilled' && currentMetrics.value) {
-            current = currentMetrics.value;
-        } else if (currentMetrics.status === 'rejected') {
-            errors.push({ collector: 'metrics-current', app: appName, error: currentMetrics.reason?.message || 'Failed to fetch current metrics' });
+        const datasource = await getVisualizerDatasource(apiHelper, baseUrl);
+        if (!datasource) {
+            errors.push({ collector: 'metrics', app: appName, error: 'Visualizer datasource not available' });
+            return { result: { current, baseline, anomalies }, errors };
         }
 
-        if (baselineMetrics.status === 'fulfilled' && baselineMetrics.value) {
-            baseline = baselineMetrics.value;
-        } else if (baselineMetrics.status === 'rejected') {
-            errors.push({ collector: 'metrics-baseline', app: appName, error: baselineMetrics.reason?.message || 'Failed to fetch baseline metrics' });
+        const timezone = Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC';
+
+        // For CH2 apps, app_id is the lowercase app name
+        // For CH1 apps, app_id is domain.region.cloudhub.io
+        const appIdentifier = appName.toLowerCase();
+        const condition = `("org_id" = '${organizationId}' AND "env_id" = '${environmentId}' AND "app_id" = '${appIdentifier}')`;
+
+        // Time window duration in minutes for current metrics
+        const durationMinutes = Math.round((timeWindow.end.getTime() - timeWindow.start.getTime()) / 60000);
+
+        // Fetch current metrics
+        const [cpuResult, memResult] = await Promise.allSettled([
+            queryInflux(apiHelper, datasource,
+                `SELECT mean("cpu") FROM "jvm.cpu.operatingsystem" WHERE ${condition} AND time >= now() - ${durationMinutes}m GROUP BY time(1m) fill(none) tz('${timezone}')`
+            ),
+            queryInflux(apiHelper, datasource,
+                `SELECT mean("heap_used") FROM "jvm.memory" WHERE ${condition} AND time >= now() - ${durationMinutes}m GROUP BY time(1m) fill(none) tz('${timezone}')`
+            )
+        ]);
+
+        if (cpuResult.status === 'fulfilled') {
+            const val = extractLatestValue(cpuResult.value, 100);
+            if (val !== null) { current.cpu = Math.max(0, Math.min(100, val)); }
+        }
+        if (memResult.status === 'fulfilled') {
+            const val = extractLatestValue(memResult.value, 1 / (1024 * 1024));
+            if (val !== null) { current.memory = val; }
+        }
+
+        current.timestamp = timeWindow.end.toISOString();
+
+        // Fetch baseline metrics (past 24h, 1h before incident)
+        const baselineEndMinutes = durationMinutes + 60;
+        const baselineRangeMinutes = 24 * 60 + baselineEndMinutes;
+
+        const [cpuBaseResult, memBaseResult] = await Promise.allSettled([
+            queryInflux(apiHelper, datasource,
+                `SELECT mean("cpu") FROM "jvm.cpu.operatingsystem" WHERE ${condition} AND time >= now() - ${baselineRangeMinutes}m AND time <= now() - ${baselineEndMinutes}m GROUP BY time(1h) fill(none) tz('${timezone}')`
+            ),
+            queryInflux(apiHelper, datasource,
+                `SELECT mean("heap_used") FROM "jvm.memory" WHERE ${condition} AND time >= now() - ${baselineRangeMinutes}m AND time <= now() - ${baselineEndMinutes}m GROUP BY time(1h) fill(none) tz('${timezone}')`
+            )
+        ]);
+
+        if (cpuBaseResult.status === 'fulfilled') {
+            const val = extractMeanValue(cpuBaseResult.value, 100);
+            if (val !== null) { baseline.cpu = Math.max(0, Math.min(100, val)); }
+        }
+        if (memBaseResult.status === 'fulfilled') {
+            const val = extractMeanValue(memBaseResult.value, 1 / (1024 * 1024));
+            if (val !== null) { baseline.memory = val; }
         }
 
         // Detect anomalies
@@ -62,45 +196,14 @@ export async function collectMetrics(
 
         if (current.memory !== null && baseline.memory !== null && baseline.memory > 0) {
             const deviation = current.memory / baseline.memory;
-            if (deviation > 2 || current.memory > 90) {
+            if (deviation > 2) {
                 anomalies.push({
                     metric: 'Memory',
                     current: current.memory,
                     baseline: baseline.memory,
                     deviation,
-                    severity: current.memory > 90 ? 'high' : 'medium',
-                    description: `Memory at ${current.memory.toFixed(1)}% (baseline: ${baseline.memory.toFixed(1)}%, ${deviation.toFixed(1)}x deviation)`
-                });
-            }
-        }
-
-        if (current.responseTime !== null && baseline.responseTime !== null && baseline.responseTime > 0) {
-            const deviation = current.responseTime / baseline.responseTime;
-            if (deviation > 2) {
-                anomalies.push({
-                    metric: 'Response Time',
-                    current: current.responseTime,
-                    baseline: baseline.responseTime,
-                    deviation,
-                    severity: deviation > 5 ? 'high' : 'medium',
-                    description: `Response time at ${current.responseTime.toFixed(0)}ms (baseline: ${baseline.responseTime.toFixed(0)}ms, ${deviation.toFixed(1)}x deviation)`
-                });
-            }
-        }
-
-        if (current.messageCount !== null && baseline.messageCount !== null && baseline.messageCount > 0) {
-            const deviation = current.messageCount / baseline.messageCount;
-            if (deviation > 3 || (baseline.messageCount > 0 && current.messageCount === 0)) {
-                const sev = current.messageCount === 0 ? 'high' : (deviation > 5 ? 'high' : 'medium');
-                anomalies.push({
-                    metric: 'Message Count',
-                    current: current.messageCount,
-                    baseline: baseline.messageCount,
-                    deviation: current.messageCount === 0 ? 0 : deviation,
-                    severity: sev,
-                    description: current.messageCount === 0
-                        ? `No messages processed (baseline: ${baseline.messageCount.toFixed(0)}/period)`
-                        : `Message count at ${current.messageCount.toFixed(0)} (baseline: ${baseline.messageCount.toFixed(0)}, ${deviation.toFixed(1)}x deviation)`
+                    severity: deviation > 3 ? 'high' : 'medium',
+                    description: `Memory at ${current.memory.toFixed(0)}MB (baseline: ${baseline.memory.toFixed(0)}MB, ${deviation.toFixed(1)}x deviation)`
                 });
             }
         }
@@ -109,126 +212,4 @@ export async function collectMetrics(
     }
 
     return { result: { current, baseline, anomalies }, errors };
-}
-
-async function fetchMetricsWithTimeout(
-    apiHelper: ApiHelper,
-    baseUrl: string,
-    appId: string,
-    organizationId: string,
-    environmentId: string,
-    startTime: Date,
-    endTime: Date
-): Promise<MetricSnapshot> {
-    const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), COLLECTOR_TIMEOUT);
-
-    try {
-        const url = `${baseUrl}/monitoring/query/api/v1/organizations/${organizationId}/environments/${environmentId}/applications/${appId}`;
-
-        const response = await apiHelper.post(url, {
-            startDate: startTime.toISOString(),
-            endDate: endTime.toISOString(),
-            interval: '1m'
-        }, {
-            signal: controller.signal
-        });
-
-        if (response.status === 200 && response.data) {
-            return parseMetricResponse(response.data);
-        }
-
-        return { cpu: null, memory: null, messageCount: null, responseTime: null, timestamp: endTime.toISOString() };
-    } finally {
-        clearTimeout(timeout);
-    }
-}
-
-async function fetchBaselineMetrics(
-    apiHelper: ApiHelper,
-    baseUrl: string,
-    appId: string,
-    organizationId: string,
-    environmentId: string,
-    incidentStart: Date
-): Promise<MetricSnapshot> {
-    // 24 hour baseline ending 1 hour before the incident window
-    const baselineEnd = new Date(incidentStart.getTime() - 60 * 60 * 1000);
-    const baselineStart = new Date(baselineEnd.getTime() - 24 * 60 * 60 * 1000);
-
-    const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), COLLECTOR_TIMEOUT);
-
-    try {
-        const url = `${baseUrl}/monitoring/query/api/v1/organizations/${organizationId}/environments/${environmentId}/applications/${appId}`;
-
-        const response = await apiHelper.post(url, {
-            startDate: baselineStart.toISOString(),
-            endDate: baselineEnd.toISOString(),
-            interval: '1h'
-        }, {
-            signal: controller.signal
-        });
-
-        if (response.status === 200 && response.data) {
-            return parseMetricResponse(response.data, true);
-        }
-
-        return { cpu: null, memory: null, messageCount: null, responseTime: null, timestamp: baselineEnd.toISOString() };
-    } finally {
-        clearTimeout(timeout);
-    }
-}
-
-function parseMetricResponse(data: any, average: boolean = false): MetricSnapshot {
-    const snapshot: MetricSnapshot = {
-        cpu: null,
-        memory: null,
-        messageCount: null,
-        responseTime: null,
-        timestamp: new Date().toISOString()
-    };
-
-    try {
-        // The monitoring API can return data in various formats
-        // Try common structures
-        const metrics = data.data || data.metrics || data;
-
-        if (Array.isArray(metrics)) {
-            const cpuValues: number[] = [];
-            const memValues: number[] = [];
-            const msgValues: number[] = [];
-            const rtValues: number[] = [];
-
-            for (const point of metrics) {
-                if (point.cpu !== undefined && point.cpu !== null) { cpuValues.push(Number(point.cpu)); }
-                if (point.memory !== undefined && point.memory !== null) { memValues.push(Number(point.memory)); }
-                if (point.messageCount !== undefined && point.messageCount !== null) { msgValues.push(Number(point.messageCount)); }
-                if (point.responseTime !== undefined && point.responseTime !== null) { rtValues.push(Number(point.responseTime)); }
-            }
-
-            if (average) {
-                snapshot.cpu = cpuValues.length > 0 ? cpuValues.reduce((a, b) => a + b, 0) / cpuValues.length : null;
-                snapshot.memory = memValues.length > 0 ? memValues.reduce((a, b) => a + b, 0) / memValues.length : null;
-                snapshot.messageCount = msgValues.length > 0 ? msgValues.reduce((a, b) => a + b, 0) / msgValues.length : null;
-                snapshot.responseTime = rtValues.length > 0 ? rtValues.reduce((a, b) => a + b, 0) / rtValues.length : null;
-            } else {
-                // Use the latest data point
-                snapshot.cpu = cpuValues.length > 0 ? cpuValues[cpuValues.length - 1] : null;
-                snapshot.memory = memValues.length > 0 ? memValues[memValues.length - 1] : null;
-                snapshot.messageCount = msgValues.length > 0 ? msgValues[msgValues.length - 1] : null;
-                snapshot.responseTime = rtValues.length > 0 ? rtValues[rtValues.length - 1] : null;
-            }
-        } else if (typeof metrics === 'object') {
-            // Direct object with metric values
-            snapshot.cpu = metrics.cpu !== undefined ? Number(metrics.cpu) : null;
-            snapshot.memory = metrics.memory !== undefined ? Number(metrics.memory) : null;
-            snapshot.messageCount = metrics.messageCount !== undefined ? Number(metrics.messageCount) : null;
-            snapshot.responseTime = metrics.responseTime !== undefined ? Number(metrics.responseTime) : null;
-        }
-    } catch {
-        // Return snapshot with nulls on parse error
-    }
-
-    return snapshot;
 }

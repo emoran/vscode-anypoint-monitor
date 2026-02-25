@@ -215,6 +215,7 @@ interface AppLookupEntry {
     name: string;
     id: string;
     deploymentId?: string;
+    specificationId?: string;
 }
 
 function buildAppLookup(
@@ -228,7 +229,8 @@ function buildAppLookup(
         lookup.set(app.name, {
             name: app.name,
             id: app.id,
-            deploymentId: app.deploymentId
+            deploymentId: app.deploymentId,
+            specificationId: app.specificationId
         });
     }
 
@@ -255,7 +257,7 @@ async function collectAppData(
     const [logsResult, deployResult, metricsResult, statusResult] = await Promise.allSettled([
         collectLogs(
             context, appName, entry.id, config.organizationId,
-            config.environmentId, config.timeWindow, entry.deploymentId
+            config.environmentId, config.timeWindow, entry.deploymentId, entry.specificationId
         ),
         collectDeployments(
             context, appName, entry.id, config.organizationId,

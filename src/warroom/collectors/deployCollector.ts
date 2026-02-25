@@ -29,22 +29,25 @@ export async function collectDeployments(
         const suspiciousThreshold = new Date(timeWindowStart.getTime() - 15 * 60 * 1000);
 
         for (const dep of rawDeployments.slice(0, 5)) {
-            const timestamp = dep.createTime || dep.createdDate || dep.lastModifiedDate || dep.updateTime || '';
+            const timestamp = dep._parsedTimestamp || '';
             const depDate = timestamp ? new Date(timestamp) : null;
 
             const isSuspicious = depDate !== null &&
+                !isNaN(depDate.getTime()) &&
                 depDate >= suspiciousThreshold &&
                 depDate <= timeWindowStart;
 
             deployments.push({
                 appName,
-                deploymentId: dep.id || dep.deploymentId || '',
-                version: dep.application?.artifact?.version || dep.artifactVersion || dep.version || dep.fileName || 'unknown',
-                timestamp: timestamp ? new Date(timestamp).toISOString() : 'unknown',
-                status: dep.status || dep.application?.status || 'unknown',
-                triggeredBy: dep.createdBy || dep.triggeredBy || dep.user || 'unknown',
+                deploymentId: dep._parsedId || '',
+                version: dep._parsedVersion || 'unknown',
+                timestamp: (depDate && !isNaN(depDate.getTime())) ? depDate.toISOString() : 'unknown',
+                status: dep._parsedStatus || 'unknown',
+                triggeredBy: dep._parsedTriggeredBy || 'unknown',
                 suspicious: isSuspicious,
-                suspiciousReason: isSuspicious ? `Deployed ${formatTimeDiff(depDate!, timeWindowStart)} before incident window` : undefined
+                suspiciousReason: isSuspicious
+                    ? `Deployed ${formatTimeDiff(depDate!, timeWindowStart)} before incident window`
+                    : undefined
             });
         }
     } catch (error: any) {
@@ -82,79 +85,83 @@ async function fetchDeploymentsWithTimeout(
     const timeout = setTimeout(() => controller.abort(), COLLECTOR_TIMEOUT);
 
     try {
-        // Try CH2 deployment history first
-        try {
-            const targetId = deploymentId || appId;
-            const url = `${baseUrl}/amc/application-manager/api/v2/organizations/${organizationId}/environments/${environmentId}/deployments/${targetId}`;
+        const headers = {
+            'X-ANYPNT-ENV-ID': environmentId,
+            'X-ANYPNT-ORG-ID': organizationId,
+        };
 
-            const response = await apiHelper.get(url, {
-                headers: {
-                    'X-ANYPNT-ENV-ID': environmentId,
-                    'X-ANYPNT-ORG-ID': organizationId,
-                },
-                signal: controller.signal
-            });
+        // Try CH2 first: fetch deployment details + specs
+        if (deploymentId) {
+            try {
+                const targetId = deploymentId;
 
-            if (response.status === 200 && response.data) {
-                // Single deployment details - wrap in array
-                const deployment = response.data;
-                const history: any[] = [];
+                // Fetch the deployment details (for app version, lastModifiedDate)
+                const deploymentUrl = `${baseUrl}/amc/application-manager/api/v2/organizations/${organizationId}/environments/${environmentId}/deployments/${targetId}`;
+                const deploymentResponse = await apiHelper.get(deploymentUrl, { headers, signal: controller.signal });
 
-                // Try to get version history
-                try {
+                if (deploymentResponse.status === 200 && deploymentResponse.data) {
+                    const deployment = deploymentResponse.data;
+                    const appRefVersion = deployment.application?.ref?.version || deployment.application?.artifact?.version || '';
+
+                    // Fetch specs (these are the deployment versions/history)
                     const specsUrl = `${baseUrl}/amc/application-manager/api/v2/organizations/${organizationId}/environments/${environmentId}/deployments/${targetId}/specs`;
-                    const specsResponse = await apiHelper.get(specsUrl, {
-                        headers: {
-                            'X-ANYPNT-ENV-ID': environmentId,
-                            'X-ANYPNT-ORG-ID': organizationId,
-                        },
-                        signal: controller.signal
-                    });
+                    try {
+                        const specsResponse = await apiHelper.get(specsUrl, { headers, signal: controller.signal });
 
-                    if (specsResponse.status === 200) {
-                        const specs = Array.isArray(specsResponse.data) ? specsResponse.data : (specsResponse.data?.data || []);
-                        for (const spec of specs.slice(0, 5)) {
-                            history.push({
-                                id: spec.id || targetId,
-                                status: spec.status || deployment.status,
-                                createTime: spec.createdDate || spec.createTime || deployment.createTime,
-                                application: deployment.application,
-                                artifactVersion: spec.version || deployment.application?.artifact?.version,
-                                createdBy: spec.createdBy || 'unknown'
-                            });
+                        if (specsResponse.status === 200) {
+                            const specsRaw = specsResponse.data;
+                            const specs = Array.isArray(specsRaw) ? specsRaw : (specsRaw?.data || []);
+
+                            if (specs.length > 0) {
+                                return specs.slice(0, 5).map((spec: any) => ({
+                                    ...spec,
+                                    _parsedId: spec.id || targetId,
+                                    _parsedVersion: appRefVersion || spec.version || spec.id || 'unknown',
+                                    _parsedTimestamp: spec.lastModifiedDate || spec.createdDate || spec.createTime || deployment.lastModifiedDate || '',
+                                    _parsedStatus: deployment.status || spec.status || 'unknown',
+                                    _parsedTriggeredBy: spec.createdBy || deployment.createdBy || 'unknown'
+                                }));
+                            }
                         }
+                    } catch {
+                        // Specs endpoint failed, use deployment as single record
                     }
-                } catch {
-                    // Specs endpoint may not exist; use main deployment as single record
-                }
 
-                if (history.length === 0) {
-                    history.push(deployment);
+                    // Fallback: use the deployment itself as a single record
+                    return [{
+                        ...deployment,
+                        _parsedId: targetId,
+                        _parsedVersion: appRefVersion || 'unknown',
+                        _parsedTimestamp: deployment.lastModifiedDate || deployment.createTime || deployment.updateTime || '',
+                        _parsedStatus: deployment.status || 'unknown',
+                        _parsedTriggeredBy: deployment.createdBy || 'unknown'
+                    }];
                 }
-
-                return history;
+            } catch (ch2Error: any) {
+                if (ch2Error.name === 'AbortError' || ch2Error.name === 'CanceledError') {
+                    throw new Error('COLLECTOR_TIMEOUT');
+                }
+                // Fall through to CH1
             }
-        } catch (ch2Error: any) {
-            if (ch2Error.name === 'AbortError' || ch2Error.name === 'CanceledError') {
-                throw new Error('COLLECTOR_TIMEOUT');
-            }
-            // Fall through to CH1
         }
 
         // Try CH1 deployment history
         try {
-            const url = `${baseUrl}/cloudhub/api/v2/applications/${appName}/deployments`;
-            const response = await apiHelper.get(url, {
-                headers: {
-                    'X-ANYPNT-ENV-ID': environmentId,
-                    'X-ANYPNT-ORG-ID': organizationId,
-                },
-                signal: controller.signal
-            });
+            const url = `${baseUrl}/cloudhub/api/v2/applications/${appName}/deployments?orderByDate=DESC&limit=5`;
+            const response = await apiHelper.get(url, { headers, signal: controller.signal });
 
             if (response.status === 200) {
                 const data = response.data;
-                return Array.isArray(data) ? data : (data?.data || data?.items || []);
+                const items = Array.isArray(data) ? data : (data?.data || data?.items || []);
+
+                return items.slice(0, 5).map((dep: any) => ({
+                    ...dep,
+                    _parsedId: dep.deploymentId || dep.id || '',
+                    _parsedVersion: dep.fileName || dep.artifactVersion || dep.version || 'unknown',
+                    _parsedTimestamp: dep.createTime || dep.createdDate || dep.lastModifiedDate || dep.deploymentDate || '',
+                    _parsedStatus: dep.status || 'unknown',
+                    _parsedTriggeredBy: dep.userId || dep.createdBy || dep.user || 'unknown'
+                }));
             }
         } catch (ch1Error: any) {
             if (ch1Error.name === 'AbortError' || ch1Error.name === 'CanceledError') {

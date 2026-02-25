@@ -153,13 +153,14 @@ interface AppPickItem extends vscode.QuickPickItem {
     appName: string;
     appId: string;
     deploymentId?: string;
+    specificationId?: string;
 }
 
 async function selectApplications(
     context: vscode.ExtensionContext,
     organizationId: string,
     environmentId: string
-): Promise<Array<{ name: string; id: string; deploymentId?: string }> | null> {
+): Promise<Array<{ name: string; id: string; deploymentId?: string; specificationId?: string }> | null> {
     const apiHelper = new ApiHelper(context);
     const baseUrl = await getBaseUrl(context);
     const appItems: AppPickItem[] = [];
@@ -174,13 +175,33 @@ async function selectApplications(
             if (!Array.isArray(ch2Apps)) {
                 ch2Apps = ch2Apps?.data || ch2Apps?.items || ch2Apps?.applications || [];
             }
-            for (const app of ch2Apps) {
+
+            // Fetch specificationIds for CH2 apps in parallel
+            const appsWithSpecs = await Promise.all(ch2Apps.map(async (app: any) => {
+                let specificationId = app.id;
+                try {
+                    const specsUrl = `${baseUrl}/amc/application-manager/api/v2/organizations/${organizationId}/environments/${environmentId}/deployments/${app.id}/specs`;
+                    const specsResponse = await apiHelper.get(specsUrl);
+                    if (specsResponse.status === 200 && specsResponse.data) {
+                        const specs = Array.isArray(specsResponse.data) ? specsResponse.data : specsResponse.data.data || [];
+                        if (specs.length > 0) {
+                            specificationId = specs[0].id || specs[0].version || app.id;
+                        }
+                    }
+                } catch {
+                    // Use deployment ID as fallback
+                }
+                return { ...app, specificationId };
+            }));
+
+            for (const app of appsWithSpecs) {
                 appItems.push({
                     label: `$(rocket) ${app.name}`,
                     description: `CH2 - ${app.status || 'unknown'}`,
                     appName: app.name,
                     appId: app.id || app.name,
-                    deploymentId: app.id
+                    deploymentId: app.id,
+                    specificationId: app.specificationId
                 });
             }
         }
@@ -235,7 +256,8 @@ async function selectApplications(
     return selected.map(item => ({
         name: item.appName,
         id: item.appId,
-        deploymentId: item.deploymentId
+        deploymentId: item.deploymentId,
+        specificationId: item.specificationId
     }));
 }
 

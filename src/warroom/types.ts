@@ -4,7 +4,7 @@ export interface WarRoomConfig {
     environment: string;
     environmentId: string;
     organizationId: string;
-    applications: Array<{ name: string; id: string; deploymentId?: string }>;
+    applications: Array<{ name: string; id: string; deploymentId?: string; specificationId?: string }>;
     timeWindow: { start: Date; end: Date };
     severity: 'SEV1' | 'SEV2' | 'SEV3';
     autoExpand: boolean;

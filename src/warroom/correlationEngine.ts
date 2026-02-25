@@ -62,7 +62,7 @@ export function buildTimeline(data: WarRoomData): TimelineEvent[] {
 
         // Status change events
         const status = appData.status.status.toUpperCase();
-        if (status !== 'STARTED' && status !== 'RUNNING' && status !== 'DEPLOYED') {
+        if (status !== 'STARTED' && status !== 'RUNNING' && status !== 'DEPLOYED' && status !== 'APPLIED') {
             events.push({
                 timestamp: appData.status.lastRestart || data.config.timeWindow.start.toISOString(),
                 type: 'status_change',
