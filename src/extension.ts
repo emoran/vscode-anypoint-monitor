@@ -30,6 +30,7 @@ import { showApplicationDiagram } from "./anypoint/applicationDiagram";
 import { showDataWeavePlayground } from "./anypoint/dataweavePlayground";
 import { showApplicationCommandCenter } from "./anypoint/applicationCommandCenter";
 import { showMultiAppDashboard } from "./anypoint/multiAppDashboard";
+import { startWarRoom, startBuildDependencyMap } from "./warroom/warRoomCommand";
 import { registerCommandPalettePanel } from "./anypoint/commandPalettePanel";
 import { StarPromptManager } from "./utils/starPrompt";
 import { telemetryService, TelemetryEvents } from "./services/telemetryService";
@@ -850,6 +851,24 @@ export function activate(context: vscode.ExtensionContext) {
 		}
 	});
 
+	// War Room Mode
+	const warRoomCmd = registerCommandWithTelemetry('anypoint-monitor.startWarRoom', async () => {
+		try {
+			await startWarRoom(context);
+			await starPromptManager.trackCommandExecution();
+		} catch (error: any) {
+			vscode.window.showErrorMessage(`Error starting War Room: ${error.message}`);
+		}
+	});
+
+	const buildDependencyMapCmd = registerCommandWithTelemetry('anypoint-monitor.buildDependencyMap', async () => {
+		try {
+			await startBuildDependencyMap(context);
+		} catch (error: any) {
+			vscode.window.showErrorMessage(`Error building dependency map: ${error.message}`);
+		}
+	});
+
 	// Hybrid / On-Premises Commands
 	const getHybridApps = registerCommandWithTelemetry('anypoint-monitor.hybridApps', async () => {
 		try {
@@ -935,6 +954,8 @@ export function activate(context: vscode.ExtensionContext) {
 	context.subscriptions.push(migrateLegacyAccountCmd);
 	context.subscriptions.push(applicationCommandCenterCmd);
 	context.subscriptions.push(multiAppDashboardCmd);
+	context.subscriptions.push(warRoomCmd);
+	context.subscriptions.push(buildDependencyMapCmd);
 	context.subscriptions.push(getHybridApps);
 	context.subscriptions.push(getHybridServersCmd);
 	context.subscriptions.push(getHybridServerGroupsCmd);

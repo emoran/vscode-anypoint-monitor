@@ -106,7 +106,9 @@
     "onCommand:anypoint-monitor.hybridServers",
     "onCommand:anypoint-monitor.hybridServerGroups",
     "onCommand:anypoint-monitor.hybridClusters",
-    "onCommand:anypoint-monitor.mqStats"
+    "onCommand:anypoint-monitor.mqStats",
+    "onCommand:anypoint-monitor.startWarRoom",
+    "onCommand:anypoint-monitor.buildDependencyMap"
   ],
   "main": "./out/extension.js",
   "files": [
@@ -228,6 +230,14 @@
         "title": "AM: AnypointMQ Statistics"
       },
       {
+        "command": "anypoint-monitor.startWarRoom",
+        "title": "AM: Start War Room"
+      },
+      {
+        "command": "anypoint-monitor.buildDependencyMap",
+        "title": "AM: Build Dependency Map"
+      },
+      {
         "command": "anypoint-monitor.refreshCommandPalette",
         "title": "AM: Refresh Command Palette",
         "icon": "$(refresh)"
@@ -261,6 +271,13 @@
         }
       ]
     },
+    "keybindings": [
+      {
+        "command": "anypoint-monitor.startWarRoom",
+        "key": "ctrl+shift+w",
+        "mac": "cmd+shift+w"
+      }
+    ],
     "configuration": {
       "title": "Anypoint Monitor",
       "properties": {
