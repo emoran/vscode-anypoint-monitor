@@ -18,10 +18,36 @@ import { generateReport } from './reportGenerator';
 const COLLECTOR_BATCH_SIZE = 3;
 const COLLECTOR_BATCH_DELAY = 200;
 
+// Progress weight distribution (must sum to 100)
+const PROGRESS_BLAST_RADIUS = 10;
+const PROGRESS_COLLECTION = 75;
+const PROGRESS_CORRELATION = 5;
+const PROGRESS_REPORT = 10;
+
+function elapsed(startTime: number): string {
+    return `${((Date.now() - startTime) / 1000).toFixed(0)}s`;
+}
+
 export async function runWarRoom(
     context: vscode.ExtensionContext,
     config: WarRoomConfig
 ): Promise<void> {
+    // Resolve blast radius BEFORE showing the progress bar.
+    // This avoids the dependency-map prompt being hidden behind the notification.
+    let blastRadius: BlastRadius;
+
+    if (config.autoExpand) {
+        blastRadius = await resolveBlastRadius(context, config);
+    } else {
+        blastRadius = {
+            seedApps: config.applications.map(a => a.name),
+            upstream: [],
+            downstream: [],
+            allAffected: config.applications.map(a => a.name)
+        };
+    }
+
+    // Now run the data collection + analysis with a visible progress bar
     await vscode.window.withProgress({
         location: vscode.ProgressLocation.Notification,
         title: 'War Room',
@@ -30,46 +56,36 @@ export async function runWarRoom(
         const startTime = Date.now();
         const allErrors: CollectionError[] = [];
 
-        // Step 1: Build blast radius
-        progress.report({ message: 'Building blast radius...' });
-
-        if (token.isCancellationRequested) { return; }
-
-        let blastRadius: BlastRadius;
-
-        if (config.autoExpand) {
-            blastRadius = await resolveBlastRadius(context, config, progress, token);
-        } else {
-            blastRadius = {
-                seedApps: config.applications.map(a => a.name),
-                upstream: [],
-                downstream: [],
-                allAffected: config.applications.map(a => a.name)
-            };
-        }
+        // ── Step 1: Blast radius (already resolved, just report) ────────
+        const totalApps = blastRadius.allAffected.length;
+        const upCount = blastRadius.upstream.length;
+        const downCount = blastRadius.downstream.length;
+        progress.report({
+            increment: PROGRESS_BLAST_RADIUS,
+            message: `Blast radius: ${totalApps} apps (${config.applications.length} seed, ${upCount} upstream, ${downCount} downstream)`
+        });
 
         if (token.isCancellationRequested) { return; }
 
         // Build app lookup from config + blast radius
         const appLookup = buildAppLookup(config, blastRadius);
-        const totalApps = blastRadius.allAffected.length;
 
-        // Step 2: Collect data in parallel for all apps
-        progress.report({ message: `Collecting data for ${totalApps} applications...` });
-
+        // ── Step 2: Collect data in parallel ────────────────────────────
         const appsData = new Map<string, AppWarRoomData>();
-
-        // Process apps in batches
         const appNames = blastRadius.allAffected;
+        const totalBatches = Math.ceil(appNames.length / COLLECTOR_BATCH_SIZE);
+        const incrementPerBatch = PROGRESS_COLLECTION / Math.max(totalBatches, 1);
+
         for (let i = 0; i < appNames.length; i += COLLECTOR_BATCH_SIZE) {
             if (token.isCancellationRequested) { return; }
 
             const batch = appNames.slice(i, i + COLLECTOR_BATCH_SIZE);
             const batchNum = Math.floor(i / COLLECTOR_BATCH_SIZE) + 1;
-            const totalBatches = Math.ceil(appNames.length / COLLECTOR_BATCH_SIZE);
+            const completedApps = i;
 
             progress.report({
-                message: `Collecting data (batch ${batchNum}/${totalBatches}): ${batch.join(', ')}...`
+                increment: batchNum === 1 ? 0 : incrementPerBatch,
+                message: `[${elapsed(startTime)}] Collecting logs, metrics, deployments... (${completedApps}/${totalApps} apps) - ${batch.join(', ')}`
             });
 
             const batchResults = await Promise.allSettled(
@@ -88,10 +104,15 @@ export async function runWarRoom(
                         app: batch[j],
                         error: result.reason?.message || 'Complete collection failure'
                     });
-                    // Set empty data for failed apps
                     appsData.set(batch[j], getEmptyAppData(batch[j]));
                 }
             }
+
+            // Report after batch completes
+            progress.report({
+                increment: incrementPerBatch,
+                message: `[${elapsed(startTime)}] Collected data for ${Math.min(i + COLLECTOR_BATCH_SIZE, totalApps)}/${totalApps} apps`
+            });
 
             if (i + COLLECTOR_BATCH_SIZE < appNames.length) {
                 await new Promise(resolve => setTimeout(resolve, COLLECTOR_BATCH_DELAY));
@@ -102,8 +123,11 @@ export async function runWarRoom(
 
         const collectionTime = Date.now() - startTime;
 
-        // Step 3: Analyze correlations
-        progress.report({ message: 'Analyzing correlations...' });
+        // ── Step 3: Analyze correlations ────────────────────────────────
+        progress.report({
+            increment: PROGRESS_CORRELATION,
+            message: `[${elapsed(startTime)}] Analyzing correlations and building timeline...`
+        });
 
         const warRoomData: WarRoomData = {
             config,
@@ -118,23 +142,28 @@ export async function runWarRoom(
 
         if (token.isCancellationRequested) { return; }
 
-        // Step 4: Generate report
-        progress.report({ message: 'Generating report...' });
+        // ── Step 4: Generate report ─────────────────────────────────────
+        progress.report({
+            increment: PROGRESS_REPORT,
+            message: `[${elapsed(startTime)}] Generating markdown report...`
+        });
 
         await generateReport(warRoomData, timeline, correlations);
 
         const totalTime = ((Date.now() - startTime) / 1000).toFixed(1);
         vscode.window.showInformationMessage(
-            `War Room report generated in ${totalTime}s. Analyzed ${totalApps} apps with ${allErrors.length} collection errors.`
+            `War Room report generated in ${totalTime}s. Analyzed ${totalApps} apps, ${timeline.length} events, ${allErrors.length} collection errors.`
         );
     });
 }
 
+/**
+ * Resolve blast radius OUTSIDE of the progress bar so that any user prompts
+ * (e.g., "Build dependency map now?") are not hidden behind the notification.
+ */
 async function resolveBlastRadius(
     context: vscode.ExtensionContext,
-    config: WarRoomConfig,
-    progress: vscode.Progress<{ message?: string; increment?: number }>,
-    token: vscode.CancellationToken
+    config: WarRoomConfig
 ): Promise<BlastRadius> {
     let depMap = loadDependencyMap();
 
@@ -145,13 +174,19 @@ async function resolveBlastRadius(
                 'Refresh', 'Use Stale', 'Skip Expansion'
             )
             : await vscode.window.showWarningMessage(
-                'No dependency map found. Build one now? (This scans all deployed apps)',
+                'No dependency map found. Build one now? (This scans all deployed apps and may take ~30s)',
                 'Build Now', 'Skip Expansion'
             );
 
         if (action === 'Refresh' || action === 'Build Now') {
-            progress.report({ message: 'Building dependency map...' });
-            depMap = await buildDependencyMap(context, config.environmentId, progress);
+            // Build with its own progress bar
+            await vscode.window.withProgress({
+                location: vscode.ProgressLocation.Notification,
+                title: 'War Room - Building Dependency Map',
+                cancellable: false
+            }, async (progress) => {
+                depMap = await buildDependencyMap(context, config.environmentId, progress);
+            });
         } else if (action === 'Skip Expansion' || !action) {
             return {
                 seedApps: config.applications.map(a => a.name),
