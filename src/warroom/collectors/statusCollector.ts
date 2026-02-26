@@ -73,10 +73,10 @@ async function fetchStatusWithTimeout(
                 const app = data.application || data;
                 const target = data.target || {};
 
-                // target.type === 'MC' means CloudHub 2.0 shared space; target.provider === 'MC' is not meaningful as a region.
-                // runtimeVersion should come from target, NOT app.ref?.version (that's the artifact version).
-                const runtimeVersion = target.runtimeVersion || target.mule?.version || app.muleVersion || null;
-                const region = target.region || (target.type && target.type !== 'MC' ? target.type : null) || target.provider || null;
+                // muleVersion is on the deployment object itself (data.muleVersion.version), not on target
+                // target.deploymentSettings.region has the actual region; target.name is the target display name
+                const runtimeVersion = data.muleVersion?.version || app.muleVersion?.version || app.muleVersion || app.currentRuntimeVersion || null;
+                const region = target.deploymentSettings?.region || target.name || target.region || null;
                 return {
                     name: data.name || appName,
                     status: data.status || app.status || 'UNKNOWN',

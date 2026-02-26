@@ -122,7 +122,7 @@ async function fetchDeploymentsWithTimeout(
                                     _parsedVersion: appRefVersion || latestSpec.version || latestSpec.id || 'unknown',
                                     _parsedTimestamp: latestSpec.lastModifiedDate || latestSpec.createdDate || latestSpec.createTime || deployment.lastModifiedDate || '',
                                     _parsedStatus: deployment.status || latestSpec.status || 'unknown',
-                                    _parsedTriggeredBy: latestSpec.lastModifiedBy || latestSpec.createdBy || deployment.lastModifiedBy || deployment.createdBy || 'unknown'
+                                    _parsedTriggeredBy: latestSpec.lastModifiedBy || latestSpec.createdBy || deployment.lastModifiedBy || deployment.createdBy || 'N/A'
                                 }];
                             }
                         }
@@ -137,7 +137,7 @@ async function fetchDeploymentsWithTimeout(
                         _parsedVersion: appRefVersion || 'unknown',
                         _parsedTimestamp: deployment.lastModifiedDate || deployment.createTime || deployment.updateTime || '',
                         _parsedStatus: deployment.status || 'unknown',
-                        _parsedTriggeredBy: deployment.createdBy || 'unknown'
+                        _parsedTriggeredBy: deployment.createdBy || 'N/A'
                     }];
                 }
             } catch (ch2Error: any) {
