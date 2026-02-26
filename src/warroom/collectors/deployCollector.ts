@@ -113,14 +113,17 @@ async function fetchDeploymentsWithTimeout(
                             const specs = Array.isArray(specsRaw) ? specsRaw : (specsRaw?.data || []);
 
                             if (specs.length > 0) {
-                                return specs.slice(0, 5).map((spec: any) => ({
-                                    ...spec,
-                                    _parsedId: spec.id || targetId,
-                                    _parsedVersion: appRefVersion || spec.version || spec.id || 'unknown',
-                                    _parsedTimestamp: spec.lastModifiedDate || spec.createdDate || spec.createTime || deployment.lastModifiedDate || '',
-                                    _parsedStatus: deployment.status || spec.status || 'unknown',
-                                    _parsedTriggeredBy: spec.createdBy || deployment.createdBy || 'unknown'
-                                }));
+                                // Use only the latest spec (specs[0]) as a single deployment record.
+                                // Multiple specs are configuration revisions of the same deployment, not separate deployments.
+                                const latestSpec = specs[0];
+                                return [{
+                                    ...latestSpec,
+                                    _parsedId: latestSpec.id || targetId,
+                                    _parsedVersion: appRefVersion || latestSpec.version || latestSpec.id || 'unknown',
+                                    _parsedTimestamp: latestSpec.lastModifiedDate || latestSpec.createdDate || latestSpec.createTime || deployment.lastModifiedDate || '',
+                                    _parsedStatus: deployment.status || latestSpec.status || 'unknown',
+                                    _parsedTriggeredBy: latestSpec.lastModifiedBy || latestSpec.createdBy || deployment.lastModifiedBy || deployment.createdBy || 'unknown'
+                                }];
                             }
                         }
                     } catch {

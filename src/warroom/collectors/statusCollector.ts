@@ -73,13 +73,17 @@ async function fetchStatusWithTimeout(
                 const app = data.application || data;
                 const target = data.target || {};
 
+                // target.type === 'MC' means CloudHub 2.0 shared space; target.provider === 'MC' is not meaningful as a region.
+                // runtimeVersion should come from target, NOT app.ref?.version (that's the artifact version).
+                const runtimeVersion = target.runtimeVersion || target.mule?.version || app.muleVersion || null;
+                const region = target.region || (target.type && target.type !== 'MC' ? target.type : null) || target.provider || null;
                 return {
                     name: data.name || appName,
                     status: data.status || app.status || 'UNKNOWN',
                     workerCount: target.replicas || app.replicas || target.workers?.amount || null,
                     lastRestart: data.lastModifiedDate || data.updateTime || null,
-                    region: target.provider || target.region || null,
-                    runtimeVersion: app.ref?.version || target.runtimeVersion || app.muleVersion || null
+                    region,
+                    runtimeVersion
                 };
             }
         } catch (ch2Error: any) {
