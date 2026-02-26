@@ -39,6 +39,37 @@ export async function generateReport(
     );
     panel.webview.html = renderWebview(report);
 
+    // Handle webview messages for interactive actions
+    panel.webview.onDidReceiveMessage(async (message) => {
+        switch (message.command) {
+            case 'copyReport':
+                await vscode.env.clipboard.writeText(markdown);
+                panel.webview.postMessage({ command: 'toast', text: 'Report copied to clipboard' });
+                break;
+            case 'refreshReport':
+                panel.dispose();
+                await vscode.commands.executeCommand('anypoint-monitor.startWarRoom');
+                break;
+            case 'openMarkdown':
+                if (filePath) {
+                    const doc = await vscode.workspace.openTextDocument(filePath);
+                    await vscode.window.showTextDocument(doc, { viewColumn: vscode.ViewColumn.Beside, preview: false });
+                } else {
+                    const doc = await vscode.workspace.openTextDocument({ content: markdown, language: 'markdown' });
+                    await vscode.window.showTextDocument(doc, { viewColumn: vscode.ViewColumn.Beside, preview: false });
+                }
+                break;
+            case 'openCommandCenter':
+                await vscode.commands.executeCommand('anypoint-monitor.commandCenter');
+                panel.webview.postMessage({ command: 'toast', text: `Opening Command Center — select ${message.appName}` });
+                break;
+            case 'openLogs':
+                await vscode.commands.executeCommand('anypoint-monitor.realTimeLogs');
+                panel.webview.postMessage({ command: 'toast', text: `Opening Real-Time Logs — select ${message.appName}` });
+                break;
+        }
+    });
+
     // Also reveal the saved file path in status bar
     if (filePath) {
         vscode.window.setStatusBarMessage(`War Room report saved: ${filePath}`, 8000);
@@ -219,6 +250,45 @@ strong{color:var(--text);font-weight:600}
 .err-text{font-size:12px;color:var(--text2)}
 .err-text strong{color:var(--text)}
 
+/* Action buttons */
+.header-actions{display:flex;gap:8px;margin-top:12px}
+.btn{
+    display:inline-flex;align-items:center;gap:5px;padding:6px 14px;
+    background:var(--surface);border:1px solid var(--border);border-radius:6px;
+    color:var(--text);font-size:12px;font-weight:500;cursor:pointer;
+    transition:all .2s ease;white-space:nowrap;
+}
+.btn:hover{background:var(--surface2);border-color:var(--blue);color:var(--blue);transform:translateY(-1px)}
+.btn:active{transform:translateY(0)}
+.btn-icon{font-size:14px}
+
+/* Inline app action links */
+.app-actions{display:flex;gap:4px;margin-top:2px}
+.app-link{
+    padding:2px 8px;border-radius:4px;font-size:11px;
+    color:var(--blue);background:rgba(88,166,255,.08);border:1px solid rgba(88,166,255,.15);
+    cursor:pointer;transition:all .15s ease;display:inline-flex;align-items:center;gap:3px;
+}
+.app-link:hover{background:rgba(88,166,255,.15);border-color:rgba(88,166,255,.3)}
+
+/* Expandable error patterns */
+.err-pattern{cursor:pointer;position:relative}
+.err-pattern:hover{color:var(--blue)}
+.err-short{display:inline}
+.err-full{display:none;white-space:pre-wrap;word-break:break-all;margin-top:6px;padding:8px;background:var(--bg);border:1px solid var(--border2);border-radius:4px;color:var(--text2);max-height:200px;overflow-y:auto}
+.err-pattern.expanded .err-short{display:none}
+.err-pattern.expanded .err-full{display:block}
+.err-expand-hint{color:var(--text3);font-size:10px;margin-left:4px}
+
+/* Toast notifications */
+.toast{
+    position:fixed;bottom:24px;right:24px;background:var(--surface2);border:1px solid var(--border);
+    border-radius:var(--radius);padding:10px 18px;font-size:13px;color:var(--text);
+    box-shadow:0 4px 16px rgba(0,0,0,.4);z-index:100;opacity:0;transform:translateY(10px);
+    transition:all .3s ease;pointer-events:none;
+}
+.toast.show{opacity:1;transform:translateY(0)}
+
 /* Footer */
 .report-footer{text-align:center;color:var(--text3);font-size:12px;margin-top:28px;padding-top:16px;border-top:1px solid var(--border2)}
 
@@ -244,6 +314,11 @@ strong{color:var(--text);font-weight:600}
             <div class="header-time">
                 ${fmtDate(config.timeWindow.start)} → ${fmtDate(config.timeWindow.end)}
                 &nbsp;·&nbsp; Generated ${fmtDate(new Date(report.generatedAt))}
+            </div>
+            <div class="header-actions">
+                <button class="btn" onclick="copyReport()"><span class="btn-icon">📋</span> Copy Report</button>
+                <button class="btn" onclick="refreshReport()"><span class="btn-icon">🔄</span> Refresh</button>
+                <button class="btn" onclick="openMarkdown()"><span class="btn-icon">📄</span> Open Markdown</button>
             </div>
         </div>
     </div>
@@ -303,7 +378,7 @@ strong{color:var(--text);font-weight:600}
         <table>
             <thead><tr>
                 <th>Application</th><th>Direction</th><th>Hops</th>
-                <th>Status</th><th>Errors</th><th>Warnings</th>
+                <th>Status</th><th>Errors</th><th>Warnings</th><th>Actions</th>
             </tr></thead>
             <tbody>
             ${blastRows.map(r => {
@@ -316,6 +391,7 @@ strong{color:var(--text);font-weight:600}
                     <td>${statusBadge(st)}</td>
                     <td>${appData?.logs.errors ? `<span style="color:var(--red);font-weight:600">${appData.logs.errors}</span>` : '<span style="color:var(--text3)">0</span>'}</td>
                     <td>${appData?.logs.warnings ? `<span style="color:var(--yellow)">${appData.logs.warnings}</span>` : '<span style="color:var(--text3)">0</span>'}</td>
+                    <td><div class="app-actions"><span class="app-link" onclick="openCommandCenter('${escHtml(r.app)}')">Command Center</span><span class="app-link" onclick="openLogs('${escHtml(r.app)}')">Logs</span></div></td>
                 </tr>`;
             }).join('')}
             </tbody>
@@ -361,12 +437,17 @@ strong{color:var(--text);font-weight:600}
                 const rows: string[] = [];
                 for (const [appName, appData] of apps) {
                     for (const g of appData.logs.groups.filter(g => g.level === 'ERROR').slice(0, 10)) {
+                        const short = escHtml(g.pattern.substring(0, 100));
+                        const full = escHtml(g.pattern);
+                        const expandable = g.pattern.length > 100;
                         rows.push(`<tr>
                             <td><strong>${escHtml(appName)}</strong></td>
                             <td><span style="color:var(--red);font-weight:600">${g.count}</span></td>
                             <td style="font-size:12px;color:var(--text2)">${fmtTime(g.firstSeen)}</td>
                             <td style="font-size:12px;color:var(--text2)">${fmtTime(g.lastSeen)}</td>
-                            <td style="font-family:monospace;font-size:12px;color:var(--text2)">${escHtml(g.pattern.substring(0, 100))}</td>
+                            <td style="font-family:monospace;font-size:12px;color:var(--text2)">${expandable
+                                ? `<div class="err-pattern" onclick="this.classList.toggle('expanded')"><span class="err-short">${short}…<span class="err-expand-hint">(click to expand)</span></span><div class="err-full">${full}</div></div>`
+                                : short}</td>
                         </tr>`);
                     }
                 }
@@ -455,7 +536,7 @@ strong{color:var(--text);font-weight:600}
     <div class="section-body">
         <div class="tbl-wrap">
         <table>
-            <thead><tr><th>Application</th><th>Status</th><th>Workers</th><th>Mule Runtime</th><th>Region</th><th>Last Modified</th></tr></thead>
+            <thead><tr><th>Application</th><th>Status</th><th>Workers</th><th>Mule Runtime</th><th>Region</th><th>Last Modified</th><th>Actions</th></tr></thead>
             <tbody>
             ${[...apps.values()].map(appData => {
                 const s = appData.status;
@@ -466,6 +547,7 @@ strong{color:var(--text);font-weight:600}
                     <td style="font-size:12px;color:var(--text2)">${s.runtimeVersion ? escHtml(s.runtimeVersion) : '—'}</td>
                     <td style="font-size:12px;color:var(--text2)">${s.region ? escHtml(s.region) : '—'}</td>
                     <td style="font-size:12px;color:var(--text2)">${s.lastRestart ? fmtTime(s.lastRestart) : '—'}</td>
+                    <td><div class="app-actions"><span class="app-link" onclick="openCommandCenter('${escHtml(s.name)}')">Command Center</span><span class="app-link" onclick="openLogs('${escHtml(s.name)}')">Logs</span></div></td>
                 </tr>`;
             }).join('')}
             </tbody>
@@ -511,6 +593,35 @@ strong{color:var(--text);font-weight:600}
 </section>
 
 <div class="report-footer">Generated by Anypoint Monitor War Room Mode · ${fmtDate(new Date(report.generatedAt))}</div>
+<div class="toast" id="toast"></div>
+<script>
+const vscode = acquireVsCodeApi();
+function showToast(msg) {
+    const t = document.getElementById('toast');
+    t.textContent = msg;
+    t.classList.add('show');
+    setTimeout(() => t.classList.remove('show'), 2500);
+}
+function copyReport() {
+    vscode.postMessage({ command: 'copyReport' });
+}
+function refreshReport() {
+    vscode.postMessage({ command: 'refreshReport' });
+}
+function openMarkdown() {
+    vscode.postMessage({ command: 'openMarkdown' });
+}
+function openCommandCenter(appName) {
+    vscode.postMessage({ command: 'openCommandCenter', appName });
+}
+function openLogs(appName) {
+    vscode.postMessage({ command: 'openLogs', appName });
+}
+window.addEventListener('message', event => {
+    const msg = event.data;
+    if (msg.command === 'toast') { showToast(msg.text); }
+});
+</script>
 </body>
 </html>`;
 }

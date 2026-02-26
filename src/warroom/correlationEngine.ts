@@ -26,17 +26,17 @@ export function buildTimeline(data: WarRoomData): TimelineEvent[] {
 
         // Error spikes from log groups
         for (const group of appData.logs.groups) {
-            if (group.level === 'ERROR' && group.count >= 5) {
+            if (group.level === 'ERROR' && group.count >= 2) {
                 events.push({
                     timestamp: group.firstSeen,
                     type: 'error_spike',
                     app: appName,
                     description: `Error pattern (${group.count}x): ${group.pattern.substring(0, 100)}`,
-                    severity: group.count >= 50 ? 'critical' : 'warning',
+                    severity: group.count >= 20 ? 'critical' : 'warning',
                     data: { count: group.count, pattern: group.pattern }
                 });
             }
-            if (group.level === 'WARN' && group.count >= 20) {
+            if (group.level === 'WARN' && group.count >= 10) {
                 events.push({
                     timestamp: group.firstSeen,
                     type: 'warning_spike',
@@ -269,7 +269,7 @@ function checkSharedDependencyFailure(data: WarRoomData): CorrelationResult | nu
     const failingApps: string[] = [];
 
     for (const [appName, appData] of data.apps) {
-        if (appData.logs.errors > 5 || ['STOPPED', 'FAILED'].includes(appData.status.status.toUpperCase())) {
+        if (appData.logs.errors > 0 || ['STOPPED', 'FAILED'].includes(appData.status.status.toUpperCase())) {
             failingApps.push(appName);
         }
     }

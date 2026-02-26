@@ -27,10 +27,17 @@ export async function collectDeployments(
         );
 
         const suspiciousThreshold = new Date(timeWindowStart.getTime() - 15 * 60 * 1000);
+        // Only show deployments within 24h before incident end (filter out old history)
+        const relevanceThreshold = new Date(timeWindowStart.getTime() - 24 * 60 * 60 * 1000);
 
         for (const dep of rawDeployments.slice(0, 5)) {
             const timestamp = dep._parsedTimestamp || '';
             const depDate = timestamp ? new Date(timestamp) : null;
+
+            // Skip deployments older than 24h before the incident window
+            if (depDate && !isNaN(depDate.getTime()) && depDate < relevanceThreshold) {
+                continue;
+            }
 
             const isSuspicious = depDate !== null &&
                 !isNaN(depDate.getTime()) &&
@@ -40,10 +47,10 @@ export async function collectDeployments(
             deployments.push({
                 appName,
                 deploymentId: dep._parsedId || '',
-                version: dep._parsedVersion || 'unknown',
-                timestamp: (depDate && !isNaN(depDate.getTime())) ? depDate.toISOString() : 'unknown',
-                status: dep._parsedStatus || 'unknown',
-                triggeredBy: dep._parsedTriggeredBy || 'unknown',
+                version: dep._parsedVersion || 'N/A',
+                timestamp: (depDate && !isNaN(depDate.getTime())) ? depDate.toISOString() : 'N/A',
+                status: dep._parsedStatus || 'N/A',
+                triggeredBy: dep._parsedTriggeredBy || 'N/A',
                 suspicious: isSuspicious,
                 suspiciousReason: isSuspicious
                     ? `Deployed ${formatTimeDiff(depDate!, timeWindowStart)} before incident window`
@@ -160,10 +167,10 @@ async function fetchDeploymentsWithTimeout(
                 return items.slice(0, 5).map((dep: any) => ({
                     ...dep,
                     _parsedId: dep.deploymentId || dep.id || '',
-                    _parsedVersion: dep.fileName || dep.artifactVersion || dep.version || 'unknown',
+                    _parsedVersion: dep.fileName || dep.artifactFileName || dep.artifactVersion || dep.version || dep.applicationFileName || 'N/A',
                     _parsedTimestamp: dep.createTime || dep.createdDate || dep.lastModifiedDate || dep.deploymentDate || '',
-                    _parsedStatus: dep.status || 'unknown',
-                    _parsedTriggeredBy: dep.userId || dep.createdBy || dep.user || 'unknown'
+                    _parsedStatus: dep.deploymentUpdateStatus || dep.status || 'N/A',
+                    _parsedTriggeredBy: dep.userId || dep.userName || dep.createdBy || dep.user || 'N/A'
                 }));
             }
         } catch (ch1Error: any) {
