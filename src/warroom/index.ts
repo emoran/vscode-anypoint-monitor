@@ -2,11 +2,14 @@ import * as vscode from 'vscode';
 import {
     WarRoomConfig,
     WarRoomData,
+    DependencyMap,
     BlastRadius,
     AppWarRoomData,
     CollectionError
 } from './types';
 import { loadDependencyMap, isDependencyMapStale, buildDependencyMap } from './dependencyMapper';
+import { ApiHelper } from '../controllers/apiHelper';
+import { getBaseUrl } from '../constants';
 import { calculateBlastRadius } from './blastRadius';
 import { collectLogs } from './collectors/logCollector';
 import { collectDeployments } from './collectors/deployCollector';
@@ -35,9 +38,12 @@ export async function runWarRoom(
     // Resolve blast radius BEFORE showing the progress bar.
     // This avoids the dependency-map prompt being hidden behind the notification.
     let blastRadius: BlastRadius;
+    let depMap: DependencyMap | null = null;
 
     if (config.autoExpand) {
-        blastRadius = await resolveBlastRadius(context, config);
+        const result = await resolveBlastRadius(context, config);
+        blastRadius = result.blastRadius;
+        depMap = result.depMap;
     } else {
         blastRadius = {
             seedApps: config.applications.map(a => a.name),
@@ -67,8 +73,9 @@ export async function runWarRoom(
 
         if (token.isCancellationRequested) { return; }
 
-        // Build app lookup from config + blast radius
-        const appLookup = buildAppLookup(config, blastRadius);
+        // Build app lookup from config + blast radius + dep map
+        progress.report({ message: 'Enriching expanded app data...' });
+        const appLookup = await buildAppLookup(context, config, blastRadius, depMap);
 
         // ── Step 2: Collect data in parallel ────────────────────────────
         const appsData = new Map<string, AppWarRoomData>();
@@ -170,7 +177,7 @@ export async function runWarRoom(
 async function resolveBlastRadius(
     context: vscode.ExtensionContext,
     config: WarRoomConfig
-): Promise<BlastRadius> {
+): Promise<{ blastRadius: BlastRadius; depMap: DependencyMap | null }> {
     const seedNames = config.applications.map(a => a.name);
 
     // ── Step 1: Ensure we have a dependency map ────────────────────────
@@ -198,7 +205,7 @@ async function resolveBlastRadius(
 
         // If the graph found upstream or downstream apps, use it
         if (blastRadius.upstream.length > 0 || blastRadius.downstream.length > 0) {
-            return blastRadius;
+            return { blastRadius, depMap };
         }
     }
 
@@ -221,19 +228,25 @@ async function resolveBlastRadius(
 
     if (related.length > 0) {
         return {
-            seedApps: seedNames,
-            upstream: [], // Can't determine direction from prefix matching
-            downstream: related, // Show as "downstream" (related apps)
-            allAffected: [...seedNames, ...related.map(r => r.app)]
+            blastRadius: {
+                seedApps: seedNames,
+                upstream: [],
+                downstream: related,
+                allAffected: [...seedNames, ...related.map(r => r.app)]
+            },
+            depMap
         };
     }
 
     // No expansion possible
     return {
-        seedApps: seedNames,
-        upstream: [],
-        downstream: [],
-        allAffected: seedNames
+        blastRadius: {
+            seedApps: seedNames,
+            upstream: [],
+            downstream: [],
+            allAffected: seedNames
+        },
+        depMap
     };
 }
 
@@ -269,10 +282,12 @@ interface AppLookupEntry {
     specificationId?: string;
 }
 
-function buildAppLookup(
+async function buildAppLookup(
+    context: vscode.ExtensionContext,
     config: WarRoomConfig,
-    blastRadius: BlastRadius
-): Map<string, AppLookupEntry> {
+    blastRadius: BlastRadius,
+    depMap: DependencyMap | null
+): Promise<Map<string, AppLookupEntry>> {
     const lookup = new Map<string, AppLookupEntry>();
 
     // Seed apps come from config with known IDs
@@ -285,24 +300,49 @@ function buildAppLookup(
         });
     }
 
-    // Expanded apps: try to get real IDs from the dependency map
-    const depMap = loadDependencyMap();
-    const depAppIndex = new Map<string, { id: string; deploymentId?: string }>();
+    // Build index of real app IDs from the dependency map
+    const depAppIndex = new Map<string, string>();
     if (depMap) {
         for (const app of depMap.apps) {
-            depAppIndex.set(app.name, { id: app.id });
+            depAppIndex.set(app.name, app.id);
         }
     }
 
+    // Identify expanded apps (not seeds) that need enrichment
+    const expandedApps: Array<{ name: string; depId: string }> = [];
     for (const name of blastRadius.allAffected) {
         if (!lookup.has(name)) {
-            const depInfo = depAppIndex.get(name);
-            lookup.set(name, {
-                name,
-                id: depInfo?.id || name,
-                deploymentId: depInfo?.id  // For CH2 apps, the dep map id IS the deploymentId
-            });
+            const depId = depAppIndex.get(name) || name;
+            lookup.set(name, { name, id: depId, deploymentId: depId });
+            // If the ID looks like a UUID (CH2 app), we need to fetch spec IDs
+            if (depId !== name && /^[0-9a-f-]{20,}$/i.test(depId)) {
+                expandedApps.push({ name, depId });
+            }
         }
+    }
+
+    // Fetch specificationIds for expanded CH2 apps (needed for log collection)
+    if (expandedApps.length > 0) {
+        const apiHelper = new ApiHelper(context);
+        const baseUrl = await getBaseUrl(context);
+        const orgId = config.organizationId;
+        const envId = config.environmentId;
+
+        await Promise.all(expandedApps.map(async ({ name, depId }) => {
+            try {
+                const specsUrl = `${baseUrl}/amc/application-manager/api/v2/organizations/${orgId}/environments/${envId}/deployments/${depId}/specs`;
+                const specsResponse = await apiHelper.get(specsUrl);
+                if (specsResponse.status === 200 && specsResponse.data) {
+                    const specs = Array.isArray(specsResponse.data) ? specsResponse.data : specsResponse.data.data || [];
+                    if (specs.length > 0) {
+                        const entry = lookup.get(name)!;
+                        entry.specificationId = specs[0].id || specs[0].version || depId;
+                    }
+                }
+            } catch {
+                // Spec fetch failed — collectors will still work without it
+            }
+        }));
     }
 
     return lookup;
