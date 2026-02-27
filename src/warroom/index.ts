@@ -256,7 +256,7 @@ async function resolveBlastRadius(
  * Returns the shortest prefix that is at least 2 segments and shared by multiple seeds (or just the
  * individual prefixes when there's only one seed app).
  */
-function extractCommonPrefixes(seedNames: string[]): string[] {
+export function extractCommonPrefixes(seedNames: string[]): string[] {
     const prefixes: string[] = [];
 
     for (const name of seedNames) {
