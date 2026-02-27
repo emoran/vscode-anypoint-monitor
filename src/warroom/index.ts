@@ -159,56 +159,107 @@ export async function runWarRoom(
 
 /**
  * Resolve blast radius OUTSIDE of the progress bar so that any user prompts
- * (e.g., "Build dependency map now?") are not hidden behind the notification.
+ * are not hidden behind the notification.
+ *
+ * Strategy:
+ * 1. Auto-build the dependency map silently (with its own progress bar)
+ * 2. Use graph-based expansion (2-hop BFS) if deps found
+ * 3. Fall back to name-prefix matching when graph finds no connections
+ * 4. Always enrich the lookup with real app IDs from the environment
  */
 async function resolveBlastRadius(
     context: vscode.ExtensionContext,
     config: WarRoomConfig
 ): Promise<BlastRadius> {
+    const seedNames = config.applications.map(a => a.name);
+
+    // ── Step 1: Ensure we have a dependency map ────────────────────────
     let depMap = loadDependencyMap();
 
     if (!depMap || isDependencyMapStale(depMap)) {
-        const action = depMap
-            ? await vscode.window.showWarningMessage(
-                'Dependency map is stale (>24hrs). Refresh now?',
-                'Refresh', 'Use Stale', 'Skip Expansion'
-            )
-            : await vscode.window.showWarningMessage(
-                'No dependency map found. Build one now? (This scans all deployed apps and may take ~30s)',
-                'Build Now', 'Skip Expansion'
-            );
-
-        if (action === 'Refresh' || action === 'Build Now') {
-            // Build with its own progress bar
+        // Auto-build silently with a progress bar (no prompt)
+        try {
             await vscode.window.withProgress({
                 location: vscode.ProgressLocation.Notification,
-                title: 'War Room - Building Dependency Map',
+                title: 'War Room — Building Dependency Map',
                 cancellable: false
             }, async (progress) => {
                 depMap = await buildDependencyMap(context, config.environmentId, progress);
             });
-        } else if (action === 'Skip Expansion' || !action) {
-            return {
-                seedApps: config.applications.map(a => a.name),
-                upstream: [],
-                downstream: [],
-                allAffected: config.applications.map(a => a.name)
-            };
+        } catch (err: any) {
+            console.warn('War Room: Failed to build dependency map:', err.message);
+            // Continue without dep map — fall through to prefix matching
         }
-        // 'Use Stale' falls through with existing depMap
     }
 
+    // ── Step 2: Try graph-based expansion ──────────────────────────────
     if (depMap) {
-        const seedApps = config.applications.map(a => a.name);
-        return calculateBlastRadius(seedApps, depMap);
+        const blastRadius = calculateBlastRadius(seedNames, depMap);
+
+        // If the graph found upstream or downstream apps, use it
+        if (blastRadius.upstream.length > 0 || blastRadius.downstream.length > 0) {
+            return blastRadius;
+        }
     }
 
+    // ── Step 3: Fallback — name-prefix matching ────────────────────────
+    // Extract common prefixes from seed apps (e.g., "meraki-ccw" from "meraki-ccw-sfdc-papi-prod")
+    const prefixes = extractCommonPrefixes(seedNames);
+
+    // Get all app names from the dep map (which fetched all deployed apps)
+    const allAppNames = depMap
+        ? depMap.apps.map(a => a.name)
+        : [];
+
+    const related: Array<{ app: string; hops: number }> = [];
+    for (const appName of allAppNames) {
+        if (seedNames.includes(appName)) { continue; }
+        if (prefixes.some(prefix => appName.startsWith(prefix))) {
+            related.push({ app: appName, hops: 1 });
+        }
+    }
+
+    if (related.length > 0) {
+        return {
+            seedApps: seedNames,
+            upstream: [], // Can't determine direction from prefix matching
+            downstream: related, // Show as "downstream" (related apps)
+            allAffected: [...seedNames, ...related.map(r => r.app)]
+        };
+    }
+
+    // No expansion possible
     return {
-        seedApps: config.applications.map(a => a.name),
+        seedApps: seedNames,
         upstream: [],
         downstream: [],
-        allAffected: config.applications.map(a => a.name)
+        allAffected: seedNames
     };
+}
+
+/**
+ * Extract name prefixes for matching related apps.
+ * "meraki-ccw-sfdc-papi-prod" → tries "meraki-ccw-sfdc-papi", "meraki-ccw-sfdc", "meraki-ccw"
+ * Returns the shortest prefix that is at least 2 segments and shared by multiple seeds (or just the
+ * individual prefixes when there's only one seed app).
+ */
+function extractCommonPrefixes(seedNames: string[]): string[] {
+    const prefixes: string[] = [];
+
+    for (const name of seedNames) {
+        const parts = name.split('-');
+        // Try prefixes from 2 segments up to (n-1) segments
+        // e.g., for "meraki-ccw-sfdc-papi-prod": "meraki-ccw", "meraki-ccw-sfdc", "meraki-ccw-sfdc-papi"
+        for (let len = Math.min(parts.length - 1, 3); len >= 2; len--) {
+            const prefix = parts.slice(0, len).join('-');
+            if (prefix.length >= 4) {
+                prefixes.push(prefix + '-');
+                break; // Use shortest meaningful prefix for this seed
+            }
+        }
+    }
+
+    return [...new Set(prefixes)];
 }
 
 interface AppLookupEntry {
@@ -234,10 +285,23 @@ function buildAppLookup(
         });
     }
 
-    // Expanded apps may only have names; use name as ID
+    // Expanded apps: try to get real IDs from the dependency map
+    const depMap = loadDependencyMap();
+    const depAppIndex = new Map<string, { id: string; deploymentId?: string }>();
+    if (depMap) {
+        for (const app of depMap.apps) {
+            depAppIndex.set(app.name, { id: app.id });
+        }
+    }
+
     for (const name of blastRadius.allAffected) {
         if (!lookup.has(name)) {
-            lookup.set(name, { name, id: name });
+            const depInfo = depAppIndex.get(name);
+            lookup.set(name, {
+                name,
+                id: depInfo?.id || name,
+                deploymentId: depInfo?.id  // For CH2 apps, the dep map id IS the deploymentId
+            });
         }
     }
 
