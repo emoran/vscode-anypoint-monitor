@@ -111,7 +111,13 @@ export function analyzeCorrelations(
         results.push(downstreamCorrelation);
     }
 
-    // Rule 4: Multiple apps failing simultaneously
+    // Rule 4: Connectivity failure — error messages reference another app in the blast radius
+    const connectivityCorrelation = checkConnectivityFailure(data);
+    if (connectivityCorrelation) {
+        results.push(connectivityCorrelation);
+    }
+
+    // Rule 5: Multiple apps failing simultaneously
     const sharedDependencyCorrelation = checkSharedDependencyFailure(data);
     if (sharedDependencyCorrelation) {
         results.push(sharedDependencyCorrelation);
@@ -289,6 +295,91 @@ function checkSharedDependencyFailure(data: WarRoomData): CorrelationResult | nu
     }
 
     return null;
+}
+
+/**
+ * Rule 4: Connectivity failure — scan error messages for references to other apps in the blast radius.
+ * When app A's errors mention app B (by name, hostname, or URL), flag as connectivity_failure.
+ */
+function checkConnectivityFailure(data: WarRoomData): CorrelationResult | null {
+    const allAppNames = Array.from(data.apps.keys());
+    // Only attempt matching app names that are specific enough (>= 5 chars) to avoid false positives
+    const matchableApps = allAppNames.filter(name => name.length >= 5);
+
+    // Build regex patterns for each target app: match hostname (app.cloudhub.io, app.us-e2.cloudhub.io)
+    // or the app name bounded by non-alphanumeric characters
+    const appPatterns: Array<{ app: string; regex: RegExp }> = matchableApps.map(app => {
+        const escaped = app.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+        // Match: "app-name.cloudhub.io", "app-name.us-e2.cloudhub.io", "app-name.anypointdns.net",
+        // or just the app name surrounded by non-alphanumeric chars (or start/end of string)
+        const pattern = new RegExp(
+            `${escaped}(?:\\.[a-z0-9-]*)*\\.(?:cloudhub\\.io|anypointdns\\.net)|(?:^|[^a-zA-Z0-9-])${escaped}(?:[^a-zA-Z0-9-]|$)`,
+            'i'
+        );
+        return { app, regex: pattern };
+    });
+
+    // For each app, check if its error messages reference another app in the blast radius
+    const connections: Array<{ sourceApp: string; targetApp: string; errorPattern: string }> = [];
+
+    for (const [appName, appData] of data.apps) {
+        for (const group of appData.logs.groups) {
+            if (group.level !== 'ERROR') { continue; }
+
+            // Search both the normalized pattern and the raw sample message
+            const searchText = `${group.pattern} ${group.sampleMessage}`;
+
+            for (const { app: targetApp, regex } of appPatterns) {
+                // Don't match an app referencing itself
+                if (targetApp === appName) { continue; }
+
+                if (regex.test(searchText)) {
+                    // Avoid duplicate source→target pairs
+                    const alreadyFound = connections.some(
+                        c => c.sourceApp === appName && c.targetApp === targetApp
+                    );
+                    if (!alreadyFound) {
+                        connections.push({
+                            sourceApp: appName,
+                            targetApp,
+                            errorPattern: group.pattern.substring(0, 120)
+                        });
+                    }
+                }
+            }
+        }
+    }
+
+    if (connections.length === 0) {
+        return null;
+    }
+
+    const evidence: string[] = connections.map(
+        c => `${c.sourceApp} errors reference ${c.targetApp}: "${c.errorPattern}"`
+    );
+
+    // Check if the referenced target app also has errors — higher confidence
+    const targetAppsWithErrors = new Set<string>();
+    for (const conn of connections) {
+        const targetData = data.apps.get(conn.targetApp);
+        if (targetData && targetData.logs.errors > 0) {
+            targetAppsWithErrors.add(conn.targetApp);
+        }
+    }
+
+    if (targetAppsWithErrors.size > 0) {
+        evidence.push(`Referenced apps also showing errors: ${[...targetAppsWithErrors].join(', ')}`);
+    }
+
+    const uniqueTargets = [...new Set(connections.map(c => c.targetApp))];
+    const confidence = targetAppsWithErrors.size > 0 ? 'high' : 'medium';
+
+    return {
+        probableCause: `Connectivity Failure: ${[...new Set(connections.map(c => c.sourceApp))].join(', ')} errors reference ${uniqueTargets.join(', ')}`,
+        confidence,
+        evidence,
+        category: 'connectivity_failure'
+    };
 }
 
 function getFirstErrorTimestamp(data: WarRoomData, appNames: string[]): Date | null {

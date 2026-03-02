@@ -10,6 +10,8 @@ import {
     createResourceExhaustionScenario,
     createSharedDependencyScenario,
     createDownstreamFailureScenario,
+    createConnectivityFailureScenario,
+    createConnectivityFailureNoTargetErrorsScenario,
     createHealthyScenario
 } from '../mocks/warRoomMocks';
 
@@ -421,6 +423,184 @@ suite('CorrelationEngine Test Suite', () => {
             assert.ok(deployCorrelation);
             assert.strictEqual(deployCorrelation.confidence, 'high');
             assert.ok(deployCorrelation.evidence.some(e => e.includes('errors after deployment')));
+        });
+
+        test('should detect connectivity failure when error messages reference another app by hostname', () => {
+            const data = createConnectivityFailureScenario();
+            const timeline = buildTimeline(data);
+            const correlations = analyzeCorrelations(data, timeline);
+
+            const connCorrelation = correlations.find(c => c.category === 'connectivity_failure');
+            assert.ok(connCorrelation, 'should detect connectivity_failure correlation');
+            assert.ok(connCorrelation.evidence.some(e => e.includes('payment-sapi')));
+            assert.ok(connCorrelation.evidence.some(e => e.includes('inventory-sapi')));
+        });
+
+        test('should detect connectivity failure with high confidence when referenced app also has errors', () => {
+            const data = createConnectivityFailureScenario();
+            const timeline = buildTimeline(data);
+            const correlations = analyzeCorrelations(data, timeline);
+
+            const connCorrelation = correlations.find(c => c.category === 'connectivity_failure');
+            assert.ok(connCorrelation);
+            assert.strictEqual(connCorrelation.confidence, 'high');
+            assert.ok(connCorrelation.evidence.some(e => e.includes('also showing errors')));
+        });
+
+        test('should detect connectivity failure with medium confidence when referenced app has no errors', () => {
+            const data = createConnectivityFailureNoTargetErrorsScenario();
+            const timeline = buildTimeline(data);
+            const correlations = analyzeCorrelations(data, timeline);
+
+            const connCorrelation = correlations.find(c => c.category === 'connectivity_failure');
+            assert.ok(connCorrelation, 'should detect connectivity_failure correlation');
+            assert.strictEqual(connCorrelation.confidence, 'medium');
+        });
+
+        test('should NOT detect connectivity failure when no error messages reference other apps', () => {
+            const apps = new Map();
+            apps.set('order-api', createAppWarRoomData({
+                logs: {
+                    groups: [
+                        createLogGroup({
+                            pattern: 'NullPointerException in OrderProcessor',
+                            sampleMessage: 'java.lang.NullPointerException in OrderProcessor.process()',
+                            count: 10
+                        })
+                    ],
+                    totalEntries: 50,
+                    errors: 10,
+                    warnings: 0
+                }
+            }));
+            apps.set('payment-sapi', createAppWarRoomData({
+                status: { name: 'payment-sapi', status: 'RUNNING', workerCount: 1, lastRestart: null, region: 'us-east-1', runtimeVersion: '4.6.0' }
+            }));
+
+            const data = createWarRoomData({
+                apps,
+                blastRadius: {
+                    seedApps: ['order-api'],
+                    upstream: [],
+                    downstream: [{ app: 'payment-sapi', hops: 1 }],
+                    allAffected: ['order-api', 'payment-sapi']
+                }
+            });
+            const timeline = buildTimeline(data);
+            const correlations = analyzeCorrelations(data, timeline);
+
+            const connCorrelation = correlations.find(c => c.category === 'connectivity_failure');
+            assert.ok(!connCorrelation, 'should NOT detect connectivity_failure when no app references found');
+        });
+
+        test('should NOT match an app referencing itself in error messages', () => {
+            const apps = new Map();
+            apps.set('order-api', createAppWarRoomData({
+                logs: {
+                    groups: [
+                        createLogGroup({
+                            pattern: 'Error in order-api processing pipeline',
+                            sampleMessage: 'Error in order-api processing pipeline: timeout',
+                            count: 10
+                        })
+                    ],
+                    totalEntries: 50,
+                    errors: 10,
+                    warnings: 0
+                }
+            }));
+
+            const data = createWarRoomData({ apps });
+            const timeline = buildTimeline(data);
+            const correlations = analyzeCorrelations(data, timeline);
+
+            const connCorrelation = correlations.find(c => c.category === 'connectivity_failure');
+            assert.ok(!connCorrelation, 'should NOT detect connectivity_failure for self-references');
+        });
+
+        test('should detect connectivity failure via .anypointdns.net hostnames', () => {
+            const apps = new Map();
+            apps.set('order-api', createAppWarRoomData({
+                logs: {
+                    groups: [
+                        createLogGroup({
+                            appName: 'order-api',
+                            pattern: 'Connection refused: https://payment-sapi.anypointdns.net/api/payments',
+                            sampleMessage: 'Connection refused: https://payment-sapi.anypointdns.net/api/payments',
+                            count: 10,
+                            firstSeen: '2026-02-27T09:15:00Z'
+                        })
+                    ],
+                    totalEntries: 50,
+                    errors: 10,
+                    warnings: 0
+                }
+            }));
+            apps.set('payment-sapi', createAppWarRoomData({
+                logs: {
+                    groups: [
+                        createLogGroup({ appName: 'payment-sapi', count: 5 })
+                    ],
+                    totalEntries: 30,
+                    errors: 5,
+                    warnings: 0
+                },
+                status: { name: 'payment-sapi', status: 'RUNNING', workerCount: 1, lastRestart: null, region: 'us-east-1', runtimeVersion: '4.6.0' }
+            }));
+
+            const data = createWarRoomData({
+                apps,
+                blastRadius: {
+                    seedApps: ['order-api'],
+                    upstream: [],
+                    downstream: [{ app: 'payment-sapi', hops: 1 }],
+                    allAffected: ['order-api', 'payment-sapi']
+                }
+            });
+            const timeline = buildTimeline(data);
+            const correlations = analyzeCorrelations(data, timeline);
+
+            const connCorrelation = correlations.find(c => c.category === 'connectivity_failure');
+            assert.ok(connCorrelation, 'should detect connectivity via .anypointdns.net');
+            assert.ok(connCorrelation.evidence.some(e => e.includes('payment-sapi')));
+        });
+
+        test('should skip short app names (< 5 chars) to avoid false positives', () => {
+            const apps = new Map();
+            apps.set('api', createAppWarRoomData({
+                logs: { groups: [], totalEntries: 0, errors: 0, warnings: 0 },
+                status: { name: 'api', status: 'RUNNING', workerCount: 1, lastRestart: null, region: 'us-east-1', runtimeVersion: '4.6.0' }
+            }));
+            apps.set('order-api', createAppWarRoomData({
+                logs: {
+                    groups: [
+                        createLogGroup({
+                            // Contains "api" but should not match the short app name "api"
+                            pattern: 'Error calling downstream api endpoint',
+                            sampleMessage: 'Error calling downstream api endpoint: timeout',
+                            count: 10
+                        })
+                    ],
+                    totalEntries: 50,
+                    errors: 10,
+                    warnings: 0
+                }
+            }));
+
+            const data = createWarRoomData({
+                apps,
+                blastRadius: {
+                    seedApps: ['order-api'],
+                    upstream: [],
+                    downstream: [{ app: 'api', hops: 1 }],
+                    allAffected: ['order-api', 'api']
+                }
+            });
+            const timeline = buildTimeline(data);
+            const correlations = analyzeCorrelations(data, timeline);
+
+            const connCorrelation = correlations.find(c => c.category === 'connectivity_failure');
+            assert.ok(!connCorrelation, 'should NOT match short app names to avoid false positives');
         });
     });
 });

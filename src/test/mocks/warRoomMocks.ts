@@ -378,6 +378,139 @@ export function createDownstreamFailureScenario(): WarRoomData {
 }
 
 /**
+ * Build a scenario where app A's error messages reference app B by hostname/URL.
+ * App B also has errors, so confidence should be HIGH.
+ */
+export function createConnectivityFailureScenario(): WarRoomData {
+    const apps = new Map<string, AppWarRoomData>();
+
+    // order-api errors reference payment-sapi by hostname
+    apps.set('order-api', createAppWarRoomData({
+        logs: {
+            groups: [
+                createLogGroup({
+                    appName: 'order-api',
+                    pattern: 'Connection refused: https://payment-sapi.cloudhub.io/api/v1/payments',
+                    sampleMessage: 'org.mule.runtime.api.connection.ConnectionException: Connection refused: https://payment-sapi.cloudhub.io/api/v1/payments - Connection reset by peer',
+                    count: 30,
+                    firstSeen: '2026-02-27T09:15:00Z'
+                }),
+                createLogGroup({
+                    appName: 'order-api',
+                    pattern: 'HTTP request to inventory-sapi.us-e2.cloudhub.io timed out',
+                    sampleMessage: 'HTTP request to inventory-sapi.us-e2.cloudhub.io timed out after 30000ms',
+                    count: 15,
+                    firstSeen: '2026-02-27T09:18:00Z'
+                })
+            ],
+            totalEntries: 200,
+            errors: 45,
+            warnings: 10
+        },
+        status: { name: 'order-api', status: 'RUNNING', workerCount: 2, lastRestart: null, region: 'us-east-1', runtimeVersion: '4.6.0' }
+    }));
+
+    // payment-sapi is failing (referenced target)
+    apps.set('payment-sapi', createAppWarRoomData({
+        logs: {
+            groups: [
+                createLogGroup({
+                    appName: 'payment-sapi',
+                    pattern: 'OutOfMemoryError: Java heap space',
+                    count: 20,
+                    firstSeen: '2026-02-27T09:10:00Z'
+                })
+            ],
+            totalEntries: 100,
+            errors: 20,
+            warnings: 5
+        },
+        status: { name: 'payment-sapi', status: 'RUNNING', workerCount: 1, lastRestart: null, region: 'us-east-1', runtimeVersion: '4.6.0' }
+    }));
+
+    // inventory-sapi is also failing (referenced target)
+    apps.set('inventory-sapi', createAppWarRoomData({
+        logs: {
+            groups: [
+                createLogGroup({
+                    appName: 'inventory-sapi',
+                    pattern: 'Database connection pool exhausted',
+                    count: 10,
+                    firstSeen: '2026-02-27T09:12:00Z'
+                })
+            ],
+            totalEntries: 80,
+            errors: 10,
+            warnings: 3
+        },
+        status: { name: 'inventory-sapi', status: 'RUNNING', workerCount: 1, lastRestart: null, region: 'us-east-1', runtimeVersion: '4.6.0' }
+    }));
+
+    return {
+        config: createWarRoomConfig({
+            applications: [{ name: 'order-api', id: 'id-order' }]
+        }),
+        blastRadius: {
+            seedApps: ['order-api'],
+            upstream: [],
+            downstream: [
+                { app: 'payment-sapi', hops: 1 },
+                { app: 'inventory-sapi', hops: 1 }
+            ],
+            allAffected: ['order-api', 'payment-sapi', 'inventory-sapi']
+        },
+        apps,
+        collectionErrors: [],
+        collectionTime: 5000
+    };
+}
+
+/**
+ * Build a connectivity failure scenario where the referenced app has NO errors.
+ * Confidence should be MEDIUM.
+ */
+export function createConnectivityFailureNoTargetErrorsScenario(): WarRoomData {
+    const apps = new Map<string, AppWarRoomData>();
+
+    apps.set('order-api', createAppWarRoomData({
+        logs: {
+            groups: [
+                createLogGroup({
+                    appName: 'order-api',
+                    pattern: 'Connection refused: https://payment-sapi.cloudhub.io/api/v1/payments',
+                    sampleMessage: 'Connection refused: https://payment-sapi.cloudhub.io/api/v1/payments',
+                    count: 10,
+                    firstSeen: '2026-02-27T09:15:00Z'
+                })
+            ],
+            totalEntries: 50,
+            errors: 10,
+            warnings: 0
+        },
+        status: { name: 'order-api', status: 'RUNNING', workerCount: 2, lastRestart: null, region: 'us-east-1', runtimeVersion: '4.6.0' }
+    }));
+
+    // payment-sapi has NO errors
+    apps.set('payment-sapi', createAppWarRoomData({
+        logs: { groups: [], totalEntries: 50, errors: 0, warnings: 2 },
+        status: { name: 'payment-sapi', status: 'RUNNING', workerCount: 1, lastRestart: null, region: 'us-east-1', runtimeVersion: '4.6.0' }
+    }));
+
+    return {
+        config: createWarRoomConfig(),
+        blastRadius: {
+            seedApps: ['order-api'],
+            upstream: [],
+            downstream: [{ app: 'payment-sapi', hops: 1 }],
+            allAffected: ['order-api', 'payment-sapi']
+        },
+        apps,
+        collectionErrors: [],
+        collectionTime: 3000
+    };
+}
+
+/**
  * Build a scenario with no errors — healthy state.
  */
 export function createHealthyScenario(): WarRoomData {

@@ -787,6 +787,29 @@ function generateRecommendations(report: WarRoomReport): string[] {
             actions.push('Consider enabling fallback responses for degraded downstream services');
             break;
         }
+        case 'connectivity_failure': {
+            // Extract source→target pairs from evidence lines
+            const connPairs: Array<{ source: string; target: string }> = [];
+            for (const ev of primary.evidence) {
+                const match = ev.match(/^(.+?) errors reference (.+?):/);
+                if (match) {
+                    connPairs.push({ source: match[1], target: match[2] });
+                }
+            }
+            if (connPairs.length > 0) {
+                const uniqueTargets = [...new Set(connPairs.map(p => p.target))];
+                const uniqueSources = [...new Set(connPairs.map(p => p.source))];
+                actions.push(`**Investigate connectivity between ${uniqueSources.join(', ')} and ${uniqueTargets.join(', ')}**`);
+                for (const target of uniqueTargets) {
+                    actions.push(`Check if **${target}** is healthy, responding, and reachable from calling apps`);
+                }
+            } else {
+                actions.push('**Investigate connectivity** between the apps referenced in error messages');
+            }
+            actions.push('Review network policies, firewall rules, and DNS resolution');
+            actions.push('Check circuit breaker and retry configuration in calling applications');
+            break;
+        }
         case 'shared_dependency': {
             actions.push('Check shared infrastructure: load balancers, VPNs, databases');
             actions.push('Review Anypoint Platform status page for regional outages');

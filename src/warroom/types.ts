@@ -136,7 +136,7 @@ export interface CorrelationResult {
     probableCause: string;
     confidence: 'high' | 'medium' | 'low';
     evidence: string[];
-    category: 'recent_deployment' | 'resource_exhaustion' | 'downstream_failure' | 'shared_dependency' | 'unknown';
+    category: 'recent_deployment' | 'resource_exhaustion' | 'downstream_failure' | 'connectivity_failure' | 'shared_dependency' | 'unknown';
 }
 
 export interface WarRoomReport {
