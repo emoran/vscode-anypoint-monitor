@@ -26,7 +26,7 @@ export function buildTimeline(data: WarRoomData): TimelineEvent[] {
 
         // Error spikes from log groups
         for (const group of appData.logs.groups) {
-            if (group.level === 'ERROR' && group.count >= 2) {
+            if (group.level === 'ERROR' && group.count >= 1) {
                 events.push({
                     timestamp: group.firstSeen,
                     type: 'error_spike',
@@ -36,7 +36,7 @@ export function buildTimeline(data: WarRoomData): TimelineEvent[] {
                     data: { count: group.count, pattern: group.pattern }
                 });
             }
-            if (group.level === 'WARN' && group.count >= 10) {
+            if (group.level === 'WARN' && group.count >= 3) {
                 events.push({
                     timestamp: group.firstSeen,
                     type: 'warning_spike',
@@ -319,12 +319,12 @@ function checkConnectivityFailure(data: WarRoomData): CorrelationResult | null {
         return { app, regex: pattern };
     });
 
-    // For each app, check if its error messages reference another app in the blast radius
-    const connections: Array<{ sourceApp: string; targetApp: string; errorPattern: string }> = [];
+    // For each app, check if its error/warning messages reference another app in the blast radius
+    const connections: Array<{ sourceApp: string; targetApp: string; errorPattern: string; level: string }> = [];
 
     for (const [appName, appData] of data.apps) {
         for (const group of appData.logs.groups) {
-            if (group.level !== 'ERROR') { continue; }
+            if (group.level !== 'ERROR' && group.level !== 'WARN') { continue; }
 
             // Search both the normalized pattern and the raw sample message
             const searchText = `${group.pattern} ${group.sampleMessage}`;
@@ -342,7 +342,8 @@ function checkConnectivityFailure(data: WarRoomData): CorrelationResult | null {
                         connections.push({
                             sourceApp: appName,
                             targetApp,
-                            errorPattern: group.pattern.substring(0, 120)
+                            errorPattern: group.pattern.substring(0, 120),
+                            level: group.level
                         });
                     }
                 }
@@ -354,28 +355,47 @@ function checkConnectivityFailure(data: WarRoomData): CorrelationResult | null {
         return null;
     }
 
-    const evidence: string[] = connections.map(
-        c => `${c.sourceApp} errors reference ${c.targetApp}: "${c.errorPattern}"`
-    );
+    const errorConnections = connections.filter(c => c.level === 'ERROR');
+    const warnConnections = connections.filter(c => c.level === 'WARN');
 
-    // Check if the referenced target app also has errors — higher confidence
+    const evidence: string[] = [];
+    for (const c of errorConnections) {
+        evidence.push(`${c.sourceApp} errors reference ${c.targetApp}: "${c.errorPattern}"`);
+    }
+    for (const c of warnConnections) {
+        evidence.push(`${c.sourceApp} warnings reference ${c.targetApp}: "${c.errorPattern}"`);
+    }
+
+    // Check if the referenced target app also has errors or warnings — higher confidence
     const targetAppsWithErrors = new Set<string>();
+    const targetAppsWithWarnings = new Set<string>();
     for (const conn of connections) {
         const targetData = data.apps.get(conn.targetApp);
-        if (targetData && targetData.logs.errors > 0) {
-            targetAppsWithErrors.add(conn.targetApp);
+        if (targetData) {
+            if (targetData.logs.errors > 0) { targetAppsWithErrors.add(conn.targetApp); }
+            else if (targetData.logs.warnings > 0) { targetAppsWithWarnings.add(conn.targetApp); }
         }
     }
 
     if (targetAppsWithErrors.size > 0) {
         evidence.push(`Referenced apps also showing errors: ${[...targetAppsWithErrors].join(', ')}`);
     }
+    if (targetAppsWithWarnings.size > 0) {
+        evidence.push(`Referenced apps also showing warnings: ${[...targetAppsWithWarnings].join(', ')}`);
+    }
 
     const uniqueTargets = [...new Set(connections.map(c => c.targetApp))];
-    const confidence = targetAppsWithErrors.size > 0 ? 'high' : 'medium';
+    const uniqueSources = [...new Set(connections.map(c => c.sourceApp))];
+
+    // Confidence: high if error-level references + target has errors, medium otherwise
+    const hasErrorLevelRefs = errorConnections.length > 0;
+    const confidence = (hasErrorLevelRefs && targetAppsWithErrors.size > 0) ? 'high'
+        : (hasErrorLevelRefs || targetAppsWithErrors.size > 0) ? 'medium' : 'medium';
+
+    const refType = hasErrorLevelRefs ? 'errors' : 'warnings';
 
     return {
-        probableCause: `Connectivity Failure: ${[...new Set(connections.map(c => c.sourceApp))].join(', ')} errors reference ${uniqueTargets.join(', ')}`,
+        probableCause: `Connectivity Failure: ${uniqueSources.join(', ')} ${refType} reference ${uniqueTargets.join(', ')}`,
         confidence,
         evidence,
         category: 'connectivity_failure'

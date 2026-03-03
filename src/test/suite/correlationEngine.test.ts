@@ -75,7 +75,7 @@ suite('CorrelationEngine Test Suite', () => {
             assert.strictEqual(deployEvents[0].severity, 'info');
         });
 
-        test('should create error_spike events for errors with count >= 2', () => {
+        test('should create error_spike events for errors with count >= 1', () => {
             const apps = new Map();
             apps.set('order-api', createAppWarRoomData({
                 logs: {
@@ -97,7 +97,7 @@ suite('CorrelationEngine Test Suite', () => {
             assert.ok(errorEvents[0].description.includes('NullPointerException'));
         });
 
-        test('should NOT create error_spike for count < 2', () => {
+        test('should create error_spike even for count = 1', () => {
             const apps = new Map();
             apps.set('order-api', createAppWarRoomData({
                 logs: {
@@ -114,7 +114,7 @@ suite('CorrelationEngine Test Suite', () => {
             const timeline = buildTimeline(data);
 
             const errorEvents = timeline.filter(e => e.type === 'error_spike');
-            assert.strictEqual(errorEvents.length, 0);
+            assert.strictEqual(errorEvents.length, 1, 'even a single error should appear in timeline');
         });
 
         test('should mark high-count errors as critical (>= 20)', () => {
@@ -137,7 +137,7 @@ suite('CorrelationEngine Test Suite', () => {
             assert.strictEqual(errorEvents[0].severity, 'critical');
         });
 
-        test('should create warning_spike events for warnings with count >= 10', () => {
+        test('should create warning_spike events for warnings with count >= 3', () => {
             const apps = new Map();
             apps.set('order-api', createAppWarRoomData({
                 logs: {
@@ -158,16 +158,16 @@ suite('CorrelationEngine Test Suite', () => {
             assert.strictEqual(warningEvents[0].severity, 'warning');
         });
 
-        test('should NOT create warning_spike for count < 10', () => {
+        test('should NOT create warning_spike for count < 3', () => {
             const apps = new Map();
             apps.set('order-api', createAppWarRoomData({
                 logs: {
                     groups: [
-                        createLogGroup({ level: 'WARN', count: 5 })
+                        createLogGroup({ level: 'WARN', count: 2 })
                     ],
                     totalEntries: 20,
                     errors: 0,
-                    warnings: 5
+                    warnings: 2
                 }
             }));
 
@@ -563,6 +563,47 @@ suite('CorrelationEngine Test Suite', () => {
             const connCorrelation = correlations.find(c => c.category === 'connectivity_failure');
             assert.ok(connCorrelation, 'should detect connectivity via .anypointdns.net');
             assert.ok(connCorrelation.evidence.some(e => e.includes('payment-sapi')));
+        });
+
+        test('should detect connectivity failure from warning-level messages referencing another app', () => {
+            const apps = new Map();
+            apps.set('cisco-meraki-nx-am-papi', createAppWarRoomData({
+                logs: {
+                    groups: [
+                        createLogGroup({
+                            appName: 'cisco-meraki-nx-am-papi',
+                            level: 'WARN',
+                            pattern: 'Slow response from cisco-meraki-nx-hasura-sapi-prod endpoint',
+                            sampleMessage: 'Slow response from cisco-meraki-nx-hasura-sapi-prod.us-e2.cloudhub.io/graphql',
+                            count: 4
+                        })
+                    ],
+                    totalEntries: 50,
+                    errors: 0,
+                    warnings: 4
+                }
+            }));
+            apps.set('cisco-meraki-nx-hasura-sapi-prod', createAppWarRoomData({
+                logs: { groups: [], totalEntries: 20, errors: 0, warnings: 0 },
+                status: { name: 'cisco-meraki-nx-hasura-sapi-prod', status: 'APPLIED', workerCount: 1, lastRestart: null, region: 'us-east-1', runtimeVersion: '4.6.0' }
+            }));
+
+            const data = createWarRoomData({
+                apps,
+                blastRadius: {
+                    seedApps: ['cisco-meraki-nx-am-papi'],
+                    upstream: [],
+                    downstream: [{ app: 'cisco-meraki-nx-hasura-sapi-prod', hops: 1 }],
+                    allAffected: ['cisco-meraki-nx-am-papi', 'cisco-meraki-nx-hasura-sapi-prod']
+                }
+            });
+            const timeline = buildTimeline(data);
+            const correlations = analyzeCorrelations(data, timeline);
+
+            const connCorrelation = correlations.find(c => c.category === 'connectivity_failure');
+            assert.ok(connCorrelation, 'should detect connectivity_failure from warning messages');
+            assert.ok(connCorrelation.evidence.some(e => e.includes('warnings reference')));
+            assert.strictEqual(connCorrelation.confidence, 'medium');
         });
 
         test('should skip short app names (< 5 chars) to avoid false positives', () => {

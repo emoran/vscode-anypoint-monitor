@@ -461,6 +461,9 @@ strong{color:var(--text);font-weight:600}
     </div>
 </section>
 
+<!-- Warning Summary -->
+${renderWarningsSectionHtml(apps)}
+
 <!-- Recent Deployments -->
 <section>
     <div class="section-header">🚀 Recent Deployments</div>
@@ -689,6 +692,20 @@ function renderMarkdown(report: WarRoomReport): string {
     }
     lines.push('');
 
+    lines.push(`## Warning Summary`);
+    lines.push('');
+    lines.push(`| App | Count | First Seen | Last Seen | Pattern |`);
+    lines.push(`|-----|-------|------------|----------|---------|`);
+    let anyWarnings = false;
+    for (const [appName, appData] of apps) {
+        for (const g of appData.logs.groups.filter(g => g.level === 'WARN').slice(0, 10)) {
+            anyWarnings = true;
+            lines.push(`| ${appName} | ${g.count} | ${fmtTime(g.firstSeen)} | ${fmtTime(g.lastSeen)} | ${g.pattern.substring(0, 100).replace(/\|/g, '\\|')} |`);
+        }
+    }
+    if (!anyWarnings) { lines.push(`| *No WARN-level entries found* | | | | |`); }
+    lines.push('');
+
     lines.push(`## Recent Deployments`);
     lines.push('');
     lines.push(`| App | Version | Timestamp | Status | Triggered By | Flag |`);
@@ -818,10 +835,41 @@ function generateRecommendations(report: WarRoomReport): string[] {
             break;
         }
         default: {
-            actions.push('Review application logs for error patterns');
-            actions.push('Check application metrics for anomalies');
-            actions.push('Verify recent deployments or configuration changes');
-            actions.push('Check Anypoint Platform status page for known incidents');
+            // Build contextual actions from actual findings instead of generic advice
+            const appsWithErrors: string[] = [];
+            const appsWithWarnings: string[] = [];
+            const stoppedApps: string[] = [];
+            const topWarningPatterns: Array<{ app: string; pattern: string; count: number }> = [];
+
+            for (const [appName, appData] of report.apps) {
+                if (appData.logs.errors > 0) { appsWithErrors.push(appName); }
+                if (appData.logs.warnings > 0) {
+                    appsWithWarnings.push(appName);
+                    for (const g of appData.logs.groups.filter(g => g.level === 'WARN').slice(0, 3)) {
+                        topWarningPatterns.push({ app: appName, pattern: g.pattern.substring(0, 80), count: g.count });
+                    }
+                }
+                const st = appData.status.status.toUpperCase();
+                if (['STOPPED', 'FAILED', 'UNDEPLOYED'].includes(st)) { stoppedApps.push(appName); }
+            }
+
+            if (stoppedApps.length > 0) {
+                actions.push(`**Investigate stopped/failed apps**: ${stoppedApps.join(', ')} — check deployment status and restart if needed`);
+            }
+            if (appsWithErrors.length > 0) {
+                actions.push(`**Review errors** on ${appsWithErrors.join(', ')} — see Error Summary above for patterns`);
+            }
+            if (topWarningPatterns.length > 0) {
+                actions.push(`**Review ${topWarningPatterns.reduce((s, p) => s + p.count, 0)} warnings** on ${appsWithWarnings.join(', ')} — see Warning Summary above for patterns`);
+                for (const wp of topWarningPatterns.slice(0, 3)) {
+                    actions.push(`Investigate warning on **${wp.app}** (${wp.count}x): "${wp.pattern}"`);
+                }
+            }
+            if (appsWithErrors.length === 0 && topWarningPatterns.length === 0 && stoppedApps.length === 0) {
+                actions.push('No errors, warnings, or failures detected — consider widening the time window');
+                actions.push('Check Anypoint Platform status page for known incidents');
+                actions.push('Verify application health via Real-Time Logs for live troubleshooting');
+            }
         }
     }
 
@@ -907,4 +955,40 @@ function dirBadge(dir: string): string {
     if (dir === 'SEED') { return 'purple dir-seed'; }
     if (dir === 'UPSTREAM') { return 'blue dir-up'; }
     return 'yellow dir-down';
+}
+
+function renderWarningsSectionHtml(apps: Map<string, import('./types').AppWarRoomData>): string {
+    const rows: string[] = [];
+    for (const [appName, appData] of apps) {
+        for (const g of appData.logs.groups.filter(g => g.level === 'WARN').slice(0, 10)) {
+            const short = escHtml(g.pattern.substring(0, 100));
+            const full = escHtml(g.pattern);
+            const expandable = g.pattern.length > 100;
+            rows.push(`<tr>
+                <td><strong>${escHtml(appName)}</strong></td>
+                <td><span style="color:var(--yellow);font-weight:600">${g.count}</span></td>
+                <td style="font-size:12px;color:var(--text2)">${fmtTime(g.firstSeen)}</td>
+                <td style="font-size:12px;color:var(--text2)">${fmtTime(g.lastSeen)}</td>
+                <td style="font-family:monospace;font-size:12px;color:var(--text2)">${expandable
+                    ? `<div class="err-pattern" onclick="this.classList.toggle('expanded')"><span class="err-short">${short}…<span class="err-expand-hint">(click to expand)</span></span><div class="err-full">${full}</div></div>`
+                    : short}</td>
+            </tr>`);
+        }
+    }
+
+    const tbody = rows.length > 0
+        ? rows.join('')
+        : `<tr class="empty-row"><td colspan="5">No WARN-level log entries found in the time window.</td></tr>`;
+
+    return `<section>
+    <div class="section-header">⚠ Warning Summary</div>
+    <div class="section-body">
+        <div class="tbl-wrap">
+        <table>
+            <thead><tr><th>App</th><th>Count</th><th>First Seen</th><th>Last Seen</th><th>Pattern</th></tr></thead>
+            <tbody>${tbody}</tbody>
+        </table>
+        </div>
+    </div>
+</section>`;
 }
