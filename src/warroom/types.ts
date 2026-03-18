@@ -26,7 +26,7 @@ export interface DependencyEntry {
     sourceApp: string;
     targetApp: string;
     targetUrl: string;
-    discoveryMethod: 'property_file' | 'mule_config' | 'api_autodiscovery' | 'manual';
+    discoveryMethod: 'property_file' | 'mule_config' | 'api_autodiscovery' | 'api_contract' | 'naming_convention' | 'manual';
     confidence: 'high' | 'medium' | 'low';
     isExternal: boolean;
 }

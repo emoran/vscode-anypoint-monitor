@@ -34,6 +34,10 @@ import { startWarRoom, startBuildDependencyMap } from "./warroom/warRoomCommand"
 import { registerCommandPalettePanel } from "./anypoint/commandPalettePanel";
 import { StarPromptManager } from "./utils/starPrompt";
 import { telemetryService, TelemetryEvents } from "./services/telemetryService";
+import { showAlertingHub } from "./premium/alerting/alertPanel";
+import { AlertEngine } from "./premium/alerting/alertEngine";
+import { showDependencyVisualizer } from "./premium/dependencyViz/dependencyVizCommand";
+import { showCostOptimizer } from "./premium/costOptimizer/costOptimizerCommand";
 
 interface EnvironmentOption {
 	label: string;
@@ -869,6 +873,36 @@ export function activate(context: vscode.ExtensionContext) {
 		}
 	});
 
+	// Premium Features
+	const alertingHubCmd = registerCommandWithTelemetry('anypoint-monitor.alertingHub', async () => {
+		try {
+			await showAlertingHub(context);
+		} catch (error: any) {
+			vscode.window.showErrorMessage(`Error opening Alerting Hub: ${error.message}`);
+		}
+	});
+
+	const dependencyVisualizerCmd = registerCommandWithTelemetry('anypoint-monitor.dependencyVisualizer', async () => {
+		try {
+			await showDependencyVisualizer(context);
+			await starPromptManager.trackCommandExecution();
+		} catch (error: any) {
+			vscode.window.showErrorMessage(`Error opening Live Connection Tracer: ${error.message}`);
+		}
+	});
+
+	const costOptimizerCmd = registerCommandWithTelemetry('anypoint-monitor.costOptimizer', async () => {
+		try {
+			await showCostOptimizer(context);
+			await starPromptManager.trackCommandExecution();
+		} catch (error: any) {
+			vscode.window.showErrorMessage(`Error opening Cost Optimizer: ${error.message}`);
+		}
+	});
+
+	// Initialize AlertEngine status bar (does not start polling until user configures it)
+	AlertEngine.getInstance(context);
+
 	// Hybrid / On-Premises Commands
 	const getHybridApps = registerCommandWithTelemetry('anypoint-monitor.hybridApps', async () => {
 		try {
@@ -961,10 +995,13 @@ export function activate(context: vscode.ExtensionContext) {
 	context.subscriptions.push(getHybridServerGroupsCmd);
 	context.subscriptions.push(getHybridClustersCmd);
 	context.subscriptions.push(getAnypointMQStatsCmd);
+	context.subscriptions.push(alertingHubCmd);
+	context.subscriptions.push(dependencyVisualizerCmd);
+	context.subscriptions.push(costOptimizerCmd);
 }
 
 // This method is called when your extension is deactivated
 export function deactivate() {
-	// Optional: Add cleanup logic here if needed
+	AlertEngine.destroyInstance();
 	console.log('Anypoint Monitor extension is being deactivated');
 }

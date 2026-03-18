@@ -76,6 +76,18 @@ export async function buildDependencyMap(
     );
     dependencies.push(...apiDeps);
 
+    // Discover API Manager contracts (client app -> API provider app)
+    progress?.report({ message: 'Discovering API contracts...' });
+    const contractDeps = await discoverApiContracts(
+        apiHelper, baseUrl, organizationId, environmentId, allApps
+    );
+    dependencies.push(...contractDeps);
+
+    // Discover naming convention relationships (eapi -> papi -> sapi)
+    progress?.report({ message: 'Inferring naming convention dependencies...' });
+    const namingDeps = discoverByNamingConvention(allApps);
+    dependencies.push(...namingDeps);
+
     // Merge manual dependencies
     const manualDeps = loadManualDependencies();
     for (const manual of manualDeps) {
@@ -204,7 +216,7 @@ async function getEnvironmentName(
     return environmentId;
 }
 
-interface AppInfo {
+export interface AppInfo {
     name: string;
     id: string;
     deploymentId?: string;
@@ -212,7 +224,7 @@ interface AppInfo {
     rawData?: any;
 }
 
-async function fetchAllDeployedApps(
+export async function fetchAllDeployedApps(
     apiHelper: ApiHelper,
     baseUrl: string,
     organizationId: string,
@@ -275,7 +287,7 @@ async function fetchAllDeployedApps(
     return apps.filter(a => a.name);
 }
 
-function extractEndpoints(app: AppInfo): string[] {
+export function extractEndpoints(app: AppInfo): string[] {
     const endpoints: string[] = [];
     const name = app.name;
 
@@ -311,7 +323,7 @@ function extractEndpoints(app: AppInfo): string[] {
     return [...new Set(endpoints)];
 }
 
-async function discoverDependencies(
+export async function discoverDependencies(
     apiHelper: ApiHelper,
     baseUrl: string,
     app: AppInfo,
@@ -320,34 +332,77 @@ async function discoverDependencies(
     endpointMap: Map<string, string>
 ): Promise<DependencyEntry[]> {
     const deps: DependencyEntry[] = [];
+    const seen = new Set<string>();
 
-    // Scan application properties for outbound URLs
     const properties = app.properties || {};
     for (const [key, value] of Object.entries(properties)) {
         if (typeof value !== 'string') { continue; }
 
+        // Strategy 1: Extract full URLs (https://...)
         const urls = extractUrlsFromValue(value);
         for (const url of urls) {
             const targetApp = resolveUrlToApp(url, endpointMap);
             if (targetApp && targetApp !== app.name) {
-                deps.push({
-                    sourceApp: app.name,
-                    targetApp,
-                    targetUrl: url,
-                    discoveryMethod: 'property_file',
-                    confidence: 'high',
-                    isExternal: false
-                });
+                const k = `${targetApp}:property_file`;
+                if (!seen.has(k)) {
+                    seen.add(k);
+                    deps.push({
+                        sourceApp: app.name,
+                        targetApp,
+                        targetUrl: url,
+                        discoveryMethod: 'property_file',
+                        confidence: 'high',
+                        isExternal: false
+                    });
+                }
             } else if (!targetApp && isRelevantUrl(url)) {
-                // External dependency
-                deps.push({
-                    sourceApp: app.name,
-                    targetApp: extractHostname(url),
-                    targetUrl: url,
-                    discoveryMethod: 'property_file',
-                    confidence: 'medium',
-                    isExternal: true
-                });
+                const hostname = extractHostname(url);
+                const k = `${hostname}:property_file`;
+                if (!seen.has(k)) {
+                    seen.add(k);
+                    deps.push({
+                        sourceApp: app.name,
+                        targetApp: hostname,
+                        targetUrl: url,
+                        discoveryMethod: 'property_file',
+                        confidence: isExternalService(url) ? 'low' : 'medium',
+                        isExternal: true
+                    });
+                }
+            }
+        }
+
+        // Strategy 2: Extract bare hostnames from property values
+        // Matches patterns like "my-app.us-e1.cloudhub.io", "host.example.com:443"
+        const hostnames = extractHostnamesFromValue(value, key);
+        for (const host of hostnames) {
+            const resolvedApp = resolveHostnameToApp(host, endpointMap);
+            if (resolvedApp && resolvedApp !== app.name) {
+                const k = `${resolvedApp}:property_file`;
+                if (!seen.has(k)) {
+                    seen.add(k);
+                    deps.push({
+                        sourceApp: app.name,
+                        targetApp: resolvedApp,
+                        targetUrl: host,
+                        discoveryMethod: 'property_file',
+                        confidence: 'high',
+                        isExternal: false
+                    });
+                }
+            } else if (!resolvedApp && isRelevantHostname(host)) {
+                const k = `${host}:property_file`;
+                if (!seen.has(k)) {
+                    seen.add(k);
+                    deps.push({
+                        sourceApp: app.name,
+                        targetApp: host,
+                        targetUrl: host,
+                        discoveryMethod: 'property_file',
+                        confidence: isExternalService(host) ? 'low' : 'medium',
+                        isExternal: true
+                    });
+                }
             }
         }
     }
@@ -355,7 +410,76 @@ async function discoverDependencies(
     return deps;
 }
 
-async function discoverApiManagerDependencies(
+function extractHostnamesFromValue(value: string, key: string): string[] {
+    const hostnames: string[] = [];
+
+    // Skip encrypted values, class names, record type IDs, JKS files, non-connection properties
+    if (value.startsWith('![') || value.startsWith('^/') || value.match(/^[0-9a-zA-Z]{15,18}$/)) {
+        return hostnames;
+    }
+
+    // Property key hints that the value contains a host/url
+    const keyLower = key.toLowerCase();
+    const isConnectionKey = keyLower.includes('host') || keyLower.includes('url') ||
+        keyLower.includes('endpoint') || keyLower.includes('server') ||
+        keyLower.includes('uri') || keyLower.includes('domain') ||
+        keyLower.includes('address') || keyLower.includes('broker');
+
+    // Hostname pattern: word chars and hyphens, at least 2 domain segments, known TLDs
+    // Also match hostnames with port (e.g., host.com:9092)
+    const hostnameRegex = /([a-zA-Z0-9][-a-zA-Z0-9]*\.[-a-zA-Z0-9.]+\.[a-zA-Z]{2,})(?::\d+)?/g;
+    let match;
+    while ((match = hostnameRegex.exec(value)) !== null) {
+        let hostname = match[1];
+        // Skip if already captured as a full URL
+        if (value.includes('://' + hostname)) { continue; }
+        // Only extract from non-connection keys if it looks like a cloudhub/mulesoft host
+        if (!isConnectionKey && !hostname.includes('cloudhub.io') && !hostname.includes('mulesoft.com')) {
+            continue;
+        }
+        hostnames.push(hostname);
+    }
+
+    return hostnames;
+}
+
+function resolveHostnameToApp(hostname: string, endpointMap: Map<string, string>): string | null {
+    // Direct match
+    if (endpointMap.has(hostname)) {
+        return endpointMap.get(hostname)!;
+    }
+
+    // Strip port if present
+    const hostOnly = hostname.replace(/:\d+$/, '');
+    if (endpointMap.has(hostOnly)) {
+        return endpointMap.get(hostOnly)!;
+    }
+
+    // Try first segment as app name (e.g., "accountmatch-prod.us-e1.cloudhub.io" → "accountmatch-prod")
+    const parts = hostOnly.split('.');
+    if (parts.length > 0) {
+        const appName = parts[0];
+        if (endpointMap.has(`${appName}.cloudhub.io`)) {
+            return endpointMap.get(`${appName}.cloudhub.io`)!;
+        }
+        // Try matching against all endpoint map entries by first segment
+        for (const [ep, name] of endpointMap) {
+            const epFirst = ep.split('.')[0];
+            if (epFirst === appName && ep.includes('cloudhub.io')) {
+                return name;
+            }
+        }
+    }
+
+    return null;
+}
+
+function isRelevantHostname(hostname: string): boolean {
+    const lower = hostname.toLowerCase();
+    return !INFRA_PATTERNS.some(p => lower.includes(p));
+}
+
+export async function discoverApiManagerDependencies(
     apiHelper: ApiHelper,
     baseUrl: string,
     organizationId: string,
@@ -410,13 +534,13 @@ async function discoverApiManagerDependencies(
     return deps;
 }
 
-function extractUrlsFromValue(value: string): string[] {
+export function extractUrlsFromValue(value: string): string[] {
     const urlRegex = /https?:\/\/[^\s,;'"}\]]+/g;
     const matches = value.match(urlRegex) || [];
     return matches;
 }
 
-function resolveUrlToApp(url: string, endpointMap: Map<string, string>): string | null {
+export function resolveUrlToApp(url: string, endpointMap: Map<string, string>): string | null {
     // Direct URL match
     if (endpointMap.has(url)) {
         return endpointMap.get(url)!;
@@ -443,15 +567,40 @@ function resolveUrlToApp(url: string, endpointMap: Map<string, string>): string 
     return null;
 }
 
+const EXTERNAL_SERVICE_PATTERNS = [
+    'salesforce.com', 'force.com', 'sfdc.net',
+    'splunkcloud.com', 'splunk.com',
+    'snowflakecomputing.com',
+    'amazonaws.com', 'aws.amazon.com', 's3.amazonaws.com',
+    'azure.com', 'windows.net', 'microsoft.com',
+    'googleapis.com', 'google.com',
+    'servicebus.windows.net', 'kafka.',
+    'mongodb.net', 'documentdb.amazonaws.com',
+    'slack.com', 'webhook.site',
+    'twilio.com', 'sendgrid.net',
+    'datadog.com', 'newrelic.com', 'pagerduty.com',
+    'okta.com', 'auth0.com',
+    'jira.', 'atlassian.net', 'confluence.',
+    'sap.com', 'successfactors.com',
+    'workday.com', 'netsuite.com',
+    'zendesk.com', 'freshdesk.com',
+];
+
+const INFRA_PATTERNS = [
+    'localhost', '127.0.0.1', '0.0.0.0',
+    'anypoint.mulesoft.com', 'maven.', 'repo.',
+    'github.com', 'docker.', 'registry.',
+    'npmjs.org', 'gradle.org',
+];
+
+function isExternalService(url: string): boolean {
+    const lower = url.toLowerCase();
+    return EXTERNAL_SERVICE_PATTERNS.some(p => lower.includes(p));
+}
+
 function isRelevantUrl(url: string): boolean {
-    // Filter out generic/infrastructure URLs
-    const ignoredPatterns = [
-        'localhost', '127.0.0.1', '0.0.0.0',
-        'anypoint.mulesoft.com', 'maven.', 'repo.',
-        'github.com', 'docker.', 'registry.'
-    ];
     const lowerUrl = url.toLowerCase();
-    return !ignoredPatterns.some(p => lowerUrl.includes(p));
+    return !INFRA_PATTERNS.some(p => lowerUrl.includes(p));
 }
 
 function extractHostname(url: string): string {
@@ -460,4 +609,187 @@ function extractHostname(url: string): string {
     } catch {
         return url;
     }
+}
+
+export async function discoverApiContracts(
+    apiHelper: ApiHelper,
+    baseUrl: string,
+    organizationId: string,
+    environmentId: string,
+    allApps: AppInfo[]
+): Promise<DependencyEntry[]> {
+    const deps: DependencyEntry[] = [];
+    const appNameSet = new Set(allApps.map(a => a.name.toLowerCase()));
+
+    try {
+        const apiManagerUrl = `${baseUrl}/apimanager/api/v1/organizations/${organizationId}/environments/${environmentId}/apis`;
+        const response = await apiHelper.get(apiManagerUrl, {
+            params: { limit: 100, offset: 0 }
+        });
+
+        if (response.status !== 200) { return deps; }
+
+        const apis = response.data?.apis || response.data?.assets || [];
+
+        for (const api of apis) {
+            const apiId = api.id;
+            const apiAssetId = api.assetId || api.name || '';
+            if (!apiId) { continue; }
+
+            // Resolve which deployed app implements this API
+            const providerApp = resolveApiToApp(api, allApps);
+            if (!providerApp) { continue; }
+
+            // Fetch contracts for this API
+            try {
+                const contractsUrl = `${baseUrl}/apimanager/api/v1/organizations/${organizationId}/environments/${environmentId}/apis/${apiId}/contracts`;
+                const contractResp = await apiHelper.get(contractsUrl, { timeout: 8000 });
+                if (contractResp.status !== 200) { continue; }
+
+                const contracts = contractResp.data?.contracts || contractResp.data || [];
+                for (const contract of contracts) {
+                    const clientApp = contract.application?.name || contract.applicationName || '';
+                    if (!clientApp) { continue; }
+
+                    // Check if the client app is a deployed MuleSoft app
+                    const isInternal = appNameSet.has(clientApp.toLowerCase()) ||
+                        allApps.some(a => a.name.toLowerCase().includes(clientApp.toLowerCase()) ||
+                                         clientApp.toLowerCase().includes(a.name.toLowerCase()));
+
+                    const resolvedClientName = allApps.find(a =>
+                        a.name.toLowerCase() === clientApp.toLowerCase() ||
+                        a.name.toLowerCase().includes(clientApp.toLowerCase())
+                    )?.name || clientApp;
+
+                    deps.push({
+                        sourceApp: resolvedClientName,
+                        targetApp: providerApp,
+                        targetUrl: apiAssetId,
+                        discoveryMethod: 'api_contract',
+                        confidence: 'high',
+                        isExternal: !isInternal
+                    });
+                }
+            } catch {
+                // Contract fetch failed for this API, continue
+            }
+        }
+    } catch (error: any) {
+        console.log('DependencyMapper: API contract discovery failed:', error.message);
+    }
+
+    return deps;
+}
+
+export function resolveApiToApp(api: any, allApps: AppInfo[]): string | null {
+    // Strategy 1: autodiscovery binding
+    const autodiscoveryId = api.autodiscoveryInstanceName || api.autodiscoveryApiName;
+    if (autodiscoveryId) {
+        const owner = allApps.find(app => {
+            const props = app.properties || {};
+            return Object.values(props).some(v =>
+                typeof v === 'string' && v.includes(String(autodiscoveryId))
+            );
+        });
+        if (owner) { return owner.name; }
+    }
+
+    // Strategy 2: match assetId or API name to an app name
+    const assetId = (api.assetId || '').toLowerCase();
+    const apiName = (api.name || '').toLowerCase();
+    for (const app of allApps) {
+        const appLower = app.name.toLowerCase();
+        if (assetId && (appLower.includes(assetId) || assetId.includes(appLower))) {
+            return app.name;
+        }
+        if (apiName && (appLower.includes(apiName) || apiName.includes(appLower))) {
+            return app.name;
+        }
+    }
+
+    return null;
+}
+
+export function discoverByNamingConvention(allApps: AppInfo[]): DependencyEntry[] {
+    const deps: DependencyEntry[] = [];
+    const appNames = allApps.map(a => a.name);
+
+    const layerSuffixes = ['-eapi', '-exp-api', '-experience-api', '-papi', '-proc-api', '-process-api', '-sapi', '-sys-api', '-system-api'];
+
+    function getLayerAndPrefix(name: string): { layer: 'eapi' | 'papi' | 'sapi'; prefix: string } | null {
+        const lower = name.toLowerCase();
+        if (lower.endsWith('-eapi') || lower.endsWith('-exp-api') || lower.endsWith('-experience-api')) {
+            const prefix = extractNamingPrefix(lower, ['-eapi', '-exp-api', '-experience-api']);
+            return prefix ? { layer: 'eapi', prefix } : null;
+        }
+        if (lower.endsWith('-papi') || lower.endsWith('-proc-api') || lower.endsWith('-process-api')) {
+            const prefix = extractNamingPrefix(lower, ['-papi', '-proc-api', '-process-api']);
+            return prefix ? { layer: 'papi', prefix } : null;
+        }
+        if (lower.endsWith('-sapi') || lower.endsWith('-sys-api') || lower.endsWith('-system-api')) {
+            const prefix = extractNamingPrefix(lower, ['-sapi', '-sys-api', '-system-api']);
+            return prefix ? { layer: 'sapi', prefix } : null;
+        }
+        return null;
+    }
+
+    function extractNamingPrefix(name: string, suffixes: string[]): string | null {
+        for (const suffix of suffixes) {
+            if (name.endsWith(suffix)) {
+                return name.slice(0, -suffix.length);
+            }
+        }
+        return null;
+    }
+
+    function findAppByPrefixAndLayer(prefix: string, targetSuffixes: string[]): string | null {
+        for (const appName of appNames) {
+            const lower = appName.toLowerCase();
+            for (const suffix of targetSuffixes) {
+                if (lower === prefix + suffix) {
+                    return appName;
+                }
+            }
+        }
+        return null;
+    }
+
+    for (const appName of appNames) {
+        const parsed = getLayerAndPrefix(appName);
+        if (!parsed) { continue; }
+
+        const { layer, prefix } = parsed;
+
+        if (layer === 'eapi') {
+            // eapi calls papi
+            const papi = findAppByPrefixAndLayer(prefix, ['-papi', '-proc-api', '-process-api']);
+            if (papi) {
+                deps.push({
+                    sourceApp: appName,
+                    targetApp: papi,
+                    targetUrl: '',
+                    discoveryMethod: 'naming_convention',
+                    confidence: 'low',
+                    isExternal: false
+                });
+            }
+        }
+
+        if (layer === 'papi') {
+            // papi calls sapi
+            const sapi = findAppByPrefixAndLayer(prefix, ['-sapi', '-sys-api', '-system-api']);
+            if (sapi) {
+                deps.push({
+                    sourceApp: appName,
+                    targetApp: sapi,
+                    targetUrl: '',
+                    discoveryMethod: 'naming_convention',
+                    confidence: 'low',
+                    isExternal: false
+                });
+            }
+        }
+    }
+
+    return deps;
 }

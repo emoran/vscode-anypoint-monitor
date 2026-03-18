@@ -108,7 +108,10 @@
     "onCommand:anypoint-monitor.hybridClusters",
     "onCommand:anypoint-monitor.mqStats",
     "onCommand:anypoint-monitor.startWarRoom",
-    "onCommand:anypoint-monitor.buildDependencyMap"
+    "onCommand:anypoint-monitor.buildDependencyMap",
+    "onCommand:anypoint-monitor.alertingHub",
+    "onCommand:anypoint-monitor.dependencyVisualizer",
+    "onCommand:anypoint-monitor.costOptimizer"
   ],
   "main": "./out/extension.js",
   "files": [
@@ -238,6 +241,18 @@
         "title": "AM: Build Dependency Map"
       },
       {
+        "command": "anypoint-monitor.alertingHub",
+        "title": "AM: Alerting Hub"
+      },
+      {
+        "command": "anypoint-monitor.dependencyVisualizer",
+        "title": "AM: Live Connection Tracer"
+      },
+      {
+        "command": "anypoint-monitor.costOptimizer",
+        "title": "AM: Cost Optimizer"
+      },
+      {
         "command": "anypoint-monitor.refreshCommandPalette",
         "title": "AM: Refresh Command Palette",
         "icon": "$(refresh)"
@@ -276,6 +291,11 @@
         "command": "anypoint-monitor.startWarRoom",
         "key": "ctrl+shift+w",
         "mac": "cmd+shift+w"
+      },
+      {
+        "command": "anypoint-monitor.alertingHub",
+        "key": "ctrl+shift+a",
+        "mac": "cmd+shift+a"
       }
     ],
     "configuration": {
@@ -316,6 +336,7 @@
     "telemetry:clear": "node scripts/clear-telemetry.js"
   },
   "devDependencies": {
+    "@types/applicationinsights": "^0.20.0",
     "@types/jszip": "^3.4.0",
     "@types/mocha": "^10.0.10",
     "@types/node": "20.x",
