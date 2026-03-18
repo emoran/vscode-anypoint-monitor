@@ -3,7 +3,7 @@
   "displayName": "Anypoint Monitor",
   "description": "CloudHub 1.0/2.0 monitoring and multi-account management for MuleSoft. Real-time logs, API management, application diagrams, and DataWeave playground - all in VS Code.",
   "publisher": "EdgarMoran",
-  "version": "0.0.68",
+  "version": "0.0.69",
   "engines": {
     "vscode": "^1.96.0"
   },
@@ -107,8 +107,6 @@
     "onCommand:anypoint-monitor.hybridServerGroups",
     "onCommand:anypoint-monitor.hybridClusters",
     "onCommand:anypoint-monitor.mqStats",
-    "onCommand:anypoint-monitor.startWarRoom",
-    "onCommand:anypoint-monitor.buildDependencyMap",
     "onCommand:anypoint-monitor.alertingHub",
     "onCommand:anypoint-monitor.dependencyVisualizer",
     "onCommand:anypoint-monitor.costOptimizer"
@@ -231,14 +229,6 @@
       {
         "command": "anypoint-monitor.mqStats",
         "title": "AM: AnypointMQ Statistics"
-      },
-      {
-        "command": "anypoint-monitor.startWarRoom",
-        "title": "AM: Start War Room"
-      },
-      {
-        "command": "anypoint-monitor.buildDependencyMap",
-        "title": "AM: Build Dependency Map"
       },
       {
         "command": "anypoint-monitor.alertingHub",
