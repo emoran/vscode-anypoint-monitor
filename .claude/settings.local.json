@@ -49,7 +49,9 @@
       "Bash(npx vsce:*)",
       "Bash(npm ls:*)",
       "Bash(git show:*)",
-      "Bash(npm install:*)"
+      "Bash(npm install:*)",
+      "Bash(npm show:*)",
+      "Bash(npm audit:*)"
     ],
     "deny": []
   }
