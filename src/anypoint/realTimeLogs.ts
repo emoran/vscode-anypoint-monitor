@@ -7,6 +7,9 @@ import { ApiHelper } from '../controllers/apiHelper.js';
 import * as fs from 'fs';
 import { getGitHubStarBannerHtml, getGitHubStarBannerStyles, getGitHubStarBannerScript } from '../utils/starPrompt.js';
 import { telemetryService } from '../services/telemetryService';
+import { jumpToSource, buildReplaySession, getInlineHypotheses } from '../fire/orchestrator.js';
+import { isActionableLogEntry } from '../fire/logParser.js';
+import { showReplayPanel } from '../fire/replayPanel.js';
 
 interface LogEntry {
     timestamp: number;
@@ -112,6 +115,54 @@ export async function showRealTimeLogs(
                 console.log('Real-time logs: Setting refresh rate to:', message.rate);
                 await setRefreshRate(session, message.rate);
                 break;
+            case 'jumpToSource': {
+                console.log('FIRE: Jump to source requested for log index:', message.logIndex);
+                const entries = session.logBuffer.map(e => ({
+                    priority: e.priority,
+                    message: e.message,
+                    timestamp: e.timestamp,
+                }));
+                // Send surrounding context entries (up to 20 before the failing entry)
+                const startIdx = Math.max(0, message.logIndex - 20);
+                const contextEntries = entries.slice(startIdx, message.logIndex + 1);
+                const success = await jumpToSource(contextEntries, session.applicationDomain);
+                if (!success) {
+                    panel.webview.postMessage({
+                        command: 'jumpToSourceFailed',
+                        logIndex: message.logIndex,
+                    });
+                }
+                break;
+            }
+
+            case 'replayFailure': {
+                console.log('FIRE: Replay failure requested for log index:', message.logIndex);
+                const entries = session.logBuffer.map(e => ({
+                    priority: e.priority,
+                    message: e.message,
+                    timestamp: e.timestamp,
+                }));
+                const startIdx = Math.max(0, message.logIndex - 20);
+                const contextEntries = entries.slice(startIdx, message.logIndex + 1);
+                const replaySession = await buildReplaySession(
+                    contextEntries,
+                    session.applicationDomain,
+                    message.logIndex
+                );
+                if (replaySession) {
+                    panel.webview.postMessage({
+                        command: 'replaySessionReady',
+                        session: replaySession,
+                    });
+                    await showReplayPanel(context, replaySession);
+                } else {
+                    panel.webview.postMessage({
+                        command: 'replaySessionFailed',
+                        logIndex: message.logIndex,
+                    });
+                }
+                break;
+            }
             case 'openGitHubRepo':
                 try {
                     await vscode.env.openExternal(vscode.Uri.parse(message.url));
@@ -1599,7 +1650,54 @@ function getRealTimeLogsHtml(
 
         /* GitHub Star Banner Styles */
         ${getGitHubStarBannerStyles()}
-
+/* FIRE — Failure Intelligence & Replay Engine */
+        .log-entry-actionable {
+            border-left: 3px solid var(--error);
+        }
+        .fire-actions {
+            display: inline-flex;
+            gap: 6px;
+            margin-left: 10px;
+            vertical-align: middle;
+        }
+        .fire-btn {
+            padding: 2px 10px;
+            font-size: 11px;
+            font-weight: 500;
+            border-radius: 4px;
+            border: 1px solid;
+            cursor: pointer;
+            transition: opacity 0.15s;
+            font-family: inherit;
+        }
+        .fire-btn:hover { opacity: 0.8; }
+        .fire-jump {
+            background: rgba(88,166,255,0.15);
+            border-color: var(--accent-blue);
+            color: var(--accent-blue);
+        }
+        .fire-replay {
+            background: rgba(63,185,80,0.15);
+            border-color: var(--success);
+            color: var(--success);
+        }
+        .fire-hypothesis {
+            margin-top: 6px;
+            padding: 8px 10px;
+            background: rgba(248,81,73,0.08);
+            border-left: 2px solid var(--error);
+            border-radius: 0 4px 4px 0;
+            font-size: 11px;
+            line-height: 1.5;
+        }
+        .fire-hypothesis-title {
+            font-weight: 600;
+            color: var(--error);
+            margin-bottom: 2px;
+        }
+        .fire-hypothesis-suggestion {
+            color: var(--text-secondary);
+        }
     </style>
 </head>
 <body>
@@ -1696,6 +1794,7 @@ function getRealTimeLogsHtml(
                     Limited to 2,000 recent logs
                 </div>
             </div>
+
             
             <!-- Export Progress Display -->
             <div id="exportProgress" class="export-progress" style="display: none;">
@@ -1764,6 +1863,22 @@ function getRealTimeLogsHtml(
         
             // Event listeners
             console.log('Real-time logs: Attaching event listeners');
+            elements.logsContent.addEventListener('click', (e) => {
+                const jumpBtn = e.target.closest('[data-fire-jump]');
+                const replayBtn = e.target.closest('[data-fire-replay]');
+                if (jumpBtn) {
+                    const logIndex = parseInt(jumpBtn.getAttribute('data-fire-jump'));
+                    console.log('FIRE: Jump to source for log index:', logIndex);
+                    showStatusMessage('⟶ Locating source file...', 'info', 3000);
+                    vscode.postMessage({ command: 'jumpToSource', logIndex });
+                }
+                if (replayBtn) {
+                    const logIndex = parseInt(replayBtn.getAttribute('data-fire-replay'));
+                    console.log('FIRE: Replay failure for log index:', logIndex);
+                    showStatusMessage('↺ Building replay session...', 'info', 3000);
+                    vscode.postMessage({ command: 'replayFailure', logIndex });
+                }
+            });
             
             elements.startBtn.addEventListener('click', () => {
                 console.log('Start button clicked');
@@ -1788,8 +1903,11 @@ function getRealTimeLogsHtml(
                 updateStats();
             });
             
+            
             console.log('Real-time logs: Attaching export button event listener');
             console.log('Export button element found:', !!elements.exportBtn);
+
+            
             
             if (elements.exportBtn) {
                 // Add a simple click test first
@@ -1825,6 +1943,8 @@ function getRealTimeLogsHtml(
             } else {
                 console.error('Real-time logs: Export button element not found!');
             }
+
+            
         
         elements.searchInput.addEventListener('input', (e) => {
             searchTerm = e.target.value.toLowerCase();
@@ -1866,6 +1986,15 @@ function getRealTimeLogsHtml(
                 case 'exportComplete':
                     hideExportProgress();
                     showStatusMessage(\`✅ All application logs exported successfully as \${message.format.toUpperCase()}\`, 'success', 4000);
+                    break;
+                case 'replaySessionReady':
+                    showStatusMessage('↺ Replay debugger opening...', 'success', 3000);
+                    break;
+                case 'replaySessionFailed':
+                    showStatusMessage('↺ Could not build replay session — not enough log context', 'error', 4000);
+                    break;
+                case 'jumpToSourceFailed':
+                    showStatusMessage('⟶ Source not found — is the Mule project open in VS Code?', 'error', 4000);
                     break;
             }
         });
@@ -1957,31 +2086,39 @@ function getRealTimeLogsHtml(
         
         function renderLogs() {
             const container = elements.logsContent;
-            
             if (filteredLogs.length === 0) {
                 container.innerHTML = \`
                     <div class="empty-state">
                         <div class="empty-state-icon">\${logs.length === 0 ? '📋' : '🔍'}</div>
                         <p>\${logs.length === 0 ? 'No logs yet. Waiting for new log entries...' : 'No logs match your filter criteria'}</p>
                     </div>
-                \`;
+\`;
                 return;
             }
-            
             const logsHtml = filteredLogs.slice(-500).map((log, index) => {
                 const timestamp = new Date(log.timestamp).toISOString().replace('T', ' ').replace('Z', '');
                 const level = (log.priority || 'INFO').toUpperCase();
                 const message = (log.message || '').replace(/</g, '&lt;').replace(/>/g, '&gt;');
-                
+                const isActionable = /[A-Z]{2,}:[A-Z]{2,}/.test(log.message || '') &&
+                                    /(Error type|MULE:|HTTP:|DB:|FTP:|SFTP:|FlowStack|error\.description|ERROR in )/i.test(log.message || '');
+                const globalIndex = logs.indexOf(log);
+const fireButtons = isActionable ? \`
+                    <div class="fire-actions">
+                        <button class="fire-btn fire-jump" data-fire-jump="\${globalIndex}" title="Jump to failing component in source XML">
+                            ⟶ Jump to Source
+                        </button>
+                        <button class="fire-btn fire-replay" data-fire-replay="\${globalIndex}" title="Load real payload and DataWeave script for debugging">
+                            ↺ Replay Failure
+                        </button>
+                    </div>\` : '';
                 return \`
-                    <div class="log-entry">
+                    <div class="log-entry \${isActionable ? 'log-entry-actionable' : ''}">
                         <div class="log-timestamp">\${timestamp}</div>
                         <div class="log-level \${level}">\${level}</div>
-                        <div class="log-message">\${message}</div>
+                        <div class="log-message">\${message}\${fireButtons}</div>
                     </div>
-                \`;
+\`;
             }).join('');
-            
             container.innerHTML = logsHtml;
         }
         
@@ -1995,7 +2132,7 @@ function getRealTimeLogsHtml(
             if (totalCountHeader) totalCountHeader.textContent = logs.length;
             if (filteredCountHeader) filteredCountHeader.textContent = filteredLogs.length;
         }
-        
+
         function showError(message) {
             const errorDiv = document.createElement('div');
             errorDiv.className = 'error-message';
@@ -2036,6 +2173,10 @@ function getRealTimeLogsHtml(
             // Initialize
             console.log('Real-time logs: Initializing');
             updateStats();
+
+
+
+            
             
             // Debug: Check if all elements are found
             console.log('Export button element:', elements.exportBtn);
