@@ -51,7 +51,9 @@
       "Bash(git show:*)",
       "Bash(npm install:*)",
       "Bash(npm show:*)",
-      "Bash(npm audit:*)"
+      "Bash(npm audit:*)",
+      "Bash(grep -n 'startWarRoom\\\\|runWarRoom\\\\|warRoomCommand' src/warroom/*.ts)",
+      "Bash(grep -n 'buildDependencyMap\\\\|dependencyMapper' src/warroom/*.ts)"
     ],
     "deny": []
   }

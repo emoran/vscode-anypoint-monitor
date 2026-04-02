@@ -37,6 +37,7 @@ import { showAlertingHub } from "./premium/alerting/alertPanel";
 import { AlertEngine } from "./premium/alerting/alertEngine";
 import { showDependencyVisualizer } from "./premium/dependencyViz/dependencyVizCommand";
 import { showCostOptimizer } from "./premium/costOptimizer/costOptimizerCommand";
+import { startWarRoom } from "./warroom/warRoomCommand";
 
 interface EnvironmentOption {
 	label: string;
@@ -945,10 +946,17 @@ export function activate(context: vscode.ExtensionContext) {
 		}
 	});
 
+	const startWarRoomCmd = registerCommandWithTelemetry('anypoint-monitor.startWarRoom', async () => {
+		try {
+			await startWarRoom(context);
+		} catch (error: any) {
+			vscode.window.showErrorMessage(`Error: ${error.message || error}`);
+		}
+	});
+
 	context.subscriptions.push(userInfo);
 	context.subscriptions.push(getApplications);
 	context.subscriptions.push(revokeAccessCommand);
-	context.subscriptions.push(loginCommand);
 	context.subscriptions.push(loginCommand);
 	context.subscriptions.push(getCH1Apps);
 	context.subscriptions.push(organizationInformation);
@@ -977,6 +985,8 @@ export function activate(context: vscode.ExtensionContext) {
 	context.subscriptions.push(alertingHubCmd);
 	context.subscriptions.push(dependencyVisualizerCmd);
 	context.subscriptions.push(costOptimizerCmd);
+	context.subscriptions.push(devInfo);
+	context.subscriptions.push(startWarRoomCmd);
 }
 
 // This method is called when your extension is deactivated
