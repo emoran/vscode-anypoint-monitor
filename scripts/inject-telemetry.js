@@ -4,8 +4,8 @@ const path = require('path');
 const connectionString = process.env.ANYPOINT_MONITOR_APPINSIGHTS_CONNECTION_STRING;
 
 if (!connectionString) {
-    console.error('Missing ANYPOINT_MONITOR_APPINSIGHTS_CONNECTION_STRING. Aborting telemetry injection.');
-    process.exit(1);
+    console.warn('ANYPOINT_MONITOR_APPINSIGHTS_CONNECTION_STRING not set. Skipping telemetry injection (existing value preserved).');
+    process.exit(0);
 }
 
 const escaped = connectionString.replace(/\\/g, '\\\\').replace(/'/g, '\\\'');

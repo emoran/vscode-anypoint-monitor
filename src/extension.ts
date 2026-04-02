@@ -37,7 +37,6 @@ import { showAlertingHub } from "./premium/alerting/alertPanel";
 import { AlertEngine } from "./premium/alerting/alertEngine";
 import { showDependencyVisualizer } from "./premium/dependencyViz/dependencyVizCommand";
 import { showCostOptimizer } from "./premium/costOptimizer/costOptimizerCommand";
-import { startWarRoom } from "./warroom/warRoomCommand";
 
 interface EnvironmentOption {
 	label: string;
@@ -948,6 +947,7 @@ export function activate(context: vscode.ExtensionContext) {
 
 	const startWarRoomCmd = registerCommandWithTelemetry('anypoint-monitor.startWarRoom', async () => {
 		try {
+			const { startWarRoom } = await import('./warroom/warRoomCommand.js');
 			await startWarRoom(context);
 		} catch (error: any) {
 			vscode.window.showErrorMessage(`Error: ${error.message || error}`);
