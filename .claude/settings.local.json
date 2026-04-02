@@ -53,7 +53,8 @@
       "Bash(npm show:*)",
       "Bash(npm audit:*)",
       "Bash(grep -n 'startWarRoom\\\\|runWarRoom\\\\|warRoomCommand' src/warroom/*.ts)",
-      "Bash(grep -n 'buildDependencyMap\\\\|dependencyMapper' src/warroom/*.ts)"
+      "Bash(grep -n 'buildDependencyMap\\\\|dependencyMapper' src/warroom/*.ts)",
+      "Bash(unzip -l anypoint-monitor-0.0.74.vsix)"
     ],
     "deny": []
   }

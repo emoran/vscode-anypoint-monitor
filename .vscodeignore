@@ -13,6 +13,7 @@ out/test/**
 # Development files
 .vscode/**
 .vscode-test*
+.sfdx/**
 .gitignore
 .git/**
 .gitattributes
@@ -22,6 +23,16 @@ contributing.md
 .travis.yml
 .eslintrc*
 eslint.config.*
+AGENTS.md
+CLAUDE.md
+COMMAND_CENTER_ISSUES.md
+DATAWEAVE_*.md
+DEPLOYMENT.md
+TESTING_*.md
+tmp-metrics.html
+vsc-extension-quickstart.md
+vss-extension.json
+scripts/**
 
 # IDE and environment files
 .claude/**
@@ -39,43 +50,13 @@ eslint.config.*
 .github/**
 docs/**
 
-# Exclude ALL node_modules, then selectively include only runtime deps
-node_modules/**
-
-# Include only production dependencies (axios, open, jszip) and their direct deps
-!node_modules/axios/**
-!node_modules/open/**
-!node_modules/jszip/**
-!node_modules/follow-redirects/**
-!node_modules/form-data/**
-!node_modules/proxy-from-env/**
-!node_modules/asynckit/**
-!node_modules/combined-stream/**
-!node_modules/delayed-stream/**
-!node_modules/is-docker/**
-!node_modules/is-wsl/**
-!node_modules/define-lazy-prop/**
-!node_modules/is-inside-container/**
-!node_modules/lie/**
-!node_modules/immediate/**
-!node_modules/pako/**
-!node_modules/readable-stream/**
-!node_modules/setimmediate/**
-!node_modules/mime-db/**
-!node_modules/mime-types/**
-!node_modules/inherits/**
-!node_modules/buffer/**
-!node_modules/base64-js/**
-!node_modules/ieee754/**
-!node_modules/string_decoder/**
-!node_modules/safe-buffer/**
-!node_modules/util-deprecate/**
-!node_modules/core-util-is/**
-
 # Exclude package manager files
 **/package-lock.json
 **/yarn.lock
 **/.yarn/**
+
+# Never ship local credentials
+config/**
 
 # Miscellaneous
 *.vsix
