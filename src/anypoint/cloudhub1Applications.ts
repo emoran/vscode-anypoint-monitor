@@ -883,6 +883,12 @@ function getApplicationsHtml(
 
           // Initial render
           renderTable();
+          
+   
+
+        // Handle FIRE responses from extension
+        // Add these cases to the existing window.addEventListener('message') handler
+        // by extending the switch statement — insert before the closing default/}
         </script>
 
         <!-- GitHub Star Banner -->
