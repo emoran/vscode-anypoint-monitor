@@ -55,9 +55,6 @@ docs/**
 **/yarn.lock
 **/.yarn/**
 
-# Never ship local credentials
-config/**
-
 # Miscellaneous
 *.vsix
 **/.DS_Store

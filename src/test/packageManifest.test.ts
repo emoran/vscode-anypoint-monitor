@@ -41,12 +41,12 @@ suite('Package Manifest Test Suite', () => {
         );
     });
 
-    test('excludes local credential files from the VSIX', () => {
+    test('does not exclude bundled OAuth credentials from the VSIX', () => {
         const vscodeIgnore = fs.readFileSync(vscodeIgnorePath, 'utf8');
 
         assert.ok(
-            vscodeIgnore.includes('config/**'),
-            '.vscodeignore must exclude config/** so local credentials are not packaged'
+            !vscodeIgnore.includes('config/**'),
+            '.vscodeignore must not exclude config/** because the published extension relies on bundled OAuth credentials for authentication'
         );
     });
 
