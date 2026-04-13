@@ -3,7 +3,7 @@
   "displayName": "Anypoint Monitor",
   "description": "CloudHub 1.0/2.0 monitoring and multi-account management for MuleSoft. Real-time logs, API management, application diagrams, and DataWeave playground - all in VS Code.",
   "publisher": "EdgarMoran",
-  "version": "0.0.77",
+  "version": "0.0.78",
   "engines": {
     "vscode": "^1.96.0"
   },
@@ -25,6 +25,18 @@
     "color": "#214866",
     "theme": "dark"
   },
+  "badges": [
+    {
+      "url": "https://img.shields.io/github/stars/emoran/vscode-anypoint-monitor?style=social",
+      "href": "https://github.com/emoran/vscode-anypoint-monitor",
+      "description": "Star on GitHub"
+    },
+    {
+      "url": "https://img.shields.io/github/actions/workflow/status/emoran/vscode-anypoint-monitor/test.yml?label=CI",
+      "href": "https://github.com/emoran/vscode-anypoint-monitor/actions",
+      "description": "CI Status"
+    }
+  ],
   "screenshots": [
     {
       "path": "screenshots/Screenshot1.png"
