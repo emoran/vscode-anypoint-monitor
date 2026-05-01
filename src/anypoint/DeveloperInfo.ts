@@ -13,6 +13,13 @@
    import { ApiHelper } from '../controllers/apiHelper.js';
    import { getBaseUrl } from '../constants';
    import { AccountService } from '../controllers/accountService.js';
+   import {
+     wrapWebviewHtml,
+     badge,
+     summaryCard,
+     escapeHtml,
+     escapeAttr,
+   } from '../webview/ui-kit';
 
    // Track open Developer Utilities panel
    let developerUtilitiesPanel: vscode.WebviewPanel | undefined;
@@ -526,592 +533,259 @@
  * using the dark theme + top navbar for consistency.
  */
 function getEnvironmentOrgHtml(
-  webview: vscode.Webview,
-  extensionUri: vscode.Uri,
+  _webview: vscode.Webview,
+  _extensionUri: vscode.Uri,
   userInfo: { orgName: string; orgId: string },
   environments: Array<{ id: string; name: string }>,
   envClients: Array<{ client_id: string; client_secret: string; name: string }>,
   generalClients: Array<{ client_id: string; client_secret: string; name: string }>
 ): string {
-  // Build environment table
-  const logoPath = vscode.Uri.joinPath(extensionUri, 'logo.png');
-  const logoSrc = webview.asWebviewUri(logoPath);
-  const environmentRows = environments.map(env => {
-    return /*html*/`
-      <tr>
+  const environmentRows = environments
+    .map(
+      env => /*html*/ `
+      <tr class="am-row">
         <td>
-          <div style="display: flex; align-items: center; gap: 8px;">
-            <span class="status-indicator">
-              <span class="status-dot"></span>
-              Active
-            </span>
-            ${env.name || '(No Name)'}
+          <div class="dev-env-name-cell">
+            ${badge('Active', 'success', true)}
+            <span>${escapeHtml(env.name || '(No Name)')}</span>
           </div>
         </td>
         <td>
-          <span class="copyable" data-copy="${env.id || ''}" title="Copy Environment ID">
-            ${env.id || '(No ID)'}
+          <span class="copyable" data-copy="${escapeAttr(env.id || '')}" title="Copy Environment ID">
+            ${escapeHtml(env.id || '(No ID)')}
           </span>
         </td>
       </tr>
-    `;
-  }).join('');
+    `
+    )
+    .join('');
 
-  // Build environment-specific clients table
-  const envClientRows = envClients.map(client => {
-    return /*html*/`
-      <tr>
-        <td>${client.name}</td>
+  const secretButtons = /*html*/ `
+    <div class="dev-secret-actions">
+      <span class="client-secret" data-state="hidden" data-secret="__SECRET__">*****</span>
+      <button type="button" class="am-btn am-btn-secondary toggle-secret">Show</button>
+      <button type="button" class="am-btn am-btn-secondary copy-secret">Copy</button>
+    </div>
+  `;
+
+  const envClientRows = envClients
+    .map(client => {
+      const actions = secretButtons.replace('__SECRET__', escapeAttr(client.client_secret));
+      return /*html*/ `
+      <tr class="am-row">
+        <td>${escapeHtml(client.name)}</td>
         <td>
-          <span class="copyable" data-copy="${client.client_id}" title="Copy Client ID">
-            ${client.client_id}
+          <span class="copyable" data-copy="${escapeAttr(client.client_id)}" title="Copy Client ID">
+            ${escapeHtml(client.client_id)}
           </span>
         </td>
-        <td>
-          <div style="display: flex; align-items: center; gap: 8px;">
-            <!-- The real secret is stored in data-secret; default hidden -->
-            <span class="client-secret"
-                  data-state="hidden"
-                  data-secret="${client.client_secret}">
-              *****
-            </span>
-
-            <!-- Toggle button to show/hide secret -->
-            <button class="button toggle-secret">
-              Show
-            </button>
-
-            <!-- Separate button to copy the real secret -->
-            <button class="button copy-secret">
-              Copy
-            </button>
-          </div>
-        </td>
+        <td>${actions}</td>
       </tr>
     `;
-  }).join('');
+    })
+    .join('');
 
-  // Build general clients table
-  const generalClientRows = generalClients.map(client => {
-    return /*html*/`
-      <tr>
-        <td>${client.name}</td>
+  const generalClientRows = generalClients
+    .map(client => {
+      const actions = secretButtons.replace('__SECRET__', escapeAttr(client.client_secret));
+      return /*html*/ `
+      <tr class="am-row">
+        <td>${escapeHtml(client.name)}</td>
         <td>
-          <span class="copyable" data-copy="${client.client_id}" title="Copy Client ID">
-            ${client.client_id}
+          <span class="copyable" data-copy="${escapeAttr(client.client_id)}" title="Copy Client ID">
+            ${escapeHtml(client.client_id)}
           </span>
         </td>
-        <td>
-          <div style="display: flex; align-items: center; gap: 8px;">
-            <!-- The real secret is stored in data-secret; default hidden -->
-            <span class="client-secret"
-                  data-state="hidden"
-                  data-secret="${client.client_secret}">
-              *****
-            </span>
-
-            <!-- Toggle button to show/hide secret -->
-            <button class="button toggle-secret">
-              Show
-            </button>
-
-            <!-- Separate button to copy the real secret -->
-            <button class="button copy-secret">
-              Copy
-            </button>
-          </div>
-        </td>
+        <td>${actions}</td>
       </tr>
     `;
-  }).join('');
+    })
+    .join('');
 
-  // Construct the HTML with the dark theme + top navbar
-  return /*html*/ `
-<!DOCTYPE html>
-<html lang="en">
-<head>
-  <meta charset="UTF-8">
-  <title>Environment & Org Info</title>
+  const summaryCardsHtml = `
+    ${summaryCard({
+      icon: '🌍',
+      value: environments.length,
+      label: 'Available environments',
+      animationDelay: '0s',
+    })}
+    ${summaryCard({
+      icon: '🔑',
+      value: envClients.length,
+      label: 'Environment-specific clients',
+      animationDelay: '0.05s',
+    })}
+    ${summaryCard({
+      icon: '📋',
+      value: generalClients.length,
+      label: 'All other client credentials',
+      animationDelay: '0.1s',
+    })}
+    <div class="am-summary-card" style="animation-delay: 0.15s">
+      <div class="am-card-icon">🏢</div>
+      <div
+        class="am-card-value dev-org-id-value copyable"
+        data-copy="${escapeAttr(userInfo.orgId)}"
+        title="Click to copy Organization ID"
+      >${escapeHtml(userInfo.orgId)}</div>
+      <div class="am-card-label">Organization ID (click to copy)</div>
+    </div>
+  `;
 
-  <!-- Fira Code for tech vibe -->
-  <link
-    rel="stylesheet"
-    href="https://fonts.googleapis.com/css2?family=Fira+Code:wght@400;600&display=swap"
-  />
-
-  <style>
-    /* Code Time inspired theme */
-    :root {
-      --background-primary: #1e2328;
-      --background-secondary: #161b22;
-      --surface-primary: #21262d;
-      --surface-secondary: #30363d;
-      --surface-accent: #0d1117;
-      --text-primary: #f0f6fc;
-      --text-secondary: #7d8590;
-      --text-muted: #656d76;
-      --accent-blue: #58a6ff;
-      --accent-light: #79c0ff;
-      --border-primary: #30363d;
-      --border-muted: #21262d;
-      --success: #3fb950;
-      --warning: #d29922;
-      --error: #f85149;
+  const extraStyles = `
+    .dev-page-subtitle {
+      font-size: 13px;
+      color: var(--am-text-secondary);
+      margin-top: 6px;
+      max-width: 640px;
+      line-height: 1.45;
     }
-
-    * {
-      box-sizing: border-box;
+    .dev-section-card {
+      margin-bottom: 24px;
     }
-
-    body {
-      margin: 0;
-      padding: 0;
-      background-color: var(--background-primary);
-      color: var(--text-primary);
-      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Noto Sans', Helvetica, Arial, sans-serif;
-      font-size: 14px;
-      line-height: 1.5;
-    }
-
-    /* Header Section */
-    .header {
-      background-color: var(--background-secondary);
-      border-bottom: 1px solid var(--border-primary);
-      padding: 24px 32px;
-    }
-
-    .header-content {
-      max-width: 1200px;
-      margin: 0 auto;
-    }
-
-    .header h1 {
-      font-size: 28px;
-      font-weight: 600;
-      margin: 0 0 8px 0;
-      color: var(--text-primary);
-    }
-
-    .header p {
+    .dev-section-card h2 {
       font-size: 16px;
-      color: var(--text-secondary);
-      margin: 0;
+      font-weight: 600;
+      color: var(--am-text-primary);
+      margin-bottom: 4px;
     }
-
-    /* Main Content */
-    .container {
-      max-width: 1200px;
-      margin: 0 auto;
-      padding: 32px;
-    }
-
-    /* Statistics Grid */
-    .stats-grid {
-      display: grid;
-      grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
-      gap: 20px;
-      margin-bottom: 32px;
-    }
-
-    .stat-card {
-      background-color: var(--surface-primary);
-      border: 1px solid var(--border-primary);
-      border-radius: 12px;
-      padding: 24px;
-      position: relative;
-      transition: all 0.2s;
-    }
-
-    .stat-card:hover {
-      border-color: var(--border-muted);
-      transform: translateY(-1px);
-    }
-
-    .stat-header {
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
+    .dev-card-subtitle {
+      display: block;
+      font-size: 13px;
+      color: var(--am-text-secondary);
       margin-bottom: 16px;
     }
-
-    .stat-title {
-      font-size: 14px;
-      font-weight: 500;
-      color: var(--text-secondary);
-      margin: 0;
+    .dev-env-name-cell {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      flex-wrap: wrap;
     }
-
-    .stat-value {
-      font-size: 32px;
-      font-weight: 600;
-      color: var(--text-primary);
-      margin: 0 0 8px 0;
-      line-height: 1.2;
+    .dev-secret-actions {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      flex-wrap: wrap;
     }
-
-    .stat-subtitle {
-      font-size: 13px;
-      color: var(--text-muted);
-      margin: 0;
-    }
-
-    /* Card Styling */
-    .data-card {
-      background-color: var(--surface-primary);
-      border: 1px solid var(--border-primary);
-      border-radius: 12px;
-      padding: 24px;
-      margin-bottom: 32px;
-    }
-
-    .card-header {
-      margin-bottom: 20px;
-    }
-
-    .card-header h2 {
-      font-size: 20px;
-      font-weight: 600;
-      color: var(--text-primary);
-      margin: 0;
-    }
-
-    .card-subtitle {
-      display: block;
-      font-size: 14px;
-      color: var(--text-secondary);
-      margin-top: 4px;
-    }
-
-    /* Tables */
-    table {
-      width: 100%;
-      border-collapse: collapse;
-      font-size: 14px;
-    }
-
-    thead th {
-      background-color: var(--surface-secondary);
-      color: var(--text-secondary);
-      text-align: left;
-      padding: 12px;
-      border-bottom: 1px solid var(--border-primary);
-      font-weight: 500;
-      font-size: 13px;
-    }
-
-    tbody td {
-      border-bottom: 1px solid var(--border-muted);
-      padding: 12px;
-      vertical-align: middle;
-      color: var(--text-primary);
-    }
-
-    tbody tr:hover {
-      background-color: var(--surface-secondary);
-    }
-
-    tbody tr:last-child td {
-      border-bottom: none;
-    }
-
-    /* Buttons */
-    .button {
-      padding: 6px 12px;
-      font-size: 12px;
-      color: var(--text-primary);
-      background-color: var(--accent-blue);
-      border: none;
-      border-radius: 6px;
-      cursor: pointer;
-      font-weight: 500;
-      transition: all 0.2s;
-      margin-left: 8px;
-    }
-
-    .button:hover {
-      background-color: var(--accent-light);
-      transform: translateY(-1px);
-    }
-
-    .button:active {
-      transform: translateY(0);
-    }
-
-    /* Secret and Copyable Elements */
     .client-secret {
-      font-family: 'Courier New', monospace;
-      background-color: var(--surface-secondary);
+      font-family: var(--vscode-editor-font-family, monospace);
+      background: var(--am-bg-secondary);
       padding: 4px 8px;
-      border-radius: 4px;
-      border: 1px solid var(--border-primary);
+      border-radius: var(--am-radius-sm);
+      border: 1px solid var(--am-border);
       min-width: 80px;
       display: inline-block;
+      font-size: 12px;
     }
-
     .copyable {
-      color: var(--accent-blue);
+      color: var(--am-info);
       cursor: pointer;
-      font-family: 'Courier New', monospace;
-      background-color: var(--surface-secondary);
+      font-family: var(--vscode-editor-font-family, monospace);
+      background: var(--am-bg-secondary);
       padding: 4px 8px;
-      border-radius: 4px;
-      border: 1px solid var(--border-primary);
-      transition: all 0.2s;
+      border-radius: var(--am-radius-sm);
+      border: 1px solid var(--am-border);
+      transition: border-color 0.2s, background 0.2s;
+      font-size: 12px;
     }
-
     .copyable:hover {
-      background-color: var(--surface-accent);
-      border-color: var(--accent-blue);
-      color: var(--accent-light);
+      background: var(--am-bg-surface-hover);
+      border-color: var(--am-info);
+      color: var(--am-text-link-active);
     }
-
     .copy-feedback {
       display: none;
-      color: var(--success);
+      color: var(--am-success);
       font-size: 12px;
       margin-left: 8px;
       font-weight: 500;
     }
-
-    /* Status Indicators */
-    .status-indicator {
-      display: inline-flex;
-      align-items: center;
-      gap: 6px;
-      padding: 4px 8px;
-      border-radius: 6px;
-      font-size: 12px;
-      font-weight: 500;
-      background-color: rgba(88, 166, 255, 0.15);
-      color: var(--accent-blue);
+    .dev-org-id-value {
+      font-size: 14px;
+      font-weight: 600;
+      word-break: break-all;
+      line-height: 1.3;
     }
-
-    .status-dot {
-      width: 6px;
-      height: 6px;
-      border-radius: 50%;
-      background-color: currentColor;
+    .dev-filter-wrap {
+      margin-bottom: 16px;
     }
-
-    /* Responsive Design */
-    @media (max-width: 768px) {
-      .container {
-        padding: 16px;
-      }
-      
-      .header {
-        padding: 16px;
-      }
-      
-      .stats-grid {
-        grid-template-columns: 1fr;
-      }
-
-      .button {
-        margin-left: 4px;
-        margin-top: 4px;
-      }
+    .dev-filter-wrap .am-input {
+      width: 100%;
+      box-sizing: border-box;
     }
-  </style>
-</head>
-<body>
-  <!-- Header -->
-  <div class="header">
-    <div class="header-content">
-      <h1>Developer Utilities</h1>
-      <p>Environment information and organization client details for development use</p>
-    </div>
-  </div>
+  `;
 
-  <!-- Main Content -->
-  <div class="container">
-    <!-- Statistics Grid -->
-    <div class="stats-grid">
-      <div class="stat-card">
-        <div class="stat-header">
-          <h3 class="stat-title">Environments</h3>
-        </div>
-        <div class="stat-value">${environments.length}</div>
-        <p class="stat-subtitle">Available environments</p>
-      </div>
-
-      <div class="stat-card">
-        <div class="stat-header">
-          <h3 class="stat-title">Client Credentials</h3>
-        </div>
-        <div class="stat-value">${envClients.length}</div>
-        <p class="stat-subtitle">Environment-specific clients</p>
-      </div>
-
-      <div class="stat-card">
-        <div class="stat-header">
-          <h3 class="stat-title">General Clients</h3>
-        </div>
-        <div class="stat-value">${generalClients.length}</div>
-        <p class="stat-subtitle">All other client credentials</p>
-      </div>
-
-      <div class="stat-card">
-        <div class="stat-header">
-          <h3 class="stat-title">Organization</h3>
-        </div>
-        <div class="stat-value copyable" style="font-size: 14px; cursor: pointer;" data-copy="${userInfo.orgId}" title="Click to copy Organization ID">${userInfo.orgId}</div>
-        <p class="stat-subtitle">Organization ID (click to copy)</p>
-      </div>
-    </div>
-
-    <!-- Environments Card -->
-    <div class="data-card">
-      <div class="card-header">
-        <h2>Environments</h2>
-      </div>
-      <table>
-        <thead>
-          <tr>
-            <th>Environment Name</th>
-            <th>Environment ID</th>
-          </tr>
-        </thead>
-        <tbody>
-          ${environmentRows}
-        </tbody>
-      </table>
-    </div>
-
-    <!-- Environment-Specific Client Credentials Card -->
-    <div class="data-card">
-      <div class="card-header">
-        <h2>Environment-Specific Client Credentials</h2>
-        <span class="card-subtitle">Client credentials with "- Env:" designation</span>
-      </div>
-      <table>
-        <thead>
-          <tr>
-            <th>Client Name</th>
-            <th>Client ID</th>
-            <th>Client Secret</th>
-          </tr>
-        </thead>
-        <tbody>
-          ${envClientRows}
-        </tbody>
-      </table>
-    </div>
-
-    <!-- General Client Credentials Card -->
-    <div class="data-card">
-      <div class="card-header">
-        <h2>All Other Client Credentials</h2>
-        <span class="card-subtitle">All other client credentials in the organization</span>
-      </div>
-
-      <!-- Filter Box -->
-      <div style="margin-bottom: 16px;">
-        <input
-          type="text"
-          id="generalClientsFilter"
-          placeholder="Filter by client name, ID, or secret..."
-          style="width: 100%; padding: 10px 12px; font-size: 14px; background-color: var(--surface-secondary); border: 1px solid var(--border-primary); border-radius: 6px; color: var(--text-primary); font-family: inherit;"
-        />
-      </div>
-
-      <table id="generalClientsTable">
-        <thead>
-          <tr>
-            <th>Client Name</th>
-            <th>Client ID</th>
-            <th>Client Secret</th>
-          </tr>
-        </thead>
-        <tbody>
-          ${generalClientRows}
-        </tbody>
-      </table>
-    </div>
-  </div>
-
-  <script>
-    // Show "Copied!" feedback for ~1.2 seconds
+  const scripts = `
     function showCopiedFeedback(el) {
       const feedback = document.createElement('span');
       feedback.className = 'copy-feedback';
       feedback.textContent = 'Copied!';
       el.insertAdjacentElement('afterend', feedback);
       feedback.style.display = 'inline';
-      setTimeout(() => feedback.remove(), 1200);
+      setTimeout(function () { feedback.remove(); }, 1200);
     }
 
-    document.addEventListener('click', (e) => {
+    document.addEventListener('click', function (e) {
       const target = e.target;
       if (!target) return;
 
-      // Toggle-secret button
       if (target.classList.contains('toggle-secret')) {
-        const secretSpan = target.closest('td')?.querySelector('.client-secret');
+        const secretSpan = target.closest('td') && target.closest('td').querySelector('.client-secret');
         if (!secretSpan) return;
 
         const state = secretSpan.getAttribute('data-state') || 'hidden';
         const realSecret = secretSpan.getAttribute('data-secret') || '';
 
         if (state === 'hidden') {
-          // Reveal
           secretSpan.textContent = realSecret;
           secretSpan.setAttribute('data-state', 'visible');
           target.textContent = 'Hide';
         } else {
-          // Hide
           secretSpan.textContent = '*****';
           secretSpan.setAttribute('data-state', 'hidden');
           target.textContent = 'Show';
         }
       }
 
-      // Copy-secret button
       if (target.classList.contains('copy-secret')) {
-        const secretSpan = target.closest('td')?.querySelector('.client-secret');
+        const secretSpan = target.closest('td') && target.closest('td').querySelector('.client-secret');
         if (!secretSpan) return;
         const realSecret = secretSpan.getAttribute('data-secret') || '';
         navigator.clipboard.writeText(realSecret)
-          .then(() => showCopiedFeedback(target))
-          .catch(err => console.error('Failed to copy secret:', err));
+          .then(function () { showCopiedFeedback(target); })
+          .catch(function (err) { console.error('Failed to copy secret:', err); });
       }
 
-      // Clickable client ID
       if (target.classList.contains('copyable')) {
         const toCopy = target.getAttribute('data-copy') || '';
         navigator.clipboard.writeText(toCopy)
-          .then(() => showCopiedFeedback(target))
-          .catch(err => console.error('Failed to copy ID:', err));
+          .then(function () { showCopiedFeedback(target); })
+          .catch(function (err) { console.error('Failed to copy ID:', err); });
       }
     });
 
-    // Filter functionality for general clients table
     const filterInput = document.getElementById('generalClientsFilter');
     const generalTable = document.getElementById('generalClientsTable');
 
     if (filterInput && generalTable) {
-      filterInput.addEventListener('input', (e) => {
+      filterInput.addEventListener('input', function (e) {
         const filterValue = e.target.value.toLowerCase().trim();
         const tbody = generalTable.querySelector('tbody');
         const rows = tbody ? tbody.querySelectorAll('tr') : [];
 
-        rows.forEach(row => {
-          // Get all text content from the row (name, ID, and secret)
+        rows.forEach(function (row) {
           const cells = row.querySelectorAll('td');
           let rowText = '';
 
-          cells.forEach(cell => {
-            // For secret cells, check both visible text and the data-secret attribute
+          cells.forEach(function (cell) {
             const secretSpan = cell.querySelector('.client-secret');
             if (secretSpan) {
               const realSecret = secretSpan.getAttribute('data-secret') || '';
               rowText += ' ' + realSecret.toLowerCase();
             }
-            // Add all visible text
             rowText += ' ' + cell.textContent.toLowerCase();
           });
 
-          // Show row if it matches the filter, hide otherwise
           if (rowText.includes(filterValue)) {
             row.style.display = '';
           } else {
@@ -1120,8 +794,94 @@ function getEnvironmentOrgHtml(
         });
       });
     }
-  </script>
-</body>
-</html>
   `;
+
+  const body = `
+    <div class="am-container">
+      <header class="am-page-header">
+        <div>
+          <h1>Developer Utilities</h1>
+          <p class="dev-page-subtitle">
+            Environment information and organization client details for development use
+          </p>
+        </div>
+      </header>
+
+      <div class="am-summary-cards">
+        ${summaryCardsHtml}
+      </div>
+
+      <section class="am-card dev-section-card">
+        <h2>Environments</h2>
+        <div class="am-table-container">
+          <table class="am-table">
+            <thead>
+              <tr>
+                <th>Environment Name</th>
+                <th>Environment ID</th>
+              </tr>
+            </thead>
+            <tbody>
+              ${environmentRows}
+            </tbody>
+          </table>
+        </div>
+      </section>
+
+      <section class="am-card dev-section-card">
+        <h2>Environment-Specific Client Credentials</h2>
+        <span class="dev-card-subtitle">Client credentials with "- Env:" designation</span>
+        <div class="am-table-container">
+          <table class="am-table">
+            <thead>
+              <tr>
+                <th>Client Name</th>
+                <th>Client ID</th>
+                <th>Client Secret</th>
+              </tr>
+            </thead>
+            <tbody>
+              ${envClientRows}
+            </tbody>
+          </table>
+        </div>
+      </section>
+
+      <section class="am-card dev-section-card">
+        <h2>All Other Client Credentials</h2>
+        <span class="dev-card-subtitle">All other client credentials in the organization</span>
+
+        <div class="dev-filter-wrap">
+          <input
+            type="text"
+            class="am-input"
+            id="generalClientsFilter"
+            placeholder="Filter by client name, ID, or secret..."
+          />
+        </div>
+
+        <div class="am-table-container">
+          <table class="am-table" id="generalClientsTable">
+            <thead>
+              <tr>
+                <th>Client Name</th>
+                <th>Client ID</th>
+                <th>Client Secret</th>
+              </tr>
+            </thead>
+            <tbody>
+              ${generalClientRows}
+            </tbody>
+          </table>
+        </div>
+      </section>
+    </div>
+  `;
+
+  return wrapWebviewHtml({
+    title: 'Environment & Org Info',
+    body,
+    scripts,
+    extraStyles,
+  });
 }

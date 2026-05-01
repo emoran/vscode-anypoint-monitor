@@ -4,6 +4,7 @@ import { ApiHelper } from '../controllers/apiHelper';
 import { AccountService } from '../controllers/accountService';
 import { showRealTimeLogs } from './realTimeLogs';
 import { telemetryService } from '../services/telemetryService';
+import { wrapWebviewHtml } from '../webview/ui-kit';
 
 interface CommandCenterData {
     application: any;
@@ -2004,7 +2005,12 @@ function normalizeRegion(value?: string): string | undefined {
     return cleaned;
 }
 
-const METRIC_COLORS = ['#58a6ff', '#3fb950', '#f85149', '#d29922', '#a371f7', '#79c0ff', '#ffa657'];
+const METRIC_COLORS = [
+    'var(--am-info)', 'var(--am-success)', 'var(--am-error)',
+    'var(--am-warning)', 'var(--am-text-secondary)', 'var(--am-text-muted)',
+    'var(--am-text-link)'
+];
+const METRIC_COLORS_RAW = ['#58a6ff', '#3fb950', '#f85149', '#d29922', '#a371f7', '#79c0ff', '#ffa657'];
 
 function renderMetricsTab(
     metrics?: VisualizerMetricsData,
@@ -2015,79 +2021,59 @@ function renderMetricsTab(
     const hasVisualizerData = metrics?.status === 'live' && metrics.panels.length > 0;
 
     const infoBanner = hasVisualizerData
-        ? `🟢 Live metrics from Visualizer • Last updated ${metrics?.lastUpdated ? new Date(metrics.lastUpdated).toLocaleString() : 'just now'} • Window ${metrics?.rangeMinutes || METRIC_LOOKBACK_MINUTES}m`
+        ? `Live metrics from Visualizer \u00b7 Updated ${metrics?.lastUpdated ? new Date(metrics.lastUpdated).toLocaleTimeString() : 'just now'} \u00b7 ${metrics?.rangeMinutes || METRIC_LOOKBACK_MINUTES}m window`
         : hasMonitoringFallback
-            ? `🟢 Monitoring Query metrics for Hybrid deployments • Window last 24h`
+            ? `Monitoring Query metrics \u00b7 24h window`
             : metrics?.status === 'error'
-                ? `🚫 ${metrics?.errorMessage || 'Unable to load metrics from Visualizer.'}`
+                ? `${metrics?.errorMessage || 'Unable to load metrics from Visualizer.'}`
                 : metrics?.errorMessage || 'Metrics will appear here once Visualizer access is enabled for this org/environment.';
 
-    const statusClass = hasVisualizerData
-        ? 'success'
-        : hasMonitoringFallback
-            ? 'success'
-            : metrics?.status === 'error'
-                ? 'error'
-                : 'warning';
+    const statusDot = hasVisualizerData || hasMonitoringFallback
+        ? 'cc-dot-ok' : metrics?.status === 'error' ? 'cc-dot-err' : 'cc-dot-warn';
 
     const selectedRange = options?.selectedRange || metrics?.rangeMinutes || METRIC_LOOKBACK_MINUTES;
-    const rangeOptions = METRIC_RANGE_OPTIONS.map(option => `
-        <option value="${option}" ${option === selectedRange ? 'selected' : ''}>Last ${option} min</option>
-    `).join('');
+    const disableRange = hasMonitoringFallback && !hasVisualizerData;
+    const rangeButtons = METRIC_RANGE_OPTIONS.map(option =>
+        `<button class="cc-seg-btn${option === selectedRange ? ' cc-seg-active' : ''}" data-range="${option}" onclick="selectMetricsRange(${option})" ${disableRange ? 'disabled' : ''}>${option}m</button>`
+    ).join('');
 
     const visualizerGrid = hasVisualizerData
-        ? `<div class="metrics-grid">
-                ${metrics?.panels.map((panel, index) => renderMetricPanel(panel, index)).join('')}
-           </div>`
+        ? `<div class="cc-metrics-grid">${metrics?.panels.map((panel, index) => renderMetricPanel(panel, index)).join('')}</div>`
         : '';
 
     const monitoringFallbackGrid = !hasVisualizerData && hasMonitoringFallback
         ? renderMonitoringPerformancePanels(performanceMetrics!, options?.cloudhubVersion)
         : '';
 
-    const emptyState = !hasVisualizerData && !hasMonitoringFallback
-        ? `<div class="metrics-empty">
-                <p>${metrics?.errorMessage || 'No metric panels available for this application in the selected time window.'}</p>
-           </div>`
+    const emptyStateHtml = !hasVisualizerData && !hasMonitoringFallback
+        ? `<div class="cc-empty">${metrics?.errorMessage || 'No metric panels available for this application in the selected time window.'}</div>`
         : '';
 
     return `
     <div id="tab-metrics" class="tab-content ${options?.active ? 'active' : ''}">
-        <div class="card">
-            <h2 class="section-title">
-                <span class="section-icon">📈</span>
-                <span>Metrics</span>
-            </h2>
-            <div class="metrics-controls">
-                <div class="metrics-filter">
-                    <label for="metrics-range-select">Time range</label>
-                    <select id="metrics-range-select" onchange="onMetricsRangeChange(event)" ${hasMonitoringFallback && !hasVisualizerData ? 'disabled' : ''}>
-                        ${rangeOptions}
-                    </select>
-                </div>
-                <button class="metrics-refresh-btn" onclick="refreshMetrics()">
-                    <span class="icon">🔄</span>
-                    <span>Refresh Charts</span>
-                </button>
-            </div>
-            <div class="metrics-status metrics-status-${statusClass}">
-                <div>${infoBanner}</div>
-                ${metrics?.datasource ? `<div>Datasource #${metrics.datasource.id}${metrics.datasource.name ? ` • ${metrics.datasource.name}` : ''}${metrics.datasource.database ? ` • ${metrics.datasource.database}` : ''}</div>` : ''}
-                ${hasMonitoringFallback ? `<div>Source: Monitoring Query API</div>` : ''}
-            </div>
-            ${visualizerGrid || monitoringFallbackGrid || emptyState}
+        <div class="cc-metrics-controls">
+            <div class="cc-seg-group" id="metrics-range-group">${rangeButtons}</div>
+            <button class="cc-toolbar-btn metrics-refresh-btn" onclick="refreshMetrics()" title="Refresh charts">
+                <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15A9 9 0 1 1 23 10"/></svg>
+            </button>
         </div>
+        <div class="cc-metrics-banner">
+            <span class="cc-dot ${statusDot}"></span>
+            <span>${infoBanner}</span>
+            ${metrics?.datasource ? `<span class="cc-muted"> \u00b7 DS#${metrics.datasource.id}${metrics.datasource.database ? ` ${metrics.datasource.database}` : ''}</span>` : ''}
+        </div>
+        ${visualizerGrid || monitoringFallbackGrid || emptyStateHtml}
     </div>`;
 }
 
 function renderMonitoringPerformancePanels(perf: CommandCenterData['performanceMetrics'], cloudhubVersion?: string): string {
     if (!perf || !perf.timestamps || perf.timestamps.length === 0) {
-        return `<div class="metrics-empty"><p>No monitoring data returned for this application.</p></div>`;
+        return `<div class="cc-empty">No monitoring data returned for this application.</div>`;
     }
 
     const cpuCard = renderSimpleTimeseriesCard({
         label: perf.cpuLabel || (cloudhubVersion === 'HYBRID' ? 'Message Count (avg)' : 'CPU Usage (%)'),
-        color: '#58a6ff',
+        color: METRIC_COLORS_RAW[0],
         values: perf.cpu,
         timestamps: perf.timestamps,
         unit: '',
@@ -2096,24 +2082,21 @@ function renderMonitoringPerformancePanels(perf: CommandCenterData['performanceM
 
     const memoryCard = renderSimpleTimeseriesCard({
         label: perf.memoryLabel || (cloudhubVersion === 'HYBRID' ? 'Response Time (ms)' : 'Memory Usage (MB)'),
-        color: '#3fb950',
+        color: METRIC_COLORS_RAW[1],
         values: perf.memory,
         timestamps: perf.timestamps,
         unit: '',
         formatter: value => value.toFixed(2)
     });
 
-    return `<div class="metrics-grid">
-        ${cpuCard}
-        ${memoryCard}
-    </div>`;
+    return `<div class="cc-metrics-grid">${cpuCard}${memoryCard}</div>`;
 }
 
 function renderSimpleTimeseriesCard(params: { label: string; color: string; values: number[]; timestamps: number[]; unit?: string; formatter?: (value: number) => string }): string {
     const values = params.values || [];
     const timestamps = params.timestamps || [];
     if (!values.length || !timestamps.length) {
-        return `<div class="metrics-card"><div class="metrics-header"><div><div class="metrics-title">${params.label}</div></div><div class="metrics-value">—</div></div><div class="metrics-empty"><p>No data points returned.</p></div></div>`;
+        return `<div class="cc-chart-card"><div class="cc-chart-head"><span class="cc-chart-label">${params.label}</span><span class="cc-chart-value">\u2014</span></div><div class="cc-empty">No data points returned.</div></div>`;
     }
 
     const latest = values[values.length - 1];
@@ -2122,63 +2105,43 @@ function renderSimpleTimeseriesCard(params: { label: string; color: string; valu
     const min = Math.min(...values);
     const formatter = params.formatter || ((val: number) => val.toFixed(1));
 
-    const width = 320;
-    const height = 120;
-    const padding = { top: 10, bottom: 30, left: 20, right: 10 };
+    const width = 360;
+    const height = 100;
+    const padding = { top: 8, bottom: 20, left: 0, right: 0 };
     const chartWidth = width - padding.left - padding.right;
     const chartHeight = height - padding.top - padding.bottom;
     const maxValue = max <= 0 ? 1 : max;
-    const path = values.map((value, index) => {
+
+    const pathPoints = values.map((value, index) => {
         const ratioX = values.length > 1 ? index / (values.length - 1) : 0;
         const ratioY = value / maxValue;
         const x = padding.left + ratioX * chartWidth;
         const y = padding.top + (1 - ratioY) * chartHeight;
-        return `${index === 0 ? 'M' : 'L'} ${x} ${y}`;
-    }).join(' ');
-
-    const dotX = padding.left + ((values.length - 1) / Math.max(values.length - 1, 1)) * chartWidth;
-    const dotY = padding.top + (1 - (latest / maxValue)) * chartHeight;
+        return `${x},${y}`;
+    });
+    const linePath = pathPoints.map((pt, i) => `${i === 0 ? 'M' : 'L'}${pt}`).join(' ');
+    const areaPath = `${linePath} L${width},${height - padding.bottom} L0,${height - padding.bottom} Z`;
 
     return `
-    <div class="metrics-card">
-        <div class="metrics-header">
+    <div class="cc-chart-card">
+        <div class="cc-chart-head">
             <div>
-                <div class="metrics-title">${params.label}</div>
-                <div class="metrics-subtitle">Latest ${formatter(latest)}${params.unit || ''} • Avg ${formatter(avg)}</div>
+                <div class="cc-chart-label">${params.label}</div>
+                <div class="cc-chart-sub">Avg ${formatter(avg)}${params.unit || ''} \u00b7 Min ${formatter(min)} \u00b7 Max ${formatter(max)}</div>
             </div>
-            <div class="metrics-value">${formatter(latest)}${params.unit || ''}</div>
+            <div class="cc-chart-value">${formatter(latest)}<span class="cc-chart-unit">${params.unit || ''}</span></div>
         </div>
-        <div class="metrics-chart">
-            <svg width="${width}" height="${height}">
-                <path d="${path}" fill="none" stroke="${params.color}" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"></path>
-                <circle cx="${dotX}" cy="${dotY}" r="4" fill="${params.color}"></circle>
-                <text x="${dotX}" y="${dotY - 8}" fill="${params.color}" font-size="10" text-anchor="end">${formatter(latest)}${params.unit || ''}</text>
-            </svg>
-        </div>
-        <div class="metrics-footer">
-            <span>Min ${formatter(min)}</span>
-            <span>Max ${formatter(max)}</span>
-            <span>Samples ${values.length}</span>
-        </div>
+        <svg class="cc-chart-svg" viewBox="0 0 ${width} ${height}" preserveAspectRatio="none">
+            <path d="${areaPath}" fill="${params.color}" opacity="0.08"/>
+            <path d="${linePath}" fill="none" stroke="${params.color}" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+        </svg>
     </div>`;
 }
 
 function renderMetricPanel(panel: VisualizerMetricPanel, paletteOffset: number = 0): string {
     const hasData = panel.series.some(series => series.points && series.points.length > 0);
     if (!hasData) {
-        return `
-        <div class="metrics-card">
-            <div class="metrics-header">
-                <div>
-                    <div class="metrics-title">${panel.title}</div>
-                    ${panel.description ? `<div class="metrics-subtitle">${panel.description}</div>` : ''}
-                </div>
-                <div class="metrics-value">—</div>
-            </div>
-            <div class="metrics-empty">
-                <p>No data returned for this panel.</p>
-            </div>
-        </div>`;
+        return `<div class="cc-chart-card"><div class="cc-chart-head"><span class="cc-chart-label">${panel.title}</span><span class="cc-chart-value">\u2014</span></div><div class="cc-empty">No data returned for this panel.</div></div>`;
     }
 
     const latestValue = panel.series.length === 1
@@ -2188,19 +2151,19 @@ function renderMetricPanel(panel: VisualizerMetricPanel, paletteOffset: number =
     const allValues = panel.series.flatMap(series => series.points.map(point => point.value));
     const maxValueRaw = allValues.length > 0 ? Math.max(...allValues) : 0;
     const maxValue = maxValueRaw <= 0 ? 1 : maxValueRaw;
-    const width = 320;
-    const height = 160;
-    const padding = { top: 10, bottom: 24, left: 20, right: 10 };
+    const width = 360;
+    const height = 120;
+    const padding = { top: 8, bottom: 20, left: 0, right: 0 };
     const chartWidth = width - padding.left - padding.right;
     const chartHeight = height - padding.top - padding.bottom;
+
     const gridLines = [0.75, 0.5, 0.25].map(ratio => {
         const y = padding.top + (1 - ratio) * chartHeight;
-        return `<line x1="${padding.left}" y1="${y}" x2="${width - padding.right}" y2="${y}" stroke="rgba(255,255,255,0.08)" stroke-width="1" stroke-dasharray="4 4" />`;
+        return `<line x1="0" y1="${y}" x2="${width}" y2="${y}" stroke="var(--am-border)" opacity="0.15" stroke-width="1"/>`;
     }).join('');
 
     const seriesLines = panel.series.map((series, index) => {
-        const color = METRIC_COLORS[(paletteOffset + index) % METRIC_COLORS.length];
-        const showEvery = Math.max(1, Math.floor(series.points.length / 12));
+        const color = METRIC_COLORS_RAW[(paletteOffset + index) % METRIC_COLORS_RAW.length];
         const points = series.points.map((point, pointIndex) => {
             const ratioX = series.points.length > 1 ? pointIndex / (series.points.length - 1) : 0;
             const ratioY = point.value / maxValue;
@@ -2208,6 +2171,8 @@ function renderMetricPanel(panel: VisualizerMetricPanel, paletteOffset: number =
             const y = padding.top + (1 - ratioY) * chartHeight;
             return `${x},${y}`;
         }).join(' ');
+        const areaPoints = `${points} ${width},${height - padding.bottom} 0,${height - padding.bottom}`;
+        const showEvery = Math.max(1, Math.floor(series.points.length / 8));
         const markers = series.points.map((point, pointIndex) => {
             if (!point || (pointIndex % showEvery !== 0 && pointIndex !== series.points.length - 1)) {
                 return '';
@@ -2216,43 +2181,36 @@ function renderMetricPanel(panel: VisualizerMetricPanel, paletteOffset: number =
             const ratioY = point.value / maxValue;
             const x = padding.left + ratioX * chartWidth;
             const y = padding.top + (1 - ratioY) * chartHeight;
-            const tooltip = `${formatMetricTime(point.timestamp)} • ${formatMetricValue(point.value, panel.unit)}`;
-            return `<circle cx="${x}" cy="${y}" r="3" fill="${color}" opacity="0.85"><title>${tooltip}</title></circle>`;
+            const tooltip = `${formatMetricTime(point.timestamp)} \u00b7 ${formatMetricValue(point.value, panel.unit)}`;
+            return `<circle cx="${x}" cy="${y}" r="2.5" fill="${color}" opacity="0.7"><title>${tooltip}</title></circle>`;
         }).join('');
         return `<g>
-            <polyline points="${points}" fill="none" stroke="${color}" stroke-width="2.5" stroke-linecap="round" style="filter: drop-shadow(0 0 4px ${color}80);" />
+            <polygon points="${areaPoints}" fill="${color}" opacity="0.06"/>
+            <polyline points="${points}" fill="none" stroke="${color}" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
             ${markers}
         </g>`;
     }).join('');
 
     const legend = panel.series.map((series, index) => {
-        const color = METRIC_COLORS[(paletteOffset + index) % METRIC_COLORS.length];
+        const color = METRIC_COLORS_RAW[(paletteOffset + index) % METRIC_COLORS_RAW.length];
         const seriesValue = getLatestValue(series);
-        return `<div class="legend-item">
-            <span class="legend-dot" style="background:${color}"></span>
-            <span>${series.label}</span>
-            <span class="legend-value">${formatMetricValue(seriesValue, panel.unit)}</span>
-        </div>`;
+        return `<span class="cc-legend-item"><span class="cc-legend-dot" style="background:${color}"></span>${series.label} <span class="cc-legend-val">${formatMetricValue(seriesValue, panel.unit)}</span></span>`;
     }).join('');
 
     return `
-    <div class="metrics-card">
-        <div class="metrics-header">
+    <div class="cc-chart-card">
+        <div class="cc-chart-head">
             <div>
-                <div class="metrics-title">${panel.title}</div>
-                ${panel.description ? `<div class="metrics-subtitle">${panel.description}</div>` : ''}
+                <div class="cc-chart-label">${panel.title}</div>
+                ${panel.description ? `<div class="cc-chart-sub">${panel.description}</div>` : ''}
             </div>
-            <div class="metrics-value">${formatMetricValue(latestValue, panel.unit)}</div>
+            <div class="cc-chart-value">${formatMetricValue(latestValue, panel.unit)}</div>
         </div>
-        <div class="metrics-chart">
-            <svg width="${width}" height="${height}" viewBox="0 0 ${width} ${height}" class="metrics-chart-svg">
-                ${gridLines}
-                ${seriesLines}
-            </svg>
-        </div>
-        <div class="metrics-legend">
-            ${legend}
-        </div>
+        <svg class="cc-chart-svg" viewBox="0 0 ${width} ${height}" preserveAspectRatio="none">
+            ${gridLines}
+            ${seriesLines}
+        </svg>
+        <div class="cc-legend">${legend}</div>
     </div>`;
 }
 
@@ -3185,6 +3143,7 @@ async function handleCompareEnvironments(
 
 /**
  * Generate the unified tabbed HTML for the Application Management Center
+ * Rivian-inspired instrument-panel design: monochromatic, thin-stroke, theme-aware
  */
 function getCommandCenterHtml(webview: vscode.Webview, extensionUri: vscode.Uri, data: CommandCenterData): string {
 	const app = data.application;
@@ -3196,22 +3155,15 @@ function getCommandCenterHtml(webview: vscode.Webview, extensionUri: vscode.Uri,
 	    : undefined;
 	const hybridServerOs = hybridServer?.runtimeInformation?.osInformation;
 	const hybridJvmInfo = hybridServer?.runtimeInformation?.jvmInformation;
-	const healthColor = data.healthScore >= 80 ? '#3fb950' : data.healthScore >= 60 ? '#d29922' : '#f85149';
+	const healthClass = data.healthScore >= 80 ? 'cc-ok' : data.healthScore >= 60 ? 'cc-warn' : 'cc-err';
 	const activeTab = data.activeTab || 'overview';
 	const selectedRange = data.metricsRangeMinutes || data.visualizerMetrics?.rangeMinutes || METRIC_LOOKBACK_MINUTES;
-	// Only CH2 supports application diagrams (not CH1 or HYBRID)
 	const supportsApplicationDiagram = (data.cloudhubVersion || '').toUpperCase() === 'CH2';
 
-    // Get MuleSoft logo URI
-	const logoPath = vscode.Uri.joinPath(extensionUri, 'mulelogo.png');
-	const logoSrc = webview.asWebviewUri(logoPath);
-
-    // Get actual running status (checks replicas for CH2)
     const actualStatus = getActualStatus(app, data.replicas, data.cloudhubVersion);
-    const statusColor = (actualStatus === 'RUNNING' || actualStatus.includes('RUNNING')) ? '#3fb950' :
-                       (actualStatus === 'STARTING') ? '#d29922' : '#f85149';
+    const statusClass = (actualStatus === 'RUNNING' || actualStatus.includes('RUNNING')) ? 'cc-dot-ok' :
+                       (actualStatus === 'STARTING') ? 'cc-dot-warn' : 'cc-dot-err';
 
-    // Calculate uptime - use different fields based on CloudHub version
 	let uptimeText = 'Unknown';
 	if (data.cloudhubVersion === 'CH1') {
 		const uptimeMs = app?.updateDate ? Date.now() - app.updateDate : app?.lastUpdateTime ? Date.now() - app.lastUpdateTime : 0;
@@ -3226,7 +3178,7 @@ function getCommandCenterHtml(webview: vscode.Webview, extensionUri: vscode.Uri,
 			const deployMs = Date.now() - new Date(app.creationDate).getTime();
 			const deployDays = Math.floor(deployMs / (1000 * 60 * 60 * 24));
 			const deployHours = Math.floor((deployMs % (1000 * 60 * 60 * 24)) / (1000 * 60 * 60));
-			uptimeText = `${deployDays}d ${deployHours}h since deployment`;
+			uptimeText = `${deployDays}d ${deployHours}h`;
 		}
 	} else {
 		const uptimeMs = typeof app?.uptime === 'number' ? app.uptime : undefined;
@@ -3246,1431 +3198,498 @@ function getCommandCenterHtml(webview: vscode.Webview, extensionUri: vscode.Uri,
 	    ? (hybridServer?.name ? `${hybridServer.name}${hybridServer?.type ? ` (${hybridServer.type})` : ''}` : 'Hybrid Runtime')
 	    : (app?.region || app?.target?.deploymentSettings?.region || app?.target?.provider || 'Unknown');
 
-    // Prepare performance chart data
     const cpuData = data.performanceMetrics?.cpu?.slice(-24) || Array.from({ length: 24 }, () => Math.random() * 80 + 10);
     const memoryData = data.performanceMetrics?.memory?.slice(-24) || Array.from({ length: 24 }, () => Math.random() * 70 + 20);
-    const timestamps = data.performanceMetrics?.timestamps?.slice(-24) || Array.from({ length: 24 }, (_, i) => Date.now() - (24 - i) * 60 * 60 * 1000);
 
-    const isRealData = data.performanceMetrics?.source && data.performanceMetrics.source !== 'simulated';
-	const metricsSource = data.performanceMetrics?.source === 'monitoring'
-	    ? (data.cloudhubVersion === 'HYBRID'
-	        ? '📊 Data source: Monitoring Query API'
-	        : '📊 Data source: Runtime Manager metrics API')
-	    : data.performanceMetrics?.source === 'observability'
-	        ? '📊 Data source: Anypoint Observability API'
-	        : '⚠️ Simulated data - Requires Anypoint Monitoring access to display live charts';
+	const cpuMetricLabel = data.performanceMetrics?.cpuLabel || (data.cloudhubVersion === 'HYBRID' ? 'Msg Count' : 'CPU');
+	const memoryMetricLabel = data.performanceMetrics?.memoryLabel || (data.cloudhubVersion === 'HYBRID' ? 'Resp Time' : 'Memory');
 
-	const cpuMetricLabel = data.performanceMetrics?.cpuLabel || (data.cloudhubVersion === 'HYBRID' ? 'Message Count (avg)' : 'CPU Usage (%)');
-	const memoryMetricLabel = data.performanceMetrics?.memoryLabel || (data.cloudhubVersion === 'HYBRID' ? 'Response Time (ms)' : 'Memory Usage (MB)');
-
-    // Calculate current values
     const currentCpu = cpuData[cpuData.length - 1].toFixed(1);
     const currentMemory = memoryData[memoryData.length - 1].toFixed(1);
-    const avgCpu = (cpuData.reduce((a, b) => a + b, 0) / cpuData.length).toFixed(1);
-    const avgMemory = (memoryData.reduce((a, b) => a + b, 0) / memoryData.length).toFixed(1);
 
-    return `<!DOCTYPE html>
-<html lang="en">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Application Command Center</title>
-    <style>
-        :root {
-            --background-primary: #1e2328;
-            --background-secondary: #161b22;
-            --surface-primary: #21262d;
-            --surface-secondary: #30363d;
-            --surface-accent: #0d1117;
-            --text-primary: #f0f6fc;
-            --text-secondary: #7d8590;
-            --text-muted: #656d76;
-            --accent-blue: #58a6ff;
-            --accent-light: #79c0ff;
-            --border-primary: #30363d;
-            --border-muted: #21262d;
-            --success: #3fb950;
-            --warning: #d29922;
-            --error: #f85149;
-        }
+    const healthRingRadius = 52;
+    const healthRingCircumference = 2 * Math.PI * healthRingRadius;
+    const healthRingOffset = healthRingCircumference - (healthRingCircumference * data.healthScore / 100);
 
-        * {
-            margin: 0;
-            padding: 0;
-            box-sizing: border-box;
-        }
+    const boolIcon = (val: boolean | undefined) => val
+        ? `<span class="cc-dot cc-dot-ok" style="width:8px;height:8px"></span> On`
+        : `<span class="cc-dot cc-dot-off" style="width:8px;height:8px"></span> Off`;
 
-        body {
-            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', 'Oxygen', 'Ubuntu', 'Cantarell', sans-serif;
-            background: var(--background-primary);
-            color: var(--text-primary);
-            padding: 24px;
-            overflow-x: hidden;
-        }
+    const kvRow = (label: string, value: string) =>
+        `<div class="cc-kv"><span class="cc-kv-label">${label}</span><span class="cc-kv-value">${value}</span></div>`;
 
-        /* Removed animated background - was distracting */
+    const ccExtraStyles = `
+        body { padding: 36px 40px; overflow-x: hidden; }
 
-        .container {
-            max-width: 1400px;
-            margin: 0 auto;
-            animation: fadeIn 0.6s ease-out;
-        }
+        .cc-container { max-width: 1200px; margin: 0 auto; animation: cc-fadeIn 0.4s ease-out; }
+        @keyframes cc-fadeIn { from { opacity: 0; } to { opacity: 1; } }
+        @keyframes cc-spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
+        @keyframes cc-ring { from { stroke-dashoffset: ${healthRingCircumference}; } }
 
-        @keyframes fadeIn {
-            from { opacity: 0; transform: translateY(20px); }
-            to { opacity: 1; transform: translateY(0); }
-        }
-
-        /* Header */
-        .header {
-            background: var(--background-secondary);
-            border: 1px solid var(--border-primary);
-            border-radius: 12px;
-            padding: 32px;
-            margin-bottom: 24px;
-            animation: slideDown 0.6s ease-out;
-            position: relative;
-            overflow: hidden;
-        }
-
-        .header::before {
-            content: '';
-            position: absolute;
-            top: 0;
-            left: 0;
-            right: 0;
-            height: 4px;
-            background: linear-gradient(90deg, var(--accent-blue), var(--success), var(--accent-light));
-        }
-
-        @keyframes slideDown {
-            from { opacity: 0; transform: translateY(-30px); }
-            to { opacity: 1; transform: translateY(0); }
-        }
-
-        .header-top {
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-            margin-bottom: 24px;
-        }
-
-        .app-title {
-            display: flex;
-            align-items: center;
-            gap: 16px;
-        }
-
-        .app-icon {
-            width: 48px;
-            height: 48px;
-            object-fit: contain;
-        }
-
-        .app-info h1 {
-            font-size: 32px;
-            font-weight: 700;
-            margin-bottom: 8px;
-            color: var(--text-primary);
-        }
-
-        .app-meta {
-            display: flex;
-            gap: 16px;
-            font-size: 14px;
-            color: var(--text-secondary);
-        }
-
-        .meta-badge {
-            background: var(--surface-primary);
-            padding: 6px 12px;
-            border-radius: 6px;
-            display: flex;
-            align-items: center;
-            gap: 6px;
-            border: 1px solid var(--border-primary);
-        }
-
-        .refresh-btn {
-            background: var(--surface-primary);
-            border: 1px solid var(--border-primary);
-            color: var(--text-primary);
-            padding: 12px 24px;
-            border-radius: 8px;
-            cursor: pointer;
-            font-size: 14px;
-            font-weight: 600;
-            transition: all 0.3s ease;
-            display: flex;
-            align-items: center;
-            gap: 8px;
-        }
-
-        .refresh-btn:hover {
-            background: var(--surface-secondary);
-            border-color: var(--accent-blue);
-            transform: translateY(-2px);
-        }
-
-        .refresh-btn:active {
-            transform: translateY(0);
-        }
-
-        .refresh-btn.spinning .icon {
-            animation: spin 1s linear infinite;
-        }
-
-        @keyframes spin {
-            from { transform: rotate(0deg); }
-            to { transform: rotate(360deg); }
-        }
-
-        /* Health Score Section */
-        .health-section {
-            background: var(--background-secondary);
-            border: 1px solid var(--border-primary);
-            border-radius: 12px;
-            padding: 32px;
-            margin-bottom: 24px;
-            animation: slideUp 0.6s ease-out 0.1s both;
-        }
-
-        @keyframes slideUp {
-            from { opacity: 0; transform: translateY(30px); }
-            to { opacity: 1; transform: translateY(0); }
-        }
-
-        .health-grid {
-            display: grid;
-            grid-template-columns: auto 1fr;
-            gap: 32px;
-            align-items: center;
-        }
-
-        .health-score-circle {
-            position: relative;
-            width: 180px;
-            height: 180px;
-        }
-
-        .score-ring {
-            transform: rotate(-90deg);
-        }
-
-        .score-ring-bg {
-            fill: none;
-            stroke: var(--surface-secondary);
-            stroke-width: 12;
-        }
-
-        .score-ring-progress {
-            fill: none;
-            stroke: ${healthColor};
-            stroke-width: 12;
-            stroke-linecap: round;
-            stroke-dasharray: 440;
-            stroke-dashoffset: ${440 - (440 * data.healthScore / 100)};
-            animation: scoreProgress 2s ease-out;
-            filter: drop-shadow(0 0 8px ${healthColor});
-        }
-
-        @keyframes scoreProgress {
-            from { stroke-dashoffset: 440; }
-        }
-
-        .score-text {
-            position: absolute;
-            top: 50%;
-            left: 50%;
-            transform: translate(-50%, -50%);
-            text-align: center;
-        }
-
-        .score-number {
-            font-size: 48px;
-            font-weight: 700;
-            color: ${healthColor};
-            animation: countUp 2s ease-out;
-        }
-
-        .score-label {
-            font-size: 14px;
-            color: var(--text-secondary);
-            text-transform: uppercase;
-            letter-spacing: 1px;
-        }
-
-        .health-stats {
-            display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
-            gap: 16px;
-        }
-
-        .stat-card {
-            background: var(--surface-primary);
-            padding: 20px;
-            border-radius: 8px;
-            border: 1px solid var(--border-primary);
-            transition: all 0.3s ease;
-        }
-
-        .stat-card:hover {
-            background: var(--surface-secondary);
-            transform: translateY(-4px);
-            border-color: var(--accent-blue);
-        }
-
-        .stat-label {
-            font-size: 12px;
-            color: var(--text-secondary);
-            text-transform: uppercase;
-            letter-spacing: 1px;
-            margin-bottom: 8px;
-        }
-
-        .stat-value {
-            font-size: 16px;
-            font-weight: 600;
-            display: flex;
-            align-items: center;
-            gap: 8px;
-            color: var(--text-primary);
-            overflow: hidden;
-            text-overflow: ellipsis;
-            white-space: nowrap;
-        }
-
-        .status-dot {
-            width: 12px;
-            height: 12px;
-            border-radius: 50%;
-            background: ${statusColor};
-            box-shadow: 0 0 12px ${statusColor};
-        }
-
-        /* Tab Navigation */
-        .tabs {
-            background: var(--surface-primary);
-            border: 1px solid var(--border-primary);
-            border-radius: 12px;
-            padding: 8px;
-            margin-bottom: 24px;
-            display: flex;
-            gap: 8px;
-            overflow-x: auto;
-            flex-wrap: wrap;
-        }
-
-        .tab-btn {
-            background: transparent;
-            border: none;
-            color: var(--text-secondary);
-            padding: 12px 20px;
-            border-radius: 8px;
-            cursor: pointer;
-            font-size: 14px;
-            font-weight: 500;
-            transition: all 0.3s ease;
-            display: flex;
-            align-items: center;
-            gap: 8px;
-            white-space: nowrap;
-        }
-
-        .tab-btn:hover {
-            background: var(--surface-secondary);
-            color: var(--text-primary);
-        }
-
-        .tab-btn.active {
-            background: var(--accent-blue);
-            color: white;
-            font-weight: 600;
-        }
-
-        .tab-content {
-            display: none;
-        }
-
-        .tab-content.active {
-            display: block;
-            animation: fadeIn 0.3s ease-out;
-        }
-
-        /* Metrics */
-        .metrics-status {
-            margin-bottom: 16px;
-            padding: 14px 16px;
-            border-radius: 10px;
-            border: 1px solid var(--border-primary);
-            background: rgba(255, 255, 255, 0.02);
-            font-size: 13px;
-            line-height: 1.4;
-        }
-
-        .metrics-status-success {
-            border-color: var(--success);
-            background: rgba(63, 185, 80, 0.08);
-        }
-
-        .metrics-status-warning {
-            border-color: var(--warning);
-            background: rgba(210, 153, 34, 0.08);
-        }
-
-        .metrics-status-error {
-            border-color: var(--accent-red);
-            background: rgba(248, 81, 73, 0.08);
-        }
-
-        .metrics-grid {
-            display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
-            gap: 16px;
-        }
-
-        .metrics-controls {
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-            gap: 16px;
-            margin-bottom: 12px;
-            flex-wrap: wrap;
-        }
-
-        .metrics-filter {
-            display: flex;
-            flex-direction: column;
-            gap: 6px;
-        }
-
-        .metrics-filter label {
-            font-size: 12px;
-            color: var(--text-secondary);
-        }
-
-        .metrics-filter select {
-            background: var(--surface-primary);
-            border: 1px solid var(--border-primary);
-            border-radius: 6px;
-            color: var(--text-primary);
-            padding: 6px 12px;
-            min-width: 140px;
-        }
-
-        .metrics-refresh-btn {
-            display: inline-flex;
-            align-items: center;
-            gap: 8px;
-            background: var(--accent-blue);
-            color: #fff;
-            border: none;
-            border-radius: 6px;
-            padding: 8px 16px;
-            cursor: pointer;
-            font-weight: 600;
-            transition: opacity 0.2s ease;
-        }
-
-        .metrics-refresh-btn .icon {
-            display: inline-block;
-        }
-
-        .metrics-refresh-btn.spinning {
-            opacity: 0.7;
-        }
-
-        .metrics-refresh-btn.spinning .icon {
-            animation: spin 0.8s linear infinite;
-        }
-
-        @keyframes spin {
-            from { transform: rotate(0deg); }
-            to { transform: rotate(360deg); }
-        }
-
-        .metrics-card {
-            background: var(--surface-primary);
-            border: 1px solid var(--border-primary);
-            border-radius: 12px;
-            padding: 20px;
-            display: flex;
-            flex-direction: column;
-            gap: 12px;
-        }
-
-        .metrics-header {
+        /* ── Header ──────────────────────────────────────────────────── */
+        .cc-header {
             display: flex;
             justify-content: space-between;
             align-items: flex-start;
-            gap: 12px;
-        }
-
-        .metrics-title {
-            font-size: 16px;
-            font-weight: 600;
-            color: var(--text-primary);
-        }
-
-        .metrics-subtitle {
-            font-size: 12px;
-            color: var(--text-secondary);
-        }
-
-        .metrics-value {
-            font-size: 28px;
-            font-weight: 700;
-            color: var(--text-primary);
-        }
-
-        .metrics-chart {
-            height: 160px;
-        }
-
-        .metrics-chart-svg {
-            width: 100%;
-            height: 100%;
-        }
-
-        .metrics-legend {
-            display: flex;
-            flex-wrap: wrap;
-            gap: 10px;
-            font-size: 12px;
-            color: var(--text-secondary);
-        }
-
-        .legend-item {
-            display: flex;
-            align-items: center;
-            gap: 6px;
-        }
-
-        .legend-dot {
-            width: 10px;
-            height: 10px;
-            border-radius: 50%;
-        }
-
-        .legend-value {
-            color: var(--text-primary);
-            font-weight: 600;
-        }
-
-        .metrics-empty {
-            padding: 24px;
-            text-align: center;
-            color: var(--text-secondary);
-            border: 1px dashed var(--border-muted);
-            border-radius: 10px;
-        }
-
-        .metrics-footer {
-            display: flex;
-            justify-content: space-between;
-            font-size: 12px;
-            color: var(--text-secondary);
-            border-top: 1px solid var(--border-muted);
-            padding-top: 8px;
-        }
-
-        .confirm-overlay {
-            position: fixed;
-            inset: 0;
-            background: rgba(0, 0, 0, 0.6);
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            z-index: 9999;
-        }
-
-        .confirm-dialog {
-            background: var(--surface-primary);
-            border: 1px solid var(--border-primary);
-            border-radius: 12px;
-            padding: 24px;
-            min-width: 320px;
-            box-shadow: 0 20px 60px rgba(0, 0, 0, 0.5);
-        }
-
-        .confirm-dialog h3 {
-            margin: 0 0 12px;
-            color: var(--text-primary);
-            font-size: 16px;
-        }
-
-        .confirm-dialog p {
-            margin: 0 0 20px;
-            color: var(--text-secondary);
-            font-size: 14px;
-        }
-
-        .confirm-actions {
-            display: flex;
-            justify-content: flex-end;
-            gap: 12px;
-        }
-
-        .confirm-btn {
-            padding: 8px 16px;
-            border-radius: 6px;
-            border: 1px solid var(--border-primary);
-            background: var(--surface-secondary);
-            color: var(--text-primary);
-            cursor: pointer;
-        }
-
-        .confirm-btn-primary {
-            background: var(--accent-blue);
-            border-color: var(--accent-blue);
-            color: #fff;
-        }
-
-        /* Section Title */
-        .section-title {
-            font-size: 20px;
-            font-weight: 700;
-            margin-bottom: 20px;
-            display: flex;
-            align-items: center;
-            gap: 12px;
-            color: var(--text-primary);
-        }
-
-        .section-icon {
-            font-size: 24px;
-        }
-
-        /* Quick Actions */
-        .quick-actions {
-            background: var(--background-secondary);
-            border: 1px solid var(--border-primary);
-            border-radius: 12px;
-            padding: 32px;
-            margin-bottom: 24px;
-            animation: slideUp 0.6s ease-out 0.2s both;
-        }
-
-        .action-buttons {
-            display: flex;
-            flex-wrap: wrap;
-            gap: 12px;
-        }
-
-        .action-btn {
-            background: var(--surface-primary);
-            border: 1px solid var(--border-primary);
-            color: var(--text-primary);
-            padding: 14px 18px;
-            border-radius: 10px;
-            cursor: pointer;
-            font-size: 13px;
-            font-weight: 600;
-            transition: all 0.3s ease;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            gap: 12px;
-            position: relative;
-            overflow: hidden;
-        }
-
-        .action-btn::before {
-            content: '';
-            position: absolute;
-            top: 50%;
-            left: 50%;
-            width: 0;
-            height: 0;
-            border-radius: 50%;
-            background: var(--accent-blue);
-            opacity: 0.1;
-            transform: translate(-50%, -50%);
-            transition: width 0.6s, height 0.6s;
-        }
-
-        .action-btn:hover::before {
-            width: 300px;
-            height: 300px;
-        }
-
-        .action-btn:hover {
-            transform: translateY(-4px);
-            border-color: var(--accent-blue);
-            box-shadow: 0 4px 12px rgba(88, 166, 255, 0.2);
-        }
-
-        .action-btn:active {
-            transform: translateY(-2px);
-        }
-
-        .action-btn span {
-            position: relative;
-            z-index: 1;
-        }
-
-        .action-icon {
-            width: 34px;
-            height: 34px;
-            border-radius: 10px;
-            display: inline-flex;
-            align-items: center;
-            justify-content: center;
-            color: white;
-        }
-
-        .action-icon svg {
-            stroke-width: 2.2;
-        }
-
-        .gradient-blue { background: linear-gradient(135deg, #58a6ff, #1f6feb); }
-        .gradient-red { background: linear-gradient(135deg, #f85149, #cf3430); }
-        .gradient-green { background: linear-gradient(135deg, #2ea043, #0e8a34); }
-        .gradient-purple { background: linear-gradient(135deg, #a371f7, #7c3aed); }
-        .gradient-gold { background: linear-gradient(135deg, #f2cc60, #f09d24); }
-        .gradient-teal { background: linear-gradient(135deg, #3fb950, #0ca678); }
-        .gradient-orange { background: linear-gradient(135deg, #ff9f43, #f76707); }
-
-        /* Alerts Section */
-        .alerts-section {
-            background: var(--background-secondary);
-            border: 1px solid var(--border-primary);
-            border-radius: 12px;
-            padding: 32px;
-            margin-bottom: 24px;
-            animation: slideUp 0.6s ease-out 0.25s both;
-        }
-
-        .alert-item {
-            background: var(--surface-primary);
-            padding: 16px;
-            border-radius: 8px;
-            margin-bottom: 12px;
-            border-left: 4px solid var(--warning);
-            transition: all 0.3s ease;
-            display: flex;
-            align-items: center;
-            gap: 12px;
-        }
-
-        .alert-item.critical {
-            border-left-color: var(--error);
-        }
-
-        .alert-item.info {
-            border-left-color: var(--accent-blue);
-        }
-
-        .alert-item:hover {
-            background: var(--surface-secondary);
-            transform: translateX(8px);
-        }
-
-        .alert-icon {
-            font-size: 24px;
-        }
-
-        .alert-content {
-            flex: 1;
-        }
-
-        .alert-message {
-            font-weight: 600;
-            margin-bottom: 4px;
-            color: var(--text-primary);
-        }
-
-        .alert-time {
-            font-size: 12px;
-            color: var(--text-secondary);
-        }
-
-        /* Cost Tracking Section */
-        .cost-section {
-            background: var(--background-secondary);
-            border: 1px solid var(--border-primary);
-            border-radius: 12px;
-            padding: 32px;
-            margin-bottom: 24px;
-            animation: slideUp 0.6s ease-out 0.3s both;
-        }
-
-        .cost-grid {
-            display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
-            gap: 20px;
-        }
-
-        .cost-card {
-            background: linear-gradient(135deg, var(--surface-primary) 0%, var(--surface-secondary) 100%);
-            padding: 24px;
-            border-radius: 8px;
-            border: 1px solid var(--border-primary);
-            text-align: center;
-            transition: all 0.3s ease;
-        }
-
-        .cost-card:hover {
-            transform: scale(1.05);
-            border-color: var(--success);
-        }
-
-        .cost-amount {
-            font-size: 36px;
-            font-weight: 700;
-            color: var(--success);
-            margin: 12px 0;
-        }
-
-        .cost-label {
-            font-size: 14px;
-            color: var(--text-secondary);
-            text-transform: uppercase;
-            letter-spacing: 1px;
-        }
-
-        /* AI Insights Section */
-        .insights-section {
-            background: var(--background-secondary);
-            border: 1px solid var(--border-primary);
-            border-radius: 12px;
-            padding: 32px;
-            margin-bottom: 24px;
-            animation: slideUp 0.6s ease-out 0.35s both;
-        }
-
-        .insight-item {
-            background: var(--surface-primary);
-            padding: 16px;
-            border-radius: 8px;
-            margin-bottom: 12px;
-            border-left: 4px solid var(--accent-blue);
-            transition: all 0.3s ease;
-            animation: slideInLeft 0.5s ease-out;
-        }
-
-        @keyframes slideInLeft {
-            from { opacity: 0; transform: translateX(-20px); }
-            to { opacity: 1; transform: translateX(0); }
-        }
-
-        .insight-item:hover {
-            background: var(--surface-secondary);
-            transform: translateX(4px);
-        }
-
-        /* Performance Chart */
-        .chart-container {
-            background: var(--surface-primary);
-            padding: 20px;
-            border-radius: 8px;
-            border: 1px solid var(--border-primary);
-            margin-top: 20px;
-        }
-
-        .sparkline {
-            width: 100%;
-            height: 60px;
-        }
-
-        .sparkline-path {
-            fill: none;
-            stroke: var(--accent-blue);
-            stroke-width: 2;
-            stroke-linecap: round;
-            stroke-linejoin: round;
-            animation: drawLine 2s ease-out;
-        }
-
-        @keyframes drawLine {
-            from { stroke-dasharray: 1000; stroke-dashoffset: 1000; }
-            to { stroke-dasharray: 1000; stroke-dashoffset: 0; }
-        }
-
-        /* Grid Layout */
-        .dashboard-grid {
-            display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(400px, 1fr));
-            gap: 24px;
-            margin-bottom: 24px;
-        }
-
-        .card {
-            background: var(--background-secondary);
-            border: 1px solid var(--border-primary);
-            border-radius: 12px;
-            padding: 32px;
-            animation: slideUp 0.6s ease-out 0.4s both;
-            transition: all 0.3s ease;
-        }
-
-        .card:hover {
-            transform: translateY(-4px);
-            border-color: var(--accent-blue);
-            box-shadow: 0 8px 24px rgba(0, 0, 0, 0.3);
-        }
-
-        .card-title {
-            font-size: 18px;
-            font-weight: 700;
-            margin-bottom: 20px;
-            display: flex;
-            align-items: center;
-            gap: 12px;
-            color: var(--text-primary);
-        }
-
-        .info-row {
-            display: flex;
-            justify-content: space-between;
-            padding: 12px 0;
-            border-bottom: 1px solid var(--border-muted);
-        }
-
-        .info-row:last-child {
-            border-bottom: none;
-        }
-
-        .info-label {
-            color: var(--text-secondary);
-            font-size: 14px;
-        }
-
-        .info-value {
-            color: var(--text-primary);
-            font-weight: 600;
-            font-size: 14px;
-        }
-
-        /* Deployment History */
-        .deployment-item {
-            background: var(--surface-primary);
-            padding: 16px;
-            border-radius: 8px;
-            margin-bottom: 12px;
-            border-left: 4px solid var(--success);
-            transition: all 0.3s ease;
-        }
-
-        .deployment-item:hover {
-            background: var(--surface-secondary);
-            transform: translateX(8px);
-        }
-
-        .deployment-version {
-            font-weight: 700;
-            font-size: 16px;
-            margin-bottom: 4px;
-            color: var(--text-primary);
-        }
-
-        .deployment-meta {
-            font-size: 13px;
-            color: var(--text-secondary);
-        }
-
-        /* Schedulers */
-        .scheduler-item {
-            background: var(--surface-primary);
-            padding: 16px;
-            border-radius: 8px;
-            margin-bottom: 12px;
-            transition: all 0.3s ease;
-        }
-
-        .scheduler-item:hover {
-            background: var(--surface-secondary);
-            transform: scale(1.02);
-        }
-
-        .scheduler-name {
-            font-weight: 600;
+            margin-bottom: 32px;
+        }
+        .cc-app-name {
+            font-size: 26px;
+            font-weight: 300;
+            letter-spacing: -0.5px;
+            color: var(--am-text-primary);
             margin-bottom: 8px;
+        }
+        .cc-meta {
             display: flex;
-            align-items: center;
             gap: 8px;
-            color: var(--text-primary);
-        }
-
-        .scheduler-status {
-            font-size: 12px;
-            padding: 4px 8px;
-            border-radius: 4px;
-            background: var(--success);
-            color: var(--background-primary);
+            font-size: 10px;
             font-weight: 600;
+            text-transform: uppercase;
+            letter-spacing: 0.8px;
+            color: var(--am-text-muted);
         }
+        .cc-meta span::after { content: '\\00b7'; margin-left: 6px; }
+        .cc-meta span:last-child::after { content: ''; margin: 0; }
+        .cc-refresh-btn {
+            background: none;
+            border: 1px solid var(--am-border);
+            border-radius: var(--am-radius-sm);
+            color: var(--am-text-secondary);
+            width: 32px; height: 32px;
+            display: flex; align-items: center; justify-content: center;
+            cursor: pointer;
+            transition: border-color 0.2s, color 0.2s;
+        }
+        .cc-refresh-btn:hover { border-color: var(--am-info); color: var(--am-text-primary); }
+        .cc-refresh-btn.spinning svg { animation: cc-spin 0.8s linear infinite; }
 
-        /* Replicas (CH2) */
-        .replica-item {
-            background: var(--surface-primary);
-            padding: 16px;
-            border-radius: 8px;
+        /* ── Tabs ────────────────────────────────────────────────────── */
+        .cc-tabs {
+            display: flex;
+            gap: 2px;
+            background: var(--am-bg-surface);
+            border: 1px solid var(--am-border);
+            border-radius: var(--am-radius-md);
+            padding: 3px;
             margin-bottom: 12px;
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-            transition: all 0.3s ease;
+            overflow-x: auto;
         }
-
-        .replica-item:hover {
-            background: var(--surface-secondary);
-        }
-
-        .replica-name {
+        .cc-tab {
+            background: transparent;
+            border: none;
+            color: var(--am-text-muted);
+            font-size: 11px;
             font-weight: 600;
+            text-transform: uppercase;
+            letter-spacing: 0.6px;
+            padding: 9px 20px;
+            border-radius: 6px;
+            cursor: pointer;
+            white-space: nowrap;
+            transition: all 0.15s ease;
+            font-family: inherit;
+        }
+        .cc-tab:hover { color: var(--am-text-primary); background: var(--am-bg-surface-hover); }
+        .cc-tab.active { color: var(--am-text-primary); background: var(--am-bg-secondary); }
+        .tab-content { display: none; }
+        .tab-content.active { display: block; }
+
+        /* ── Toolbar ─────────────────────────────────────────────────── */
+        .cc-toolbar {
             display: flex;
-            align-items: center;
-            gap: 8px;
-            color: var(--text-primary);
+            gap: 6px;
+            padding: 8px 0;
+            margin-bottom: 32px;
+            border-bottom: 1px solid var(--am-border);
         }
-
-        .replica-state {
-            font-size: 12px;
-            padding: 4px 12px;
-            border-radius: 4px;
-            background: var(--success);
-            color: var(--background-primary);
-            font-weight: 600;
-        }
-
-        /* Empty State */
-        .empty-state {
-            text-align: center;
-            padding: 40px;
-            color: var(--text-secondary);
-        }
-
-        .empty-icon {
-            font-size: 48px;
-            margin-bottom: 16px;
-            opacity: 0.5;
-        }
-
-        /* Network Topology */
-        .topology-container {
-            background: var(--surface-primary);
-            padding: 30px;
-            border-radius: 8px;
-            border: 1px solid var(--border-primary);
-            text-align: center;
-        }
-
-        .topology-node {
-            display: inline-block;
-            background: var(--surface-secondary);
-            border: 2px solid var(--accent-blue);
-            border-radius: 50%;
-            width: 80px;
-            height: 80px;
-            line-height: 76px;
-            margin: 10px;
-            font-size: 32px;
-            animation: nodeFloat 3s ease-in-out infinite;
-        }
-
-        @keyframes nodeFloat {
-            0%, 100% { transform: translateY(0px); }
-            50% { transform: translateY(-10px); }
-        }
-
-        .topology-line {
-            display: inline-block;
-            width: 40px;
-            height: 2px;
-            background: var(--border-primary);
-            vertical-align: middle;
+        .cc-toolbar-btn {
+            background: none;
+            border: 1px solid transparent;
+            border-radius: var(--am-radius-sm);
+            color: var(--am-text-muted);
+            width: 32px; height: 32px;
+            display: flex; align-items: center; justify-content: center;
+            cursor: pointer;
+            transition: all 0.15s;
             position: relative;
         }
+        .cc-toolbar-btn:hover { color: var(--am-text-primary); border-color: var(--am-border); background: var(--am-bg-surface); }
+        .cc-toolbar-btn svg { width: 15px; height: 15px; }
+        .cc-toolbar-btn[title]:hover::after {
+            content: attr(title);
+            position: absolute; top: 100%; left: 50%; transform: translateX(-50%);
+            padding: 4px 8px; font-size: 10px; white-space: nowrap;
+            background: var(--am-bg-secondary); border: 1px solid var(--am-border);
+            border-radius: var(--am-radius-sm); color: var(--am-text-primary);
+            margin-top: 4px; z-index: 10;
+        }
+        .cc-toolbar-sep { width: 1px; background: var(--am-border); margin: 4px 10px; }
 
-        .topology-line::after {
-            content: '→';
-            position: absolute;
-            right: -10px;
-            top: -10px;
-            color: var(--accent-blue);
+        /* ── Health Ring ─────────────────────────────────────────────── */
+        .cc-hero { display: flex; align-items: center; gap: 48px; margin-bottom: 40px; }
+        .cc-ring-wrap { position: relative; width: 130px; height: 130px; flex-shrink: 0; }
+        .cc-ring-bg { fill: none; stroke: var(--am-border); stroke-width: 3; opacity: 0.4; }
+        .cc-ring-fg { fill: none; stroke-width: 3; stroke-linecap: round;
+            stroke-dasharray: ${healthRingCircumference};
+            stroke-dashoffset: ${healthRingOffset};
+            animation: cc-ring 1.5s ease-out;
+            transform: rotate(-90deg); transform-origin: center;
+        }
+        .cc-ring-fg.cc-ok { stroke: var(--am-success); }
+        .cc-ring-fg.cc-warn { stroke: var(--am-warning); }
+        .cc-ring-fg.cc-err { stroke: var(--am-error); }
+        .cc-ring-score {
+            position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%);
+            font-size: 36px; font-weight: 300; color: var(--am-text-primary);
         }
 
-        /* Responsive */
-        @media (max-width: 768px) {
-            .dashboard-grid {
-                grid-template-columns: 1fr;
-            }
-
-            .health-grid {
-                grid-template-columns: 1fr;
-                text-align: center;
-            }
-
-            .health-score-circle {
-                margin: 0 auto;
-            }
+        /* ── Stat Strip ──────────────────────────────────────────────── */
+        .cc-stats { display: flex; flex-wrap: wrap; gap: 36px; flex: 1; }
+        .cc-stat {}
+        .cc-stat-label {
+            font-size: 10px; font-weight: 600; text-transform: uppercase;
+            letter-spacing: 0.8px; color: var(--am-text-muted); margin-bottom: 4px;
         }
-    </style>
-</head>
-<body>
-    <div class="container">
+        .cc-stat-value {
+            font-size: 17px; font-weight: 500; color: var(--am-text-primary);
+            display: flex; align-items: center; gap: 6px;
+        }
+
+        /* ── Dot indicators ──────────────────────────────────────────── */
+        .cc-dot { width: 8px; height: 8px; border-radius: 50%; display: inline-block; flex-shrink: 0; }
+        .cc-dot-ok { background: var(--am-success); }
+        .cc-dot-warn { background: var(--am-warning); }
+        .cc-dot-err { background: var(--am-error); }
+        .cc-dot-off { background: var(--am-text-muted); opacity: 0.4; }
+        .cc-muted { color: var(--am-text-muted); }
+
+        /* ── Key-Value Grid ──────────────────────────────────────────── */
+        .cc-kv-section { margin-bottom: 36px; }
+        .cc-kv-title {
+            font-size: 10px; font-weight: 600; text-transform: uppercase;
+            letter-spacing: 0.8px; color: var(--am-text-muted);
+            margin-bottom: 16px; padding-bottom: 10px; border-bottom: 1px solid var(--am-border);
+        }
+        .cc-kv-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 0 40px; }
+        .cc-kv {
+            display: flex; justify-content: space-between; align-items: center;
+            padding: 10px 0; border-bottom: 1px solid color-mix(in srgb, var(--am-border) 40%, transparent);
+        }
+        .cc-kv-label { font-size: 12px; color: var(--am-text-muted); }
+        .cc-kv-value { font-size: 12px; font-weight: 500; color: var(--am-text-primary); text-align: right; word-break: break-all; max-width: 60%; }
+
+        /* ── Health Breakdown (collapsible) ───────────────────────────── */
+        .cc-breakdown { margin-top: 28px; }
+        .cc-breakdown-toggle {
+            background: none; border: none; color: var(--am-text-muted); cursor: pointer;
+            font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.6px;
+            display: flex; align-items: center; gap: 6px; padding: 4px 0;
+            font-family: inherit;
+        }
+        .cc-breakdown-toggle:hover { color: var(--am-text-primary); }
+        .cc-breakdown-toggle svg { transition: transform 0.2s; }
+        .cc-breakdown-toggle.open svg { transform: rotate(90deg); }
+        .cc-breakdown-list { display: none; padding-top: 8px; }
+        .cc-breakdown-list.open { display: block; }
+        .cc-breakdown-item {
+            padding: 6px 0; font-size: 12px; color: var(--am-text-secondary);
+            display: flex; align-items: center; gap: 8px;
+        }
+
+        /* ── Metrics Tab ─────────────────────────────────────────────── */
+        .cc-metrics-controls { display: flex; justify-content: space-between; align-items: center; gap: 16px; margin-bottom: 20px; }
+        .cc-seg-group { display: flex; gap: 2px; background: var(--am-bg-surface); border: 1px solid var(--am-border); border-radius: var(--am-radius-md); padding: 2px; }
+        .cc-seg-btn {
+            background: transparent; border: none; color: var(--am-text-muted);
+            font-size: 11px; font-weight: 600; padding: 5px 12px; border-radius: 6px;
+            cursor: pointer; transition: all 0.15s; font-family: inherit;
+        }
+        .cc-seg-btn:hover { color: var(--am-text-primary); }
+        .cc-seg-btn.cc-seg-active { background: var(--am-bg-secondary); color: var(--am-text-primary); }
+        .cc-seg-btn:disabled { opacity: 0.3; cursor: default; }
+        .cc-metrics-banner {
+            display: flex; align-items: center; gap: 8px; font-size: 11px;
+            color: var(--am-text-muted); padding: 10px 0; margin-bottom: 20px;
+            border-bottom: 1px solid var(--am-border);
+        }
+        .cc-metrics-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(340px, 1fr)); gap: 24px; }
+        .cc-chart-card {
+            background: var(--am-bg-surface);
+            border: 1px solid var(--am-border);
+            border-radius: var(--am-radius-md);
+            padding: 20px;
+        }
+        .cc-chart-head { display: flex; justify-content: space-between; align-items: flex-start; gap: 16px; margin-bottom: 12px; }
+        .cc-chart-label { font-size: 13px; font-weight: 600; color: var(--am-text-primary); }
+        .cc-chart-sub { font-size: 11px; color: var(--am-text-muted); margin-top: 2px; }
+        .cc-chart-value { font-size: 24px; font-weight: 300; color: var(--am-text-primary); white-space: nowrap; }
+        .cc-chart-unit { font-size: 12px; color: var(--am-text-muted); margin-left: 2px; }
+        .cc-chart-svg { width: 100%; height: 80px; display: block; margin-top: 8px; }
+        .cc-legend { display: flex; flex-wrap: wrap; gap: 12px; font-size: 11px; color: var(--am-text-muted); margin-top: 12px; }
+        .cc-legend-item { display: flex; align-items: center; gap: 4px; }
+        .cc-legend-dot { width: 8px; height: 8px; border-radius: 50%; }
+        .cc-legend-val { color: var(--am-text-primary); font-weight: 500; }
+
+        /* ── Scheduler rows ──────────────────────────────────────────── */
+        .cc-sched-row {
+            display: flex; justify-content: space-between; align-items: center;
+            padding: 14px 0; border-bottom: 1px solid color-mix(in srgb, var(--am-border) 40%, transparent);
+        }
+        .cc-sched-row:last-child { border-bottom: none; }
+        .cc-sched-name { font-size: 13px; font-weight: 500; color: var(--am-text-primary); }
+        .cc-sched-meta { font-size: 11px; color: var(--am-text-muted); }
+        .cc-sched-right { text-align: right; }
+
+        /* ── Configuration ───────────────────────────────────────────── */
+        .cc-config-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 0 48px; }
+        @media (max-width: 600px) { .cc-config-grid { grid-template-columns: 1fr; } }
+
+        /* ── Empty state ─────────────────────────────────────────────── */
+        .cc-empty {
+            padding: 48px; text-align: center; color: var(--am-text-muted); font-size: 13px;
+        }
+
+        /* ── Logs CTA ────────────────────────────────────────────────── */
+        .cc-cta { text-align: center; padding: 64px 20px; }
+        .cc-cta-title { font-size: 17px; font-weight: 500; color: var(--am-text-primary); margin-bottom: 10px; }
+        .cc-cta-desc { font-size: 13px; color: var(--am-text-muted); margin-bottom: 24px; }
+        .cc-cta-btn {
+            display: inline-flex; align-items: center; gap: 8px;
+            background: var(--am-btn-bg); color: var(--am-btn-fg);
+            border: none; border-radius: var(--am-radius-md);
+            padding: 10px 20px; font-size: 13px; font-weight: 600;
+            cursor: pointer; transition: background 0.2s;
+            font-family: inherit;
+        }
+        .cc-cta-btn:hover { background: var(--am-btn-hover); }
+
+        /* ── Network rows ────────────────────────────────────────────── */
+        .cc-net-section { margin-bottom: 24px; }
+        .cc-net-row {
+            padding: 8px 0; font-size: 12px; color: var(--am-text-primary);
+            border-bottom: 1px solid color-mix(in srgb, var(--am-border) 30%, transparent);
+        }
+        .cc-net-row:last-child { border-bottom: none; }
+
+        /* ── Confirmation Dialog ──────────────────────────────────────── */
+        .cc-overlay {
+            position: fixed; inset: 0;
+            background: color-mix(in srgb, var(--am-bg-primary) 80%, transparent);
+            backdrop-filter: blur(4px);
+            display: flex; align-items: center; justify-content: center; z-index: 9999;
+        }
+        .cc-dialog {
+            background: var(--am-bg-surface); border: 1px solid var(--am-border);
+            border-radius: var(--am-radius-md); padding: 28px; min-width: 340px; max-width: 420px;
+        }
+        .cc-dialog h3 { font-size: 16px; font-weight: 600; margin-bottom: 10px; }
+        .cc-dialog p { font-size: 13px; color: var(--am-text-secondary); margin-bottom: 24px; line-height: 1.6; }
+        .cc-dialog-actions { display: flex; justify-content: flex-end; gap: 8px; }
+        .cc-dialog-btn {
+            padding: 7px 16px; border-radius: var(--am-radius-sm);
+            border: 1px solid var(--am-border); background: var(--am-bg-surface);
+            color: var(--am-text-primary); cursor: pointer; font-size: 12px; font-weight: 600;
+            font-family: inherit;
+        }
+        .cc-dialog-btn:hover { background: var(--am-bg-surface-hover); }
+        .cc-dialog-btn-primary { background: var(--am-btn-bg); color: var(--am-btn-fg); border-color: var(--am-btn-bg); }
+        .cc-dialog-btn-primary:hover { background: var(--am-btn-hover); }
+
+        /* ── Hybrid info panel ───────────────────────────────────────── */
+        .cc-info-panel {
+            background: var(--am-bg-surface); border: 1px solid var(--am-border);
+            border-radius: var(--am-radius-md); padding: 28px; margin: 28px 0;
+        }
+        .cc-info-panel code {
+            background: var(--am-bg-secondary); padding: 1px 5px;
+            border-radius: var(--am-radius-sm); font-size: 12px;
+        }
+
+        /* ── Responsive ──────────────────────────────────────────────── */
+        @media (max-width: 600px) {
+            .cc-hero { flex-direction: column; align-items: center; text-align: center; }
+            .cc-stats { justify-content: center; }
+            .cc-metrics-grid { grid-template-columns: 1fr; }
+            .cc-kv-grid { grid-template-columns: 1fr; }
+        }
+
+        /* ── Spinning for refresh ────────────────────────────────────── */
+        .spinning svg { animation: cc-spin 0.8s linear infinite; }
+    `;
+
+    const ccBody = `
+    <div class="cc-container">
+
         <!-- Header -->
-        <div class="header">
-            <div class="header-top">
-                <div class="app-title">
-                    <img src="${logoSrc}" alt="MuleSoft" class="app-icon" />
-                    <div class="app-info">
-                        <h1>${app?.domain || app?.name || 'Unknown Application'}</h1>
-                        <div class="app-meta">
-                            <div class="meta-badge">
-                                <span>${data.cloudhubVersion}</span>
-                            </div>
-                            <div class="meta-badge">
-                                <span>📍 ${data.environmentName}</span>
-                            </div>
-                            <div class="meta-badge">
-                                <span>🏢 ${data.accountInfo.organizationName}</span>
-                            </div>
-                        </div>
-                    </div>
+        <div class="cc-header">
+            <div>
+                <div class="cc-app-name">${app?.domain || app?.name || 'Unknown Application'}</div>
+                <div class="cc-meta">
+                    <span>${data.cloudhubVersion}</span>
+                    <span>${data.environmentName}</span>
+                    <span>${data.accountInfo.organizationName}</span>
                 </div>
-                <button class="refresh-btn" onclick="refreshData()">
-                    <span class="icon">🔄</span>
-                    <span>Refresh</span>
-                </button>
             </div>
+            <button class="cc-refresh-btn" onclick="refreshData()" title="Refresh">
+                <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15A9 9 0 1 1 23 10"/></svg>
+            </button>
         </div>
 
-        <!-- Tab Navigation -->
-        <div class="tabs">
-            <button class="tab-btn ${activeTab === 'overview' ? 'active' : ''}" data-tab="overview" onclick="switchTab('overview')">
-                <span>📊</span>
-                <span>Overview</span>
-            </button>
-            <button class="tab-btn ${activeTab === 'metrics' ? 'active' : ''}" data-tab="metrics" onclick="switchTab('metrics')">
-                <span>📈</span>
-                <span>Metrics</span>
-            </button>
-            <button class="tab-btn ${activeTab === 'schedulers' ? 'active' : ''}" data-tab="schedulers" onclick="switchTab('schedulers')">
-                <span>⏰</span>
-                <span>Schedulers</span>
-            </button>
-            <button class="tab-btn ${activeTab === 'configuration' ? 'active' : ''}" data-tab="configuration" onclick="switchTab('configuration')">
-                <span>⚙️</span>
-                <span>Configuration</span>
-            </button>
-            <button class="tab-btn ${activeTab === 'logs' ? 'active' : ''}" data-tab="logs" onclick="switchTab('logs')">
-                <span>📋</span>
-                <span>Real-time Logs</span>
-            </button>
-            <button class="tab-btn ${activeTab === 'network' ? 'active' : ''}" data-tab="network" onclick="switchTab('network')">
-                <span>🔗</span>
-                <span>Network</span>
-            </button>
-            <!-- AI Insights Tab - Disabled for future release
-            <button class="tab-btn ${activeTab === 'insights' ? 'active' : ''}" data-tab="insights" onclick="switchTab('insights')">
-                <span>🧠</span>
-                <span>AI Insights</span>
-            </button>
-            -->
+        <!-- Tabs -->
+        <div class="cc-tabs">
+            <button class="cc-tab ${activeTab === 'overview' ? 'active' : ''}" data-tab="overview" onclick="switchTab('overview')">Overview</button>
+            <button class="cc-tab ${activeTab === 'metrics' ? 'active' : ''}" data-tab="metrics" onclick="switchTab('metrics')">Metrics</button>
+            <button class="cc-tab ${activeTab === 'schedulers' ? 'active' : ''}" data-tab="schedulers" onclick="switchTab('schedulers')">Schedulers</button>
+            <button class="cc-tab ${activeTab === 'configuration' ? 'active' : ''}" data-tab="configuration" onclick="switchTab('configuration')">Config</button>
+            <button class="cc-tab ${activeTab === 'logs' ? 'active' : ''}" data-tab="logs" onclick="switchTab('logs')">Logs</button>
+            <button class="cc-tab ${activeTab === 'network' ? 'active' : ''}" data-tab="network" onclick="switchTab('network')">Network</button>
         </div>
 
-        <!-- Quick Actions -->
-        <div class="quick-actions">
-            <h2 class="section-title">
-                <span class="section-icon">⚡</span>
-                <span>Quick Actions</span>
-            </h2>
-            <div class="action-buttons">
-                <button class="action-btn" onclick="restartApp()">
-                    <span class="action-icon gradient-blue">
-                        <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                            <polyline points="23 4 23 10 17 10"></polyline>
-                            <path d="M20.49 15A9 9 0 1 1 23 10"></path>
-                        </svg>
-                    </span>
-                    <span>Restart</span>
-                </button>
-                <button class="action-btn" onclick="stopApp()">
-                    <span class="action-icon gradient-red">
-                        <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                            <rect x="6" y="6" width="12" height="12" rx="2" ry="2"></rect>
-                        </svg>
-                    </span>
-                    <span>Stop</span>
-                </button>
-                <button class="action-btn" onclick="startApp()">
-                    <span class="action-icon gradient-green">
-                        <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                            <polygon points="5 3 19 12 5 21 5 3"></polygon>
-                        </svg>
-                    </span>
-                    <span>Start</span>
-                </button>
-                ${data.cloudhubVersion !== 'HYBRID' ? `
-                <button class="action-btn" onclick="openLogs()">
-                    <span class="action-icon gradient-purple">
-                        <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                            <path d="M21 15V5a2 2 0 0 0-2-2H7l-4 4v13a2 2 0 0 0 2 2h12"></path>
-                            <line x1="3" y1="9" x2="21" y2="9"></line>
-                        </svg>
-                    </span>
-                    <span>View Logs</span>
-                </button>
-                ` : ''}
-                <button class="action-btn" onclick="exportCSV()">
-                    <span class="action-icon gradient-gold">
-                        <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                            <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
-                            <polyline points="7 10 12 15 17 10"></polyline>
-                            <line x1="12" y1="15" x2="12" y2="3"></line>
-                        </svg>
-                    </span>
-                    <span>Export Report</span>
-                </button>
-				<button class="action-btn" onclick="compareEnvironments()">
-                    <span class="action-icon gradient-teal">
-                        <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                            <polyline points="17 11 21 7 17 3"></polyline>
-                            <line x1="21" y1="7" x2="9" y2="7"></line>
-                            <polyline points="7 21 3 17 7 13"></polyline>
-                            <line x1="15" y1="17" x2="3" y2="17"></line>
-                        </svg>
-                    </span>
-                    <span>Compare Envs</span>
-                </button>
-				${supportsApplicationDiagram ? `
-				<button class="action-btn" onclick="generateDiagram()">
-                    <span class="action-icon gradient-orange">
-                        <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                            <circle cx="12" cy="5" r="3"></circle>
-                            <circle cx="5" cy="19" r="3"></circle>
-                            <circle cx="19" cy="19" r="3"></circle>
-                            <line x1="10.59" y1="7.51" x2="6.5" y2="16.5"></line>
-                            <line x1="13.41" y1="7.51" x2="17.5" y2="16.5"></line>
-                        </svg>
-                    </span>
-                    <span>Generate Diagram</span>
-                </button>
-				` : ''}
-            </div>
+        <!-- Toolbar -->
+        <div class="cc-toolbar">
+            <button class="cc-toolbar-btn" onclick="restartApp()" title="Restart">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15A9 9 0 1 1 23 10"/></svg>
+            </button>
+            <button class="cc-toolbar-btn" onclick="stopApp()" title="Stop">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="6" y="6" width="12" height="12" rx="2" ry="2"/></svg>
+            </button>
+            <button class="cc-toolbar-btn" onclick="startApp()" title="Start">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="5 3 19 12 5 21 5 3"/></svg>
+            </button>
+            ${data.cloudhubVersion !== 'HYBRID' ? `
+            <button class="cc-toolbar-btn" onclick="openLogs()" title="View Logs">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
+            </button>
+            ` : ''}
+            <div class="cc-toolbar-sep"></div>
+            <button class="cc-toolbar-btn" onclick="exportCSV()" title="Export Report">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+            </button>
+            <button class="cc-toolbar-btn" onclick="compareEnvironments()" title="Compare Environments">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="17 11 21 7 17 3"/><line x1="21" y1="7" x2="9" y2="7"/><polyline points="7 21 3 17 7 13"/><line x1="15" y1="17" x2="3" y2="17"/></svg>
+            </button>
+            ${supportsApplicationDiagram ? `
+            <button class="cc-toolbar-btn" onclick="generateDiagram()" title="Generate Diagram">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="5" r="3"/><circle cx="5" cy="19" r="3"/><circle cx="19" cy="19" r="3"/><line x1="10.59" y1="7.51" x2="6.5" y2="16.5"/><line x1="13.41" y1="7.51" x2="17.5" y2="16.5"/></svg>
+            </button>
+            ` : ''}
         </div>
 
         <!-- Tab: Overview -->
         <div id="tab-overview" class="tab-content ${activeTab === 'overview' ? 'active' : ''}">
 
-        <!-- Health Score Section -->
-        <div class="health-section">
-            <h2 class="section-title">
-                <span class="section-icon">💚</span>
-                <span>Health Overview</span>
-            </h2>
-            <div class="health-grid">
-                <div class="health-score-circle">
-                    <svg class="score-ring" viewBox="0 0 160 160">
-                        <circle class="score-ring-bg" cx="80" cy="80" r="70"></circle>
-                        <circle class="score-ring-progress" cx="80" cy="80" r="70"></circle>
+            <!-- Health ring + stat strip -->
+            <div class="cc-hero">
+                <div class="cc-ring-wrap">
+                    <svg viewBox="0 0 120 120" width="130" height="130">
+                        <circle class="cc-ring-bg" cx="60" cy="60" r="${healthRingRadius}"/>
+                        <circle class="cc-ring-fg ${healthClass}" cx="60" cy="60" r="${healthRingRadius}"/>
                     </svg>
-                    <div class="score-text">
-                        <div class="score-number">${data.healthScore}</div>
-                        <div class="score-label">Health Score</div>
-                    </div>
+                    <div class="cc-ring-score">${data.healthScore}</div>
                 </div>
-                <div class="health-stats">
-                    <div class="stat-card">
-                        <div class="stat-label">Status</div>
-                        <div class="stat-value">
-                            <span class="status-dot"></span>
-                            <span>${actualStatus}</span>
-                        </div>
+                <div class="cc-stats">
+                    <div class="cc-stat">
+                        <div class="cc-stat-label">STATUS</div>
+                        <div class="cc-stat-value"><span class="cc-dot ${statusClass}"></span> ${actualStatus}</div>
                     </div>
-                    <div class="stat-card">
-                        <div class="stat-label">Uptime</div>
-                        <div class="stat-value">${uptimeText}</div>
+                    <div class="cc-stat">
+                        <div class="cc-stat-label">UPTIME</div>
+                        <div class="cc-stat-value">${uptimeText}</div>
                     </div>
-                    <div class="stat-card">
-                        <div class="stat-label">Runtime Version</div>
-                        <div class="stat-value">${runtimeVersion}</div>
+                    <div class="cc-stat">
+                        <div class="cc-stat-label">RUNTIME</div>
+                        <div class="cc-stat-value">${runtimeVersion}</div>
                     </div>
-                    <div class="stat-card">
-                        <div class="stat-label">Region</div>
-                        <div class="stat-value">${region}</div>
+                    <div class="cc-stat">
+                        <div class="cc-stat-label">REGION</div>
+                        <div class="cc-stat-value">${region}</div>
                     </div>
-                    <div class="stat-card">
-                        <div class="stat-label">${cpuMetricLabel} (current)</div>
-                        <div class="stat-value">${currentCpu}</div>
+                    <div class="cc-stat">
+                        <div class="cc-stat-label">${cpuMetricLabel}</div>
+                        <div class="cc-stat-value">${currentCpu}</div>
                     </div>
-                    <div class="stat-card">
-                        <div class="stat-label">${memoryMetricLabel} (current)</div>
-                        <div class="stat-value">${currentMemory}</div>
+                    <div class="cc-stat">
+                        <div class="cc-stat-label">${memoryMetricLabel}</div>
+                        <div class="cc-stat-value">${currentMemory}</div>
                     </div>
                 </div>
             </div>
 
-            <!-- Application Details Section -->
-            <div style="margin-top: 24px; background: var(--surface-primary); border-radius: 8px; border: 1px solid var(--border-primary); padding: 20px;">
-                <h3 style="margin-bottom: 16px; color: var(--text-primary); font-size: 14px; font-weight: 600;">📋 Application Details</h3>
-                <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(250px, 1fr)); gap: 12px;">
-                    <div class="info-row" style="display: flex; justify-content: space-between; padding: 8px 0;">
-                        <span style="color: var(--text-secondary); font-size: 13px;">Domain</span>
-                        <span style="color: var(--text-primary); font-weight: 500; font-size: 13px;">${app?.domain || app?.name || 'N/A'}</span>
-                    </div>
-                    ${app?.fullDomain ? `
-                    <div class="info-row" style="display: flex; justify-content: space-between; padding: 8px 0;">
-                        <span style="color: var(--text-secondary); font-size: 13px;">Full Domain</span>
-                        <span style="color: var(--text-primary); font-weight: 500; font-size: 13px;">${app.fullDomain}</span>
-                    </div>
-                    ` : ''}
-                    ${app?.target?.deploymentSettings?.http?.inbound?.publicUrl ? `
-                    <div class="info-row" style="display: flex; justify-content: space-between; padding: 8px 0;">
-                        <span style="color: var(--text-secondary); font-size: 13px;">Public URL</span>
-                        <span style="color: var(--text-primary); font-weight: 500; font-size: 13px; word-break: break-all;">${app.target.deploymentSettings.http.inbound.publicUrl}</span>
-                    </div>
-                    ` : ''}
-                    ${app?.filename ? `
-                    <div class="info-row" style="display: flex; justify-content: space-between; padding: 8px 0;">
-                        <span style="color: var(--text-secondary); font-size: 13px;">Artifact Filename</span>
-                        <span style="color: var(--text-primary); font-weight: 500; font-size: 13px;">${app.filename}</span>
-                    </div>
-                    ` : ''}
+            <!-- Application Details -->
+            <div class="cc-kv-section">
+                <div class="cc-kv-title">Application Details</div>
+                <div class="cc-kv-grid">
+                    ${kvRow('Domain', app?.domain || app?.name || 'N/A')}
+                    ${app?.fullDomain ? kvRow('Full Domain', app.fullDomain) : ''}
+                    ${app?.target?.deploymentSettings?.http?.inbound?.publicUrl ? kvRow('Public URL', app.target.deploymentSettings.http.inbound.publicUrl) : ''}
+                    ${app?.filename ? kvRow('Artifact', app.filename) : ''}
                     ${app?.application?.ref ? `
-                    <div class="info-row" style="display: flex; justify-content: space-between; padding: 8px 0;">
-                        <span style="color: var(--text-secondary); font-size: 13px;">Group ID</span>
-                        <span style="color: var(--text-primary); font-weight: 500; font-size: 13px; word-break: break-all;">${app.application.ref.groupId}</span>
-                    </div>
-                    <div class="info-row" style="display: flex; justify-content: space-between; padding: 8px 0;">
-                        <span style="color: var(--text-secondary); font-size: 13px;">Artifact ID</span>
-                        <span style="color: var(--text-primary); font-weight: 500; font-size: 13px;">${app.application.ref.artifactId}</span>
-                    </div>
-                    <div class="info-row" style="display: flex; justify-content: space-between; padding: 8px 0;">
-                        <span style="color: var(--text-secondary); font-size: 13px;">Version</span>
-                        <span style="color: var(--text-primary); font-weight: 500; font-size: 13px;">${app.application.ref.version}</span>
-                    </div>
+                        ${kvRow('Group ID', app.application.ref.groupId)}
+                        ${kvRow('Artifact ID', app.application.ref.artifactId)}
+                        ${kvRow('Version', app.application.ref.version)}
                     ` : ''}
-                    ${app?.lastUpdateTime || app?.lastModifiedDate ? `
-                    <div class="info-row" style="display: flex; justify-content: space-between; padding: 8px 0;">
-                        <span style="color: var(--text-secondary); font-size: 13px;">Last Updated</span>
-                        <span style="color: var(--text-primary); font-weight: 500; font-size: 13px;">${new Date(app.lastUpdateTime || app.lastModifiedDate).toLocaleString()}</span>
-                    </div>
-                    ` : ''}
+                    ${app?.lastUpdateTime || app?.lastModifiedDate ? kvRow('Last Updated', new Date(app.lastUpdateTime || app.lastModifiedDate).toLocaleString()) : ''}
                     ${data.cloudhubVersion === 'HYBRID' ? `
-                    <div class="info-row" style="display: flex; justify-content: space-between; padding: 8px 0;">
-                        <span style="color: var(--text-secondary); font-size: 13px;">Deployment ID</span>
-                        <span style="color: var(--text-primary); font-weight: 500; font-size: 13px;">${app?.id || 'N/A'}</span>
-                    </div>
-                    <div class="info-row" style="display: flex; justify-content: space-between; padding: 8px 0;">
-                        <span style="color: var(--text-secondary); font-size: 13px;">Server ID</span>
-                        <span style="color: var(--text-primary); font-weight: 500; font-size: 13px;">${hybridServer?.id || 'N/A'}</span>
-                    </div>
+                        ${kvRow('Deployment ID', app?.id || 'N/A')}
+                        ${kvRow('Server ID', hybridServer?.id || 'N/A')}
                     ` : ''}
                 </div>
             </div>
 
             ${data.cloudhubVersion === 'HYBRID' ? `
-            <div style="margin-top: 16px; background: var(--surface-primary); border-radius: 8px; border: 1px solid var(--border-primary); padding: 20px;">
-                <h3 style="margin-bottom: 16px; color: var(--text-primary); font-size: 14px; font-weight: 600;">📦 Hybrid Artifact</h3>
-                <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(250px, 1fr)); gap: 12px;">
-                    <div class="info-row" style="display: flex; justify-content: space-between; padding: 8px 0;">
-                        <span style="color: var(--text-secondary); font-size: 13px;">Artifact Name</span>
-                        <span style="color: var(--text-primary); font-weight: 500; font-size: 13px;">${hybridArtifact?.name || app?.name || 'N/A'}</span>
-                    </div>
-                    <div class="info-row" style="display: flex; justify-content: space-between; padding: 8px 0;">
-                        <span style="color: var(--text-secondary); font-size: 13px;">File Name</span>
-                        <span style="color: var(--text-primary); font-weight: 500; font-size: 13px; word-break: break-all;">${hybridArtifact?.fileName || 'N/A'}</span>
-                    </div>
-                    <div class="info-row" style="display: flex; justify-content: space-between; padding: 8px 0;">
-                        <span style="color: var(--text-secondary); font-size: 13px;">File Size</span>
-                        <span style="color: var(--text-primary); font-weight: 500; font-size: 13px;">${formatBytes(hybridArtifact?.fileSize)}</span>
-                    </div>
-                    <div class="info-row" style="display: flex; justify-content: space-between; padding: 8px 0;">
-                        <span style="color: var(--text-secondary); font-size: 13px;">Checksum</span>
-                        <span style="color: var(--text-primary); font-weight: 500; font-size: 13px; word-break: break-all;">${hybridArtifact?.fileChecksum || 'N/A'}</span>
-                    </div>
-                    <div class="info-row" style="display: flex; justify-content: space-between; padding: 8px 0;">
-                        <span style="color: var(--text-secondary); font-size: 13px;">Storage ID</span>
-                        <span style="color: var(--text-primary); font-weight: 500; font-size: 13px;">${hybridArtifact?.storageId || 'N/A'}</span>
-                    </div>
-                    <div class="info-row" style="display: flex; justify-content: space-between; padding: 8px 0;">
-                        <span style="color: var(--text-secondary); font-size: 13px;">Artifact Status</span>
-                        <span style="color: var(--text-primary); font-weight: 500; font-size: 13px;">${hybridServerArtifact?.lastReportedStatus || 'N/A'}</span>
-                    </div>
-                    <div class="info-row" style="display: flex; justify-content: space-between; padding: 8px 0;">
-                        <span style="color: var(--text-secondary); font-size: 13px;">Desired Status</span>
-                        <span style="color: var(--text-primary); font-weight: 500; font-size: 13px;">${hybridServerArtifact?.desiredStatus || app?.desiredStatus || 'N/A'}</span>
-                    </div>
-                    <div class="info-row" style="display: flex; justify-content: space-between; padding: 8px 0;">
-                        <span style="color: var(--text-secondary); font-size: 13px;">Last Updated</span>
-                        <span style="color: var(--text-primary); font-weight: 500; font-size: 13px;">${formatDateTime(hybridServerArtifact?.timeUpdated || hybridArtifact?.timeUpdated)}</span>
-                    </div>
+            <!-- Hybrid Artifact -->
+            <div class="cc-kv-section">
+                <div class="cc-kv-title">Hybrid Artifact</div>
+                <div class="cc-kv-grid">
+                    ${kvRow('Artifact Name', hybridArtifact?.name || app?.name || 'N/A')}
+                    ${kvRow('File Name', hybridArtifact?.fileName || 'N/A')}
+                    ${kvRow('File Size', formatBytes(hybridArtifact?.fileSize))}
+                    ${kvRow('Checksum', hybridArtifact?.fileChecksum || 'N/A')}
+                    ${kvRow('Storage ID', hybridArtifact?.storageId || 'N/A')}
+                    ${kvRow('Artifact Status', hybridServerArtifact?.lastReportedStatus || 'N/A')}
+                    ${kvRow('Desired Status', hybridServerArtifact?.desiredStatus || app?.desiredStatus || 'N/A')}
+                    ${kvRow('Last Updated', formatDateTime(hybridServerArtifact?.timeUpdated || hybridArtifact?.timeUpdated))}
                 </div>
             </div>
 
-            <div style="margin-top: 16px; background: var(--surface-primary); border-radius: 8px; border: 1px solid var(--border-primary); padding: 20px;">
-                <h3 style="margin-bottom: 16px; color: var(--text-primary); font-size: 14px; font-weight: 600;">🖥️ Runtime Server</h3>
-                <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(250px, 1fr)); gap: 12px;">
-                    <div class="info-row" style="display: flex; justify-content: space-between; padding: 8px 0;">
-                        <span style="color: var(--text-secondary); font-size: 13px;">Server Name</span>
-                        <span style="color: var(--text-primary); font-weight: 500; font-size: 13px;">${hybridServer?.name || 'N/A'}</span>
-                    </div>
-                    <div class="info-row" style="display: flex; justify-content: space-between; padding: 8px 0;">
-                        <span style="color: var(--text-secondary); font-size: 13px;">Server Type</span>
-                        <span style="color: var(--text-primary); font-weight: 500; font-size: 13px;">${hybridServer?.serverType || hybridServer?.type || 'N/A'}</span>
-                    </div>
-                    <div class="info-row" style="display: flex; justify-content: space-between; padding: 8px 0;">
-                        <span style="color: var(--text-secondary); font-size: 13px;">Status</span>
-                        <span style="color: var(--text-primary); font-weight: 500; font-size: 13px;">${hybridServer?.status || 'N/A'}</span>
-                    </div>
-                    <div class="info-row" style="display: flex; justify-content: space-between; padding: 8px 0;">
-                        <span style="color: var(--text-secondary); font-size: 13px;">Mule Version</span>
-                        <span style="color: var(--text-primary); font-weight: 500; font-size: 13px;">${hybridServer?.muleVersion || 'N/A'}</span>
-                    </div>
-                    <div class="info-row" style="display: flex; justify-content: space-between; padding: 8px 0;">
-                        <span style="color: var(--text-secondary); font-size: 13px;">Agent Version</span>
-                        <span style="color: var(--text-primary); font-weight: 500; font-size: 13px;">${hybridServer?.agentVersion || 'N/A'}</span>
-                    </div>
-                    <div class="info-row" style="display: flex; justify-content: space-between; padding: 8px 0;">
-                        <span style="color: var(--text-secondary); font-size: 13px;">License Expires</span>
-                        <span style="color: var(--text-primary); font-weight: 500; font-size: 13px;">${formatDateTime(hybridServer?.licenseExpirationDate)}</span>
-                    </div>
-                    <div class="info-row" style="display: flex; justify-content: space-between; padding: 8px 0;">
-                        <span style="color: var(--text-secondary); font-size: 13px;">Certificate Expires</span>
-                        <span style="color: var(--text-primary); font-weight: 500; font-size: 13px;">${formatDateTime(hybridServer?.certificateExpirationDate)}</span>
-                    </div>
-                    <div class="info-row" style="display: flex; justify-content: space-between; padding: 8px 0;">
-                        <span style="color: var(--text-secondary); font-size: 13px;">IP Address</span>
-                        <span style="color: var(--text-primary); font-weight: 500; font-size: 13px; word-break: break-all;">${hybridServerAddresses || 'N/A'}</span>
-                    </div>
-                    <div class="info-row" style="display: flex; justify-content: space-between; padding: 8px 0;">
-                        <span style="color: var(--text-secondary); font-size: 13px;">Operating System</span>
-                        <span style="color: var(--text-primary); font-weight: 500; font-size: 13px;">${hybridServerOs ? `${hybridServerOs.name || 'OS'} ${hybridServerOs.version || ''}` : 'N/A'}</span>
-                    </div>
-                    <div class="info-row" style="display: flex; justify-content: space-between; padding: 8px 0;">
-                        <span style="color: var(--text-secondary); font-size: 13px;">Architecture</span>
-                        <span style="color: var(--text-primary); font-weight: 500; font-size: 13px;">${hybridServerOs?.architecture || 'N/A'}</span>
-                    </div>
-                    <div class="info-row" style="display: flex; justify-content: space-between; padding: 8px 0;">
-                        <span style="color: var(--text-secondary); font-size: 13px;">JVM</span>
-                        <span style="color: var(--text-primary); font-weight: 500; font-size: 13px;">${hybridJvmInfo?.runtime?.name ? `${hybridJvmInfo.runtime.name} ${hybridJvmInfo.runtime.version || ''}` : 'N/A'}</span>
-                    </div>
+            <!-- Runtime Server -->
+            <div class="cc-kv-section">
+                <div class="cc-kv-title">Runtime Server</div>
+                <div class="cc-kv-grid">
+                    ${kvRow('Server Name', hybridServer?.name || 'N/A')}
+                    ${kvRow('Server Type', hybridServer?.serverType || hybridServer?.type || 'N/A')}
+                    ${kvRow('Status', hybridServer?.status || 'N/A')}
+                    ${kvRow('Mule Version', hybridServer?.muleVersion || 'N/A')}
+                    ${kvRow('Agent Version', hybridServer?.agentVersion || 'N/A')}
+                    ${kvRow('License Expires', formatDateTime(hybridServer?.licenseExpirationDate))}
+                    ${kvRow('Certificate Expires', formatDateTime(hybridServer?.certificateExpirationDate))}
+                    ${kvRow('IP Address', hybridServerAddresses || 'N/A')}
+                    ${kvRow('Operating System', hybridServerOs ? `${hybridServerOs.name || 'OS'} ${hybridServerOs.version || ''}` : 'N/A')}
+                    ${kvRow('Architecture', hybridServerOs?.architecture || 'N/A')}
+                    ${kvRow('JVM', hybridJvmInfo?.runtime?.name ? `${hybridJvmInfo.runtime.name} ${hybridJvmInfo.runtime.version || ''}` : 'N/A')}
                 </div>
             </div>
             ` : ''}
 
-            <!-- Health Score Breakdown -->
+            <!-- Health Breakdown -->
             ${data.healthBreakdown && data.healthBreakdown.length > 0 ? `
-            <div style="margin-top: 20px; padding: 20px; background: var(--surface-primary); border-radius: 8px; border: 1px solid var(--border-primary);">
-                <h4 style="margin-bottom: 12px; color: var(--text-primary); font-size: 14px;">📊 Health Score Breakdown</h4>
-                <p style="font-size: 12px; color: var(--text-secondary); margin-bottom: 12px;">
-                    Starting from 100 points, deductions are made based on application health factors:
-                </p>
-                ${data.healthBreakdown.map((item: string) => `
-                    <div style="padding: 6px 0; font-size: 13px; color: var(--text-primary); border-bottom: 1px solid var(--border-muted);">
-                        ${item}
-                    </div>
-                `).join('')}
+            <div class="cc-breakdown">
+                <button class="cc-breakdown-toggle" onclick="this.classList.toggle('open');this.nextElementSibling.classList.toggle('open')">
+                    <svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2"><polyline points="9 18 15 12 9 6"/></svg>
+                    Health Score Breakdown
+                </button>
+                <div class="cc-breakdown-list">
+                    ${data.healthBreakdown.map((item: string) => {
+                        const stripped = item.replace(/^[\u2705\u274C\u26A0\uFE0F\s]+/, '');
+                        const isPass = item.startsWith('\u2705');
+                        const dotClass = isPass ? 'cc-dot-ok' : item.startsWith('\u274C') ? 'cc-dot-err' : 'cc-dot-warn';
+                        return `<div class="cc-breakdown-item"><span class="cc-dot ${dotClass}"></span>${stripped}</div>`;
+                    }).join('')}
+                </div>
             </div>
             ` : ''}
-
-            <!-- Performance Chart intentionally hidden to reduce noise -->
         </div>
-        </div>
-        <!-- End Tab: Overview -->
 
 		${renderMetricsTab(data.visualizerMetrics, {
 			active: activeTab === 'metrics',
@@ -4681,256 +3700,129 @@ function getCommandCenterHtml(webview: vscode.Webview, extensionUri: vscode.Uri,
 
         <!-- Tab: Schedulers -->
         <div id="tab-schedulers" class="tab-content ${activeTab === 'schedulers' ? 'active' : ''}">
-            <div class="card">
-                <h2 class="section-title">
-                    <span class="section-icon">⏰</span>
-                    <span>Schedulers (${data.schedulers?.length || 0})</span>
-                </h2>
-                ${data.schedulers && data.schedulers.length > 0 ? data.schedulers.map((scheduler: any) => `
-                    <div class="scheduler-item" style="background: var(--surface-primary); padding: 16px; border-radius: 8px; margin-bottom: 12px; border: 1px solid var(--border-primary);">
-                        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
-                            <div style="font-size: 16px; font-weight: 600; color: var(--text-primary);">${scheduler.name || scheduler.flow || scheduler.flowName || 'Unknown Scheduler'}</div>
-                            <div style="padding: 4px 12px; border-radius: 12px; font-size: 12px; font-weight: 600; ${isSchedulerEnabled(scheduler) ? 'background: var(--success); color: white;' : 'background: var(--surface-secondary); color: var(--text-muted);'}">${isSchedulerEnabled(scheduler) ? 'Enabled' : 'Disabled'}</div>
-                        </div>
-                        <div style="font-size: 13px; color: var(--text-secondary); margin-bottom: 4px;">
-                            ${scheduler.type || scheduler.schedulerType || 'Scheduler'} • ${formatSchedulerDescription(scheduler)}
-                        </div>
-                        <div style="font-size: 12px; color: var(--text-muted);">
-                            Last run: ${formatSchedulerLastRun(scheduler)}
-                        </div>
-                        ${scheduler.nextRunTime || scheduler.nextExecutionTime ? `
-                        <div style="font-size: 12px; color: var(--text-muted); margin-top: 4px;">
-                            Next run: ${formatSchedulerNextRun(scheduler)}
-                        </div>
-                        ` : ''}
+            ${data.schedulers && data.schedulers.length > 0 ? data.schedulers.map((scheduler: any) => `
+                <div class="cc-sched-row">
+                    <div>
+                        <div class="cc-sched-name">${scheduler.name || scheduler.flow || scheduler.flowName || 'Unknown Scheduler'}</div>
+                        <div class="cc-sched-meta">${scheduler.type || scheduler.schedulerType || 'Scheduler'} \u00b7 ${formatSchedulerDescription(scheduler)}</div>
                     </div>
-                `).join('') : `
-                    <div style="padding: 40px; text-align: center; color: var(--text-secondary); line-height: 1.6;">
-                        ${data.cloudhubVersion === 'HYBRID'
-                            ? `Schedulers were not returned by the Hybrid API. Confirm the application uses <strong>Quartz schedulers</strong> on the target runtime and that the <a style="color: var(--accent-blue);" href="https://help.salesforce.com/s/articleView?id=001115435&type=1" target="_blank">Anypoint Runtime Manager schedulers feature</a> is enabled.`
-                            : 'No schedulers configured for this application.'}
+                    <div class="cc-sched-right">
+                        <div style="display:flex;align-items:center;gap:6px;justify-content:flex-end">
+                            <span class="cc-dot ${isSchedulerEnabled(scheduler) ? 'cc-dot-ok' : 'cc-dot-off'}"></span>
+                            <span style="font-size:11px;color:var(--am-text-muted)">${isSchedulerEnabled(scheduler) ? 'Enabled' : 'Disabled'}</span>
+                        </div>
+                        <div class="cc-sched-meta">${formatSchedulerLastRun(scheduler)}</div>
                     </div>
-                `}
-            </div>
+                </div>
+            `).join('') : `
+                <div class="cc-empty">
+                    ${data.cloudhubVersion === 'HYBRID'
+                        ? `Schedulers were not returned by the Hybrid API. Confirm the application uses Quartz schedulers on the target runtime.`
+                        : 'No schedulers configured for this application.'}
+                </div>
+            `}
         </div>
 
         <!-- Tab: Configuration -->
         <div id="tab-configuration" class="tab-content ${activeTab === 'configuration' ? 'active' : ''}">
-            <div class="card">
-                <h2 class="section-title">
-                    <span class="section-icon">⚙️</span>
-                    <span>Configuration</span>
-                </h2>
-
-                ${data.cloudhubVersion === 'CH1' ? `
-                    <!-- CloudHub 1.0 Configuration -->
-                    <h3 style="margin: 16px 0 12px; color: var(--text-primary); font-size: 14px; font-weight: 600;">💼 Compute Resources</h3>
-                    <div class="info-row" style="display: flex; justify-content: space-between; padding: 12px 0; border-bottom: 1px solid var(--border-muted);">
-                        <span style="color: var(--text-secondary);">Workers</span>
-                        <span style="color: var(--text-primary); font-weight: 600;">${app?.workers || 1}</span>
+            ${data.cloudhubVersion === 'CH1' ? `
+                <div class="cc-kv-section">
+                    <div class="cc-kv-title">Compute Resources</div>
+                    <div class="cc-kv-grid">
+                        ${kvRow('Workers', String(app?.workers || 1))}
+                        ${kvRow('Worker Type', app?.workerType?.name || app?.workerType || 'Micro')}
+                        ${kvRow('vCores', String(app?.workerType?.weight || 'N/A'))}
+                        ${kvRow('Region', app?.region || 'Unknown')}
                     </div>
-                    <div class="info-row" style="display: flex; justify-content: space-between; padding: 12px 0; border-bottom: 1px solid var(--border-muted);">
-                        <span style="color: var(--text-secondary);">Worker Type</span>
-                        <span style="color: var(--text-primary); font-weight: 600;">${app?.workerType?.name || app?.workerType || 'Micro'}</span>
+                </div>
+                <div class="cc-kv-section">
+                    <div class="cc-kv-title">Features</div>
+                    <div class="cc-kv-grid">
+                        ${kvRow('Persistent Queues', boolIcon(app?.persistentQueues))}
+                        ${kvRow('Encrypted Persistent Queues', boolIcon(app?.encryptedPersistentQueues))}
+                        ${kvRow('Static IPs', boolIcon(app?.staticIPsEnabled))}
+                        ${kvRow('Monitoring Auto-Restart', boolIcon(app?.monitoringAutoRestart))}
+                        ${kvRow('Object Store V2', boolIcon(app?.objectStoreV2Enabled))}
+                        ${kvRow('Logging NG', boolIcon(app?.loggingNgEnabled))}
+                        ${kvRow('Custom Log4J', boolIcon(app?.loggingCustomLog4JEnabled))}
+                        ${app?.secureDataGateway ? kvRow('Secure Data Gateway', boolIcon(app.secureDataGateway.connected)) : ''}
                     </div>
-                    <div class="info-row" style="display: flex; justify-content: space-between; padding: 12px 0; border-bottom: 1px solid var(--border-muted);">
-                        <span style="color: var(--text-secondary);">vCores</span>
-                        <span style="color: var(--text-primary); font-weight: 600;">${app?.workerType?.weight || 'N/A'}</span>
+                </div>
+            ` : `
+                <div class="cc-kv-section">
+                    <div class="cc-kv-title">Compute Resources</div>
+                    <div class="cc-kv-grid">
+                        ${kvRow('Replicas', String(app?.target?.replicas || app?.target?.deploymentSettings?.replicas || 1))}
+                        ${kvRow('vCores', String(app?.application?.vCores || 'N/A'))}
+                        ${kvRow('CPU Reserved', app?.target?.deploymentSettings?.resources?.cpu?.reserved || 'N/A')}
+                        ${kvRow('CPU Limit', app?.target?.deploymentSettings?.resources?.cpu?.limit || 'N/A')}
+                        ${kvRow('Memory Reserved', app?.target?.deploymentSettings?.resources?.memory?.reserved || 'N/A')}
+                        ${kvRow('Memory Limit', app?.target?.deploymentSettings?.resources?.memory?.limit || 'N/A')}
+                        ${kvRow('Target', app?.target?.targetId || app?.target?.provider || 'N/A')}
                     </div>
-                    <div class="info-row" style="display: flex; justify-content: space-between; padding: 12px 0; border-bottom: 1px solid var(--border-muted);">
-                        <span style="color: var(--text-secondary);">Region</span>
-                        <span style="color: var(--text-primary); font-weight: 600;">${app?.region || 'Unknown'}</span>
+                </div>
+                <div class="cc-kv-section">
+                    <div class="cc-kv-title">Deployment Settings</div>
+                    <div class="cc-kv-grid">
+                        ${kvRow('Clustered', boolIcon(app?.target?.deploymentSettings?.clustered))}
+                        ${kvRow('Enforce Replicas Across Nodes', boolIcon(app?.target?.deploymentSettings?.enforceDeployingReplicasAcrossNodes))}
+                        ${kvRow('Update Strategy', app?.target?.deploymentSettings?.updateStrategy || 'rolling')}
+                        ${kvRow('Runtime Release Channel', app?.target?.deploymentSettings?.runtimeReleaseChannel || app?.target?.deploymentSettings?.runtime?.releaseChannel || 'N/A')}
+                        ${kvRow('Java Version', app?.target?.deploymentSettings?.runtime?.java || 'N/A')}
                     </div>
-
-                    <h3 style="margin: 24px 0 12px; color: var(--text-primary); font-size: 14px; font-weight: 600;">🔧 Features & Settings</h3>
-                    <div class="info-row" style="display: flex; justify-content: space-between; padding: 12px 0; border-bottom: 1px solid var(--border-muted);">
-                        <span style="color: var(--text-secondary);">Persistent Queues</span>
-                        <span style="color: var(--text-primary); font-weight: 600;">${app?.persistentQueues ? '✅ Enabled' : '❌ Disabled'}</span>
+                </div>
+                <div class="cc-kv-section">
+                    <div class="cc-kv-title">Features</div>
+                    <div class="cc-kv-grid">
+                        ${kvRow('Persistent Object Store', boolIcon(app?.target?.deploymentSettings?.persistentObjectStore))}
+                        ${kvRow('Monitoring Scope', app?.target?.deploymentSettings?.anypointMonitoringScope || 'N/A')}
+                        ${kvRow('Disable AM Log Forwarding', boolIcon(app?.target?.deploymentSettings?.disableAmLogForwarding))}
+                        ${kvRow('Last Mile Security', boolIcon(app?.target?.deploymentSettings?.http?.inbound?.lastMileSecurity))}
+                        ${kvRow('Forward SSL Session', boolIcon(app?.target?.deploymentSettings?.http?.inbound?.forwardSslSession))}
                     </div>
-                    <div class="info-row" style="display: flex; justify-content: space-between; padding: 12px 0; border-bottom: 1px solid var(--border-muted);">
-                        <span style="color: var(--text-secondary);">Encrypted Persistent Queues</span>
-                        <span style="color: var(--text-primary); font-weight: 600;">${app?.encryptedPersistentQueues ? '✅ Enabled' : '❌ Disabled'}</span>
+                </div>
+                ${app?.target?.deploymentSettings?.sidecars ? `
+                <div class="cc-kv-section">
+                    <div class="cc-kv-title">Sidecars</div>
+                    <div class="cc-kv-grid">
+                        ${Object.keys(app.target.deploymentSettings.sidecars).map(sidecarName => {
+                            const sidecar = app.target.deploymentSettings.sidecars[sidecarName];
+                            const res = sidecar.resources;
+                            return kvRow(sidecarName, res ? `CPU ${res.cpu?.reserved || '0m'}-${res.cpu?.limit || 'N/A'} / Mem ${res.memory?.reserved || '0Mi'}-${res.memory?.limit || 'N/A'}` : 'N/A');
+                        }).join('')}
                     </div>
-                    <div class="info-row" style="display: flex; justify-content: space-between; padding: 12px 0; border-bottom: 1px solid var(--border-muted);">
-                        <span style="color: var(--text-secondary);">Static IPs</span>
-                        <span style="color: var(--text-primary); font-weight: 600;">${app?.staticIPsEnabled ? '✅ Enabled' : '❌ Disabled'}</span>
-                    </div>
-                    <div class="info-row" style="display: flex; justify-content: space-between; padding: 12px 0; border-bottom: 1px solid var(--border-muted);">
-                        <span style="color: var(--text-secondary);">Monitoring Auto-Restart</span>
-                        <span style="color: var(--text-primary); font-weight: 600;">${app?.monitoringAutoRestart ? '✅ Enabled' : '❌ Disabled'}</span>
-                    </div>
-                    <div class="info-row" style="display: flex; justify-content: space-between; padding: 12px 0; border-bottom: 1px solid var(--border-muted);">
-                        <span style="color: var(--text-secondary);">Object Store V2</span>
-                        <span style="color: var(--text-primary); font-weight: 600;">${app?.objectStoreV2Enabled ? '✅ Enabled' : '❌ Disabled'}</span>
-                    </div>
-
-                    <h3 style="margin: 24px 0 12px; color: var(--text-primary); font-size: 14px; font-weight: 600;">📊 Logging & Monitoring</h3>
-                    <div class="info-row" style="display: flex; justify-content: space-between; padding: 12px 0; border-bottom: 1px solid var(--border-muted);">
-                        <span style="color: var(--text-secondary);">Logging NG</span>
-                        <span style="color: var(--text-primary); font-weight: 600;">${app?.loggingNgEnabled ? '✅ Enabled' : '❌ Disabled'}</span>
-                    </div>
-                    <div class="info-row" style="display: flex; justify-content: space-between; padding: 12px 0; border-bottom: 1px solid var(--border-muted);">
-                        <span style="color: var(--text-secondary);">Custom Log4J</span>
-                        <span style="color: var(--text-primary); font-weight: 600;">${app?.loggingCustomLog4JEnabled ? '✅ Enabled' : '❌ Disabled'}</span>
-                    </div>
-                    ${app?.secureDataGateway ? `
-                    <div class="info-row" style="display: flex; justify-content: space-between; padding: 12px 0; border-bottom: 1px solid var(--border-muted);">
-                        <span style="color: var(--text-secondary);">Secure Data Gateway</span>
-                        <span style="color: var(--text-primary); font-weight: 600;">${app.secureDataGateway.connected ? '✅ Connected' : '❌ Disconnected'}</span>
-                    </div>
-                    ` : ''}
-                ` : `
-                    <!-- CloudHub 2.0 Configuration -->
-                    <h3 style="margin: 16px 0 12px; color: var(--text-primary); font-size: 14px; font-weight: 600;">💼 Compute Resources</h3>
-                    <div class="info-row" style="display: flex; justify-content: space-between; padding: 12px 0; border-bottom: 1px solid var(--border-muted);">
-                        <span style="color: var(--text-secondary);">Replicas</span>
-                        <span style="color: var(--text-primary); font-weight: 600;">${app?.target?.replicas || app?.target?.deploymentSettings?.replicas || 1}</span>
-                    </div>
-                    <div class="info-row" style="display: flex; justify-content: space-between; padding: 12px 0; border-bottom: 1px solid var(--border-muted);">
-                        <span style="color: var(--text-secondary);">vCores</span>
-                        <span style="color: var(--text-primary); font-weight: 600;">${app?.application?.vCores || 'N/A'}</span>
-                    </div>
-                    <div class="info-row" style="display: flex; justify-content: space-between; padding: 12px 0; border-bottom: 1px solid var(--border-muted);">
-                        <span style="color: var(--text-secondary);">CPU Reserved</span>
-                        <span style="color: var(--text-primary); font-weight: 600;">${app?.target?.deploymentSettings?.resources?.cpu?.reserved || 'N/A'}</span>
-                    </div>
-                    <div class="info-row" style="display: flex; justify-content: space-between; padding: 12px 0; border-bottom: 1px solid var(--border-muted);">
-                        <span style="color: var(--text-secondary);">CPU Limit</span>
-                        <span style="color: var(--text-primary); font-weight: 600;">${app?.target?.deploymentSettings?.resources?.cpu?.limit || 'N/A'}</span>
-                    </div>
-                    <div class="info-row" style="display: flex; justify-content: space-between; padding: 12px 0; border-bottom: 1px solid var(--border-muted);">
-                        <span style="color: var(--text-secondary);">Memory Reserved</span>
-                        <span style="color: var(--text-primary); font-weight: 600;">${app?.target?.deploymentSettings?.resources?.memory?.reserved || 'N/A'}</span>
-                    </div>
-                    <div class="info-row" style="display: flex; justify-content: space-between; padding: 12px 0; border-bottom: 1px solid var(--border-muted);">
-                        <span style="color: var(--text-secondary);">Memory Limit</span>
-                        <span style="color: var(--text-primary); font-weight: 600;">${app?.target?.deploymentSettings?.resources?.memory?.limit || 'N/A'}</span>
-                    </div>
-                    <div class="info-row" style="display: flex; justify-content: space-between; padding: 12px 0; border-bottom: 1px solid var(--border-muted);">
-                        <span style="color: var(--text-secondary);">Target</span>
-                        <span style="color: var(--text-primary); font-weight: 600;">${app?.target?.targetId || app?.target?.provider || 'N/A'}</span>
-                    </div>
-
-                    <h3 style="margin: 24px 0 12px; color: var(--text-primary); font-size: 14px; font-weight: 600;">🔧 Deployment Settings</h3>
-                    <div class="info-row" style="display: flex; justify-content: space-between; padding: 12px 0; border-bottom: 1px solid var(--border-muted);">
-                        <span style="color: var(--text-secondary);">Clustered</span>
-                        <span style="color: var(--text-primary); font-weight: 600;">${app?.target?.deploymentSettings?.clustered ? '✅ Yes' : '❌ No'}</span>
-                    </div>
-                    <div class="info-row" style="display: flex; justify-content: space-between; padding: 12px 0; border-bottom: 1px solid var(--border-muted);">
-                        <span style="color: var(--text-secondary);">Enforce Replicas Across Nodes</span>
-                        <span style="color: var(--text-primary); font-weight: 600;">${app?.target?.deploymentSettings?.enforceDeployingReplicasAcrossNodes ? '✅ Yes' : '❌ No'}</span>
-                    </div>
-                    <div class="info-row" style="display: flex; justify-content: space-between; padding: 12px 0; border-bottom: 1px solid var(--border-muted);">
-                        <span style="color: var(--text-secondary);">Update Strategy</span>
-                        <span style="color: var(--text-primary); font-weight: 600;">${app?.target?.deploymentSettings?.updateStrategy || 'rolling'}</span>
-                    </div>
-                    <div class="info-row" style="display: flex; justify-content: space-between; padding: 12px 0; border-bottom: 1px solid var(--border-muted);">
-                        <span style="color: var(--text-secondary);">Runtime Release Channel</span>
-                        <span style="color: var(--text-primary); font-weight: 600;">${app?.target?.deploymentSettings?.runtimeReleaseChannel || app?.target?.deploymentSettings?.runtime?.releaseChannel || 'N/A'}</span>
-                    </div>
-                    <div class="info-row" style="display: flex; justify-content: space-between; padding: 12px 0; border-bottom: 1px solid var(--border-muted);">
-                        <span style="color: var(--text-secondary);">Java Version</span>
-                        <span style="color: var(--text-primary); font-weight: 600;">${app?.target?.deploymentSettings?.runtime?.java || 'N/A'}</span>
-                    </div>
-
-                    <h3 style="margin: 24px 0 12px; color: var(--text-primary); font-size: 14px; font-weight: 600;">📊 Features & Services</h3>
-                    <div class="info-row" style="display: flex; justify-content: space-between; padding: 12px 0; border-bottom: 1px solid var(--border-muted);">
-                        <span style="color: var(--text-secondary);">Persistent Object Store</span>
-                        <span style="color: var(--text-primary); font-weight: 600;">${app?.target?.deploymentSettings?.persistentObjectStore ? '✅ Enabled' : '❌ Disabled'}</span>
-                    </div>
-                    <div class="info-row" style="display: flex; justify-content: space-between; padding: 12px 0; border-bottom: 1px solid var(--border-muted);">
-                        <span style="color: var(--text-secondary);">Anypoint Monitoring Scope</span>
-                        <span style="color: var(--text-primary); font-weight: 600;">${app?.target?.deploymentSettings?.anypointMonitoringScope || 'N/A'}</span>
-                    </div>
-                    <div class="info-row" style="display: flex; justify-content: space-between; padding: 12px 0; border-bottom: 1px solid var(--border-muted);">
-                        <span style="color: var(--text-secondary);">Disable AM Log Forwarding</span>
-                        <span style="color: var(--text-primary); font-weight: 600;">${app?.target?.deploymentSettings?.disableAmLogForwarding ? '✅ Yes' : '❌ No'}</span>
-                    </div>
-                    <div class="info-row" style="display: flex; justify-content: space-between; padding: 12px 0; border-bottom: 1px solid var(--border-muted);">
-                        <span style="color: var(--text-secondary);">Last Mile Security</span>
-                        <span style="color: var(--text-primary); font-weight: 600;">${app?.target?.deploymentSettings?.http?.inbound?.lastMileSecurity ? '✅ Enabled' : '❌ Disabled'}</span>
-                    </div>
-                    <div class="info-row" style="display: flex; justify-content: space-between; padding: 12px 0; border-bottom: 1px solid var(--border-muted);">
-                        <span style="color: var(--text-secondary);">Forward SSL Session</span>
-                        <span style="color: var(--text-primary); font-weight: 600;">${app?.target?.deploymentSettings?.http?.inbound?.forwardSslSession ? '✅ Yes' : '❌ No'}</span>
-                    </div>
-
-                    ${app?.target?.deploymentSettings?.sidecars ? `
-                    <h3 style="margin: 24px 0 12px; color: var(--text-primary); font-size: 14px; font-weight: 600;">🔌 Sidecars</h3>
-                    ${Object.keys(app.target.deploymentSettings.sidecars).map(sidecarName => {
-                        const sidecar = app.target.deploymentSettings.sidecars[sidecarName];
-                        return `
-                        <div style="background: var(--surface-secondary); padding: 12px; border-radius: 6px; margin-bottom: 8px;">
-                            <div style="font-weight: 600; color: var(--text-primary); margin-bottom: 8px;">${sidecarName}</div>
-                            ${sidecar.resources ? `
-                            <div style="font-size: 12px; color: var(--text-secondary);">
-                                CPU: ${sidecar.resources.cpu?.reserved || '0m'} - ${sidecar.resources.cpu?.limit || 'unlimited'} |
-                                Memory: ${sidecar.resources.memory?.reserved || '0Mi'} - ${sidecar.resources.memory?.limit || 'unlimited'}
-                            </div>
-                            ` : ''}
-                        </div>
-                        `;
-                    }).join('')}
-                    ` : ''}
-                `}
-            </div>
+                </div>
+                ` : ''}
+            `}
         </div>
 
         <!-- Tab: Logs -->
         <div id="tab-logs" class="tab-content ${activeTab === 'logs' ? 'active' : ''}">
-            <div class="card">
-                <h2 class="section-title">
-                    <span class="section-icon">📋</span>
-                    <span>Application Logs</span>
-                </h2>
-                ${data.cloudhubVersion === 'HYBRID' ? `
-                <div style="padding: 40px 20px;">
-                    <div style="background: rgba(88, 166, 255, 0.1); border: 1px solid var(--accent-blue); border-radius: 12px; padding: 32px;">
-                        <div style="text-align: center;">
-                            <div style="font-size: 48px; margin-bottom: 16px;">📋</div>
-                            <h3 style="color: var(--text-primary); margin-bottom: 16px; font-size: 20px;">Hybrid Application Logs</h3>
-                            <p style="color: var(--text-secondary); line-height: 1.6; max-width: 600px; margin: 0 auto 24px;">
-                                Real-time log streaming is not available for Hybrid deployments through the Anypoint API.
-                                Logs for Hybrid applications need to be accessed directly on the Mule Runtime server where the application is deployed.
-                            </p>
-                            <div style="background: var(--surface-primary); border: 1px solid var(--border-primary); border-radius: 8px; padding: 20px; margin: 0 auto; max-width: 500px; text-align: left;">
-                                <div style="font-weight: 600; color: var(--text-primary); margin-bottom: 12px; display: flex; align-items: center; gap: 8px;">
-                                    <span>📁</span>
-                                    <span>Log File Locations:</span>
-                                </div>
-                                <div style="color: var(--text-secondary); font-family: 'Courier New', monospace; font-size: 13px; line-height: 1.8;">
-                                    <div style="margin-bottom: 8px;">
-                                        <strong style="color: var(--accent-blue);">Linux/Mac:</strong><br/>
-                                        <code style="color: var(--text-primary);">$MULE_HOME/logs/</code>
-                                    </div>
-                                    <div>
-                                        <strong style="color: var(--accent-blue);">Windows:</strong><br/>
-                                        <code style="color: var(--text-primary);">%MULE_HOME%\\logs\\</code>
-                                    </div>
-                                </div>
-                            </div>
-                            <div style="margin-top: 24px; padding: 16px; background: rgba(210, 153, 34, 0.1); border: 1px solid var(--warning); border-radius: 8px; max-width: 600px; margin-left: auto; margin-right: auto;">
-                                <div style="font-size: 12px; color: var(--text-secondary); line-height: 1.6;">
-                                    <strong style="color: var(--warning);">💡 Tip:</strong> Use tools like <code style="background: var(--surface-secondary); padding: 2px 6px; border-radius: 4px;">tail -f</code>
-                                    on Linux/Mac or PowerShell's <code style="background: var(--surface-secondary); padding: 2px 6px; border-radius: 4px;">Get-Content -Wait</code>
-                                    on Windows to view logs in real-time from the server.
-                                </div>
-                            </div>
-                        </div>
+            ${data.cloudhubVersion === 'HYBRID' ? `
+            <div class="cc-cta">
+                <div class="cc-cta-title">Hybrid Application Logs</div>
+                <div class="cc-cta-desc">Real-time log streaming is not available for Hybrid deployments via the API. Access logs directly on the Mule Runtime server.</div>
+                <div class="cc-info-panel" style="text-align:left;max-width:480px;margin:0 auto">
+                    <div style="font-weight:600;font-size:12px;margin-bottom:8px;color:var(--am-text-primary)">Log File Locations</div>
+                    <div style="font-size:12px;color:var(--am-text-secondary);line-height:1.8">
+                        <div><strong style="color:var(--am-info)">Linux/Mac:</strong> <code>$MULE_HOME/logs/</code></div>
+                        <div><strong style="color:var(--am-info)">Windows:</strong> <code>%MULE_HOME%\\logs\\</code></div>
+                    </div>
+                    <div style="margin-top:12px;font-size:11px;color:var(--am-text-muted)">
+                        Use <code>tail -f</code> on Linux/Mac or <code>Get-Content -Wait</code> on Windows to stream logs in real-time.
                     </div>
                 </div>
-                ` : `
-                <div style="text-align: center; padding: 60px 20px;">
-                    <div style="font-size: 48px; margin-bottom: 20px;">📋</div>
-                    <h3 style="color: var(--text-primary); margin-bottom: 12px;">Open Real-time Logs Viewer</h3>
-                    <p style="color: var(--text-secondary); margin-bottom: 24px;">View, search, filter, and export application logs in real-time.</p>
-                    <button class="action-btn" onclick="openLogs()" style="display: inline-flex; max-width: 300px;">
-                        <span>📋</span>
-                        <span>Open Logs Viewer</span>
-                    </button>
-                </div>
-                `}
             </div>
+            ` : `
+            <div class="cc-cta">
+                <div class="cc-cta-title">Real-time Logs Viewer</div>
+                <div class="cc-cta-desc">View, search, filter, and export application logs in real-time.</div>
+                <button class="cc-cta-btn" onclick="openLogs()">
+                    <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
+                    Open Logs Viewer
+                </button>
+            </div>
+            `}
         </div>
 
         <!-- Tab: Network -->
@@ -4940,129 +3832,112 @@ function getCommandCenterHtml(webview: vscode.Webview, extensionUri: vscode.Uri,
                 (data.networkTopology.externalEndpoints && data.networkTopology.externalEndpoints.length > 0) ||
                 (data.networkTopology.dependencies && data.networkTopology.dependencies.length > 0)
             ) ? `
-            <div class="card">
-                <h2 class="section-title">
-                    <span class="section-icon">🔗</span>
-                    <span>Network & Dependencies</span>
-                </h2>
-                <div style="margin-bottom: 16px; padding: 12px; background: var(--surface-accent); border-radius: 6px; border: 1px solid var(--border-primary);">
-                    <div style="font-size: 11px; color: var(--text-secondary); line-height: 1.6;">
-                        📋 <strong>Data Source:</strong> Parsed from application configuration, properties, deployment settings, and platform features.
-                    </div>
-                </div>
-
                 ${data.networkTopology.vpnConnections && data.networkTopology.vpnConnections.length > 0 ? `
-                <div style="margin-bottom: 16px;">
-                    <h4 style="color: var(--text-primary); font-size: 14px; margin-bottom: 8px;">🔒 VPN Connections</h4>
-                    ${data.networkTopology.vpnConnections.map((vpn: string) => `
-                        <div style="background: var(--surface-primary); padding: 8px 12px; border-radius: 6px; margin-bottom: 4px; font-size: 13px;">
-                            ${vpn}
-                        </div>
-                    `).join('')}
+                <div class="cc-net-section">
+                    <div class="cc-kv-title">VPN Connections</div>
+                    ${data.networkTopology.vpnConnections.map((vpn: string) => `<div class="cc-net-row">${vpn}</div>`).join('')}
                 </div>
                 ` : ''}
-
                 ${data.networkTopology.externalEndpoints && data.networkTopology.externalEndpoints.length > 0 ? `
-                <div style="margin-bottom: 16px;">
-                    <h4 style="color: var(--text-primary); font-size: 14px; margin-bottom: 8px;">🌍 External Endpoints</h4>
-                    ${data.networkTopology.externalEndpoints.map((endpoint: string) => `
-                        <div style="background: var(--surface-primary); padding: 8px 12px; border-radius: 6px; margin-bottom: 4px; font-size: 13px;">
-                            ${endpoint}
-                        </div>
-                    `).join('')}
+                <div class="cc-net-section">
+                    <div class="cc-kv-title">External Endpoints</div>
+                    ${data.networkTopology.externalEndpoints.map((ep: string) => `<div class="cc-net-row">${ep}</div>`).join('')}
                 </div>
                 ` : ''}
-
                 ${data.networkTopology.dependencies && data.networkTopology.dependencies.length > 0 ? `
-                <div>
-                    <h4 style="color: var(--text-primary); font-size: 14px; margin-bottom: 8px;">📦 Services & Integrations</h4>
-                    ${data.networkTopology.dependencies.map((dep: string) => `
-                        <div style="background: var(--surface-primary); padding: 8px 12px; border-radius: 6px; margin-bottom: 4px; font-size: 13px;">
-                            ${dep}
-                        </div>
-                    `).join('')}
+                <div class="cc-net-section">
+                    <div class="cc-kv-title">Services &amp; Integrations</div>
+                    ${data.networkTopology.dependencies.map((dep: string) => `<div class="cc-net-row">${dep}</div>`).join('')}
                 </div>
                 ` : ''}
-            </div>
             ` : `
-            <div style="padding: 40px; text-align: center; color: var(--text-secondary);">
-                No network dependencies detected for this application.
-            </div>
+            <div class="cc-empty">No network dependencies detected for this application.</div>
             `}
         </div>
 
-        <!-- Tab: Insights - Disabled for future release
-        <div id="tab-insights" class="tab-content ${activeTab === 'insights' ? 'active' : ''}">
-            <div class="card">
-                <h2 class="section-title">
-                    <span class="section-icon">🧠</span>
-                    <span>AI Insights (from Log Analysis)</span>
-                </h2>
-                <p style="font-size: 12px; color: var(--text-secondary); margin-bottom: 16px;">
-                    Analyzed ${data.logs?.length || 0} recent log entries to identify patterns and potential issues.
-                </p>
-                ${(data.aiInsights || []).length > 0 ? (data.aiInsights || []).map((insight: string, index: number) => `
-                    <div class="insight-item" style="background: var(--surface-primary); padding: 16px; border-radius: 8px; margin-bottom: 12px; border-left: 4px solid var(--accent-blue); animation-delay: ${index * 0.1}s">
-                        ${insight}
-                    </div>
-                `).join('') : `
-                    <div style="padding: 40px; text-align: center; color: var(--text-secondary);">
-                        ✅ No issues detected in recent logs. Application appears healthy.
-                    </div>
-                `}
-            </div>
-        </div>
-        -->
+    </div>`;
 
-    </div>
-
-    <script>
+    const ccScripts = `
         const vscode = acquireVsCodeApi();
 
         function refreshData() {
-            const btn = document.querySelector('.refresh-btn');
-            btn.classList.add('spinning');
+            const btn = document.querySelector('.cc-refresh-btn');
+            if (btn) btn.classList.add('spinning');
             vscode.postMessage({ command: 'refresh' });
+            setTimeout(() => { if (btn) btn.classList.remove('spinning'); }, 2000);
+        }
 
-            setTimeout(() => {
-                btn.classList.remove('spinning');
-            }, 2000);
+        function selectMetricsRange(minutes) {
+            document.querySelectorAll('.cc-seg-btn').forEach(b => b.classList.remove('cc-seg-active'));
+            const active = document.querySelector('.cc-seg-btn[data-range="' + minutes + '"]');
+            if (active) active.classList.add('cc-seg-active');
+            vscode.postMessage({ command: 'updateMetricsRange', rangeMinutes: minutes });
         }
 
         function onMetricsRangeChange(event) {
-            const value = parseInt(event.target.value, 10);
-            vscode.postMessage({ command: 'updateMetricsRange', rangeMinutes: value });
+            selectMetricsRange(parseInt(event.target.value, 10));
         }
 
         function refreshMetrics() {
-            const rangeSelect = document.getElementById('metrics-range-select');
-            const minutes = parseInt(rangeSelect?.value || '${METRIC_LOOKBACK_MINUTES}', 10);
+            const active = document.querySelector('.cc-seg-btn.cc-seg-active');
+            const minutes = active ? parseInt(active.getAttribute('data-range') || '${METRIC_LOOKBACK_MINUTES}', 10) : ${METRIC_LOOKBACK_MINUTES};
             const btn = document.querySelector('.metrics-refresh-btn');
-            btn?.classList.add('spinning');
+            if (btn) btn.classList.add('spinning');
             vscode.postMessage({ command: 'refreshMetrics', rangeMinutes: minutes });
-            setTimeout(() => btn?.classList.remove('spinning'), 1200);
+            setTimeout(() => { if (btn) btn.classList.remove('spinning'); }, 1200);
         }
 
         let currentTab = '${activeTab}';
 
-        function switchTab(tabName, skipNotify = false) {
+        function switchTab(tabName, skipNotify) {
             currentTab = tabName;
-
-            document.querySelectorAll('.tab-content').forEach(tab => {
+            document.querySelectorAll('.tab-content').forEach(function(tab) {
                 tab.classList.toggle('active', tab.id === 'tab-' + tabName);
             });
-
-            document.querySelectorAll('.tab-btn').forEach(btn => {
-                const btnTab = btn.getAttribute('data-tab');
-                btn.classList.toggle('active', btnTab === tabName);
+            document.querySelectorAll('.cc-tab').forEach(function(btn) {
+                btn.classList.toggle('active', btn.getAttribute('data-tab') === tabName);
             });
-
             if (!skipNotify) {
                 vscode.postMessage({ command: 'tabChanged', tab: tabName });
             }
         }
 
         switchTab('${activeTab}', true);
+
+        function showConfirmationDialog(title, message) {
+            return new Promise(function(resolve) {
+                var overlay = document.createElement('div');
+                overlay.className = 'cc-overlay';
+                var dialog = document.createElement('div');
+                dialog.className = 'cc-dialog';
+                var h3 = document.createElement('h3');
+                h3.textContent = title;
+                dialog.appendChild(h3);
+                var p = document.createElement('p');
+                p.textContent = message;
+                dialog.appendChild(p);
+                var actions = document.createElement('div');
+                actions.className = 'cc-dialog-actions';
+                var cancelBtn = document.createElement('button');
+                cancelBtn.className = 'cc-dialog-btn';
+                cancelBtn.textContent = 'Cancel';
+                var okBtn = document.createElement('button');
+                okBtn.className = 'cc-dialog-btn cc-dialog-btn-primary';
+                okBtn.textContent = 'Continue';
+                actions.appendChild(cancelBtn);
+                actions.appendChild(okBtn);
+                dialog.appendChild(actions);
+                overlay.appendChild(dialog);
+                var cleanup = function() { overlay.remove(); };
+                cancelBtn.addEventListener('click', function() { cleanup(); resolve(false); });
+                okBtn.addEventListener('click', function() { cleanup(); resolve(true); });
+                overlay.addEventListener('click', function(e) { if (e.target === overlay) { cleanup(); resolve(false); } });
+                document.addEventListener('keydown', function handler(e) {
+                    if (e.key === 'Escape') { document.removeEventListener('keydown', handler); cleanup(); resolve(false); }
+                }, { once: true });
+                document.body.appendChild(overlay);
+            });
+        }
 
         async function restartApp() {
             if (await showConfirmationDialog('Restart Application', 'Are you sure you want to restart this application?')) {
@@ -5082,86 +3957,16 @@ function getCommandCenterHtml(webview: vscode.Webview, extensionUri: vscode.Uri,
             }
         }
 
-        function showConfirmationDialog(title, message) {
-            return new Promise(resolve => {
-                const overlay = document.createElement('div');
-                overlay.className = 'confirm-overlay';
+        function openLogs() { vscode.postMessage({ command: 'openLogs' }); }
+        function exportCSV() { vscode.postMessage({ command: 'exportCSV' }); }
+        function compareEnvironments() { vscode.postMessage({ command: 'compareEnvironments' }); }
+        function generateDiagram() { vscode.postMessage({ command: 'generateDiagram' }); }
+    `;
 
-                const dialog = document.createElement('div');
-                dialog.className = 'confirm-dialog';
-
-                const titleEl = document.createElement('h3');
-                titleEl.textContent = title;
-                dialog.appendChild(titleEl);
-
-                const messageEl = document.createElement('p');
-                messageEl.textContent = message;
-                dialog.appendChild(messageEl);
-
-                const actions = document.createElement('div');
-                actions.className = 'confirm-actions';
-
-                const cancelBtn = document.createElement('button');
-                cancelBtn.className = 'confirm-btn';
-                cancelBtn.textContent = 'Cancel';
-
-                const okBtn = document.createElement('button');
-                okBtn.className = 'confirm-btn confirm-btn-primary';
-                okBtn.textContent = 'Continue';
-
-                actions.appendChild(cancelBtn);
-                actions.appendChild(okBtn);
-                dialog.appendChild(actions);
-                overlay.appendChild(dialog);
-
-                const cleanup = () => overlay.remove();
-
-                cancelBtn.addEventListener('click', () => {
-                    cleanup();
-                    resolve(false);
-                });
-
-                okBtn.addEventListener('click', () => {
-                    cleanup();
-                    resolve(true);
-                });
-
-                overlay.addEventListener('click', (event) => {
-                    if (event.target === overlay) {
-                        cleanup();
-                        resolve(false);
-                    }
-                });
-
-                document.addEventListener('keydown', function handler(event) {
-                    if (event.key === 'Escape') {
-                        document.removeEventListener('keydown', handler);
-                        cleanup();
-                        resolve(false);
-                    }
-                }, { once: true });
-
-                document.body.appendChild(overlay);
-            });
-        }
-
-        function openLogs() {
-            vscode.postMessage({ command: 'openLogs' });
-        }
-
-        function exportCSV() {
-            vscode.postMessage({ command: 'exportCSV' });
-        }
-
-        function compareEnvironments() {
-            vscode.postMessage({ command: 'compareEnvironments' });
-        }
-
-        function generateDiagram() {
-            vscode.postMessage({ command: 'generateDiagram' });
-        }
-
-    </script>
-</body>
-</html>`;
+    return wrapWebviewHtml({
+        title: 'Application Command Center',
+        body: ccBody,
+        scripts: ccScripts,
+        extraStyles: ccExtraStyles
+    });
 }

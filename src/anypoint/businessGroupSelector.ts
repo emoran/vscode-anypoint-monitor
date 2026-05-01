@@ -2,6 +2,7 @@ import * as vscode from 'vscode';
 import { BusinessGroupService, BusinessGroup, FlatBusinessGroup } from '../controllers/businessGroupService';
 import { AccountService } from '../controllers/accountService';
 import { telemetryService } from '../services/telemetryService';
+import { wrapWebviewHtml, badge, button, emptyState, escapeHtml } from '../webview/ui-kit';
 
 export async function showBusinessGroupSelectorWebview(context: vscode.ExtensionContext): Promise<void> {
     telemetryService.trackPageView('businessGroupSelector');
@@ -147,7 +148,7 @@ export async function showBusinessGroupSelectorWebview(context: vscode.Extension
 
 async function getBusinessGroupSelectorWebviewContent(
     context: vscode.ExtensionContext,
-    webview: vscode.Webview,
+    _webview: vscode.Webview,
     activeAccount: any,
     businessGroups: FlatBusinessGroup[],
     loading: boolean = false,
@@ -155,377 +156,111 @@ async function getBusinessGroupSelectorWebviewContent(
 ): Promise<string> {
     const currentBG = await new AccountService(context).getActiveAccountBusinessGroup();
 
-    return `<!DOCTYPE html>
-<html lang="en">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Select Business Group</title>
-    <style>
-        * {
-            margin: 0;
-            padding: 0;
-            box-sizing: border-box;
-        }
+    const orgName = escapeHtml(String(activeAccount.organizationName ?? ''));
+    const userEmail = escapeHtml(String(activeAccount.userEmail ?? ''));
 
-        body {
-            font-family: var(--vscode-font-family);
-            color: var(--vscode-foreground);
-            background-color: var(--vscode-editor-background);
-            padding: 20px;
-            line-height: 1.6;
-        }
-
-        .header {
-            margin-bottom: 30px;
-            padding-bottom: 20px;
-            border-bottom: 1px solid var(--vscode-panel-border);
-        }
-
-        .header h1 {
-            font-size: 24px;
-            font-weight: 600;
-            margin-bottom: 10px;
-            color: var(--vscode-foreground);
-        }
-
-        .account-info {
-            display: flex;
-            flex-direction: column;
-            gap: 8px;
-            padding: 12px;
-            background: var(--vscode-editor-inactiveSelectionBackground);
-            border-radius: 6px;
-            margin-top: 15px;
-        }
-
-        .account-info-row {
-            display: flex;
-            gap: 8px;
-            font-size: 13px;
-        }
-
-        .account-info-label {
-            font-weight: 600;
-            color: var(--vscode-foreground);
-            min-width: 120px;
-        }
-
-        .account-info-value {
-            color: var(--vscode-descriptionForeground);
-        }
-
-        .current-bg {
-            background: var(--vscode-inputValidation-infoBackground);
-            border-left: 3px solid var(--vscode-inputValidation-infoBorder);
-            padding: 12px;
-            border-radius: 4px;
-            margin: 15px 0;
-        }
-
-        .current-bg-label {
-            font-size: 12px;
-            text-transform: uppercase;
-            font-weight: 600;
-            color: var(--vscode-descriptionForeground);
-            margin-bottom: 5px;
-        }
-
-        .current-bg-value {
-            font-size: 14px;
-            color: var(--vscode-foreground);
-            font-weight: 500;
-        }
-
-        .controls {
-            display: flex;
-            gap: 10px;
-            margin-bottom: 20px;
-            align-items: center;
-        }
-
-        .search-box {
-            flex: 1;
-            display: flex;
-            align-items: center;
-            gap: 8px;
-            background: var(--vscode-input-background);
-            border: 1px solid var(--vscode-input-border);
-            border-radius: 4px;
-            padding: 8px 12px;
-        }
-
-        .search-box input {
-            flex: 1;
-            background: transparent;
-            border: none;
-            outline: none;
-            color: var(--vscode-input-foreground);
-            font-size: 14px;
-        }
-
-        .search-box input::placeholder {
-            color: var(--vscode-input-placeholderForeground);
-        }
-
-        .btn {
-            padding: 8px 16px;
-            background: var(--vscode-button-background);
-            color: var(--vscode-button-foreground);
-            border: none;
-            border-radius: 4px;
-            cursor: pointer;
-            font-size: 13px;
-            font-weight: 500;
-            transition: background-color 0.2s;
-        }
-
-        .btn:hover {
-            background: var(--vscode-button-hoverBackground);
-        }
-
-        .btn-secondary {
-            background: var(--vscode-button-secondaryBackground);
-            color: var(--vscode-button-secondaryForeground);
-        }
-
-        .btn-secondary:hover {
-            background: var(--vscode-button-secondaryHoverBackground);
-        }
-
-        .business-groups-container {
-            display: flex;
-            flex-direction: column;
-            gap: 8px;
-        }
-
-        .business-group-card {
-            background: var(--vscode-editor-background);
-            border: 1px solid var(--vscode-panel-border);
-            border-radius: 6px;
-            padding: 15px;
-            cursor: pointer;
-            transition: all 0.2s;
-            position: relative;
-        }
-
-        .business-group-card:hover {
-            background: var(--vscode-list-hoverBackground);
-            border-color: var(--vscode-focusBorder);
-        }
-
-        .business-group-card.selected {
-            background: var(--vscode-list-activeSelectionBackground);
-            border-color: var(--vscode-focusBorder);
-            border-width: 2px;
-        }
-
-        .business-group-card.root {
-            border-left: 3px solid var(--vscode-charts-blue);
-        }
-
-        .business-group-header {
-            display: flex;
-            align-items: center;
-            gap: 10px;
-            margin-bottom: 8px;
-        }
-
-        .business-group-icon {
-            font-size: 20px;
-        }
-
-        .business-group-name {
-            font-size: 16px;
-            font-weight: 600;
-            color: var(--vscode-foreground);
-            flex: 1;
-        }
-
-        .root-badge {
-            background: var(--vscode-charts-blue);
-            color: white;
-            padding: 2px 8px;
-            border-radius: 3px;
-            font-size: 11px;
-            font-weight: 600;
-            text-transform: uppercase;
-        }
-
-        .selected-badge {
-            background: var(--vscode-charts-green);
-            color: white;
-            padding: 2px 8px;
-            border-radius: 3px;
-            font-size: 11px;
-            font-weight: 600;
-        }
-
-        .business-group-path {
-            font-size: 13px;
-            color: var(--vscode-descriptionForeground);
-            margin-left: 30px;
-            font-style: italic;
-        }
-
-        .business-group-id {
-            font-size: 11px;
-            color: var(--vscode-descriptionForeground);
-            margin-left: 30px;
-            font-family: monospace;
-            margin-top: 4px;
-        }
-
-        .level-indicator {
-            display: inline-block;
-            width: 20px;
-            text-align: center;
-            color: var(--vscode-descriptionForeground);
-        }
-
-        .loading {
-            text-align: center;
-            padding: 40px;
-            color: var(--vscode-descriptionForeground);
-        }
-
-        .loading-spinner {
-            display: inline-block;
-            width: 40px;
-            height: 40px;
-            border: 4px solid var(--vscode-panel-border);
-            border-top-color: var(--vscode-focusBorder);
-            border-radius: 50%;
-            animation: spin 1s linear infinite;
-            margin-bottom: 15px;
-        }
-
-        @keyframes spin {
-            to { transform: rotate(360deg); }
-        }
-
-        .error {
-            background: var(--vscode-inputValidation-errorBackground);
-            border: 1px solid var(--vscode-inputValidation-errorBorder);
-            border-radius: 6px;
-            padding: 15px;
-            margin: 20px 0;
-            color: var(--vscode-errorForeground);
-        }
-
-        .error h3 {
-            margin-bottom: 8px;
-        }
-
-        .empty-state {
-            text-align: center;
-            padding: 40px;
-            color: var(--vscode-descriptionForeground);
-        }
-
-        .empty-state-icon {
-            font-size: 48px;
-            margin-bottom: 15px;
-        }
-
-        .info-box {
-            background: var(--vscode-textBlockQuote-background);
-            border-left: 3px solid var(--vscode-textBlockQuote-border);
-            padding: 12px;
-            border-radius: 4px;
-            margin: 15px 0;
-            font-size: 13px;
-            color: var(--vscode-descriptionForeground);
-        }
-    </style>
-</head>
-<body>
-    <div class="header">
-        <h1>🏢 Select Business Group</h1>
-
-        <div class="account-info">
-            <div class="account-info-row">
-                <span class="account-info-label">Organization:</span>
-                <span class="account-info-value">${activeAccount.organizationName}</span>
-            </div>
-            <div class="account-info-row">
-                <span class="account-info-label">Account:</span>
-                <span class="account-info-value">${activeAccount.userEmail}</span>
-            </div>
+    const mainContent = loading
+        ? `
+        <div class="bgs-loading">
+            <div class="bgs-loading-spinner"></div>
+            <div>Loading business group hierarchy...</div>
         </div>
-
-        ${currentBG ? `
-        <div class="current-bg">
-            <div class="current-bg-label">Currently Selected</div>
-            <div class="current-bg-value">📍 ${currentBG.name}</div>
+    `
+        : errorMessage
+            ? `
+        <div class="bgs-error" role="alert">
+            <h3>⚠️ Error Loading Business Groups</h3>
+            <p>${escapeHtml(errorMessage)}</p>
         </div>
-        ` : ''}
+    `
+            : businessGroups.length === 0
+                ? emptyState({
+                    icon: '🏢',
+                    title: 'No Business Groups Found',
+                    description: "This organization doesn't have any business groups configured."
+                })
+                : `
+        <div class="bgs-groups">
+            ${businessGroups.map(bg => {
+        const isSelected = Boolean(currentBG && currentBG.id === bg.id);
+        const onClickJs = `selectBusinessGroup(${JSON.stringify(bg.id)}, ${JSON.stringify(bg.name)})`;
+        const rootBadge = bg.isRoot ? badge('Root', 'info', true) : '';
+        const selectedBadge = isSelected ? badge('✓ Selected', 'success', true) : '';
+        return `
+                    <div class="bgs-group-card ${bg.isRoot ? 'bgs-group-card--root' : ''} ${isSelected ? 'bgs-group-card--selected' : ''}"
+                         role="button" tabindex="0"
+                         onclick='${onClickJs}'>
+                        <div class="bgs-group-card-header">
+                            <span class="bgs-group-card-icon">${bg.isRoot ? '🏛️' : '🏢'}</span>
+                            <span class="bgs-group-card-name">${escapeHtml(bg.name)}</span>
+                            ${rootBadge}
+                            ${selectedBadge}
+                        </div>
+                        ${bg.level > 0 ? `
+                            <div class="bgs-group-card-path">
+                                ${escapeHtml(bg.fullPath)}
+                            </div>
+                        ` : ''}
+                        <div class="bgs-group-card-id">ID: ${escapeHtml(bg.id)}</div>
+                    </div>
+                `;
+    }).join('')}
+        </div>
+    `;
 
-        <div class="info-box">
-            💡 Business groups allow you to organize resources hierarchically within your organization.
-            Selecting a business group will scope all operations (applications, APIs, environments) to that group.
+    const body = `
+<div class="am-container">
+    <header class="am-page-header">
+        <div>
+            <h1>🏢 Select Business Group</h1>
+        </div>
+    </header>
+
+    <div class="am-card bgs-stack">
+        <div class="bgs-account-info">
+            <div class="bgs-account-info-row">
+                <span class="bgs-account-info-label">Organization:</span>
+                <span class="bgs-account-info-value">${orgName}</span>
+            </div>
+            <div class="bgs-account-info-row">
+                <span class="bgs-account-info-label">Account:</span>
+                <span class="bgs-account-info-value">${userEmail}</span>
+            </div>
         </div>
     </div>
 
-    <div class="controls">
-        <div class="search-box">
-            <span>🔍</span>
+    ${currentBG ? `
+    <div class="am-card bgs-current-bg">
+        <div class="bgs-current-bg-label">Currently Selected</div>
+        <div class="bgs-current-bg-value">📍 ${escapeHtml(currentBG.name)}</div>
+    </div>
+    ` : ''}
+
+    <div class="am-card bgs-info-callout">
+        💡 Business groups allow you to organize resources hierarchically within your organization.
+        Selecting a business group will scope all operations (applications, APIs, environments) to that group.
+    </div>
+
+    <div class="am-filters bgs-controls">
+        <div class="bgs-search-wrap">
+            <span class="bgs-search-icon" aria-hidden="true">🔍</span>
             <input
-                type="text"
+                type="search"
+                class="am-input bgs-search-input"
                 id="searchInput"
                 placeholder="Search business groups..."
+                autocomplete="off"
                 ${loading ? 'disabled' : ''}
             >
         </div>
-        <button class="btn btn-secondary" onclick="refresh()" ${loading ? 'disabled' : ''}>
-            🔄 Refresh
-        </button>
+        ${button('Refresh', { variant: 'secondary', onclick: 'refresh()', icon: '🔄', disabled: loading })}
     </div>
 
-    ${loading ? `
-        <div class="loading">
-            <div class="loading-spinner"></div>
-            <div>Loading business group hierarchy...</div>
-        </div>
-    ` : errorMessage ? `
-        <div class="error">
-            <h3>⚠️ Error Loading Business Groups</h3>
-            <p>${errorMessage}</p>
-        </div>
-    ` : businessGroups.length === 0 ? `
-        <div class="empty-state">
-            <div class="empty-state-icon">🏢</div>
-            <h3>No Business Groups Found</h3>
-            <p>This organization doesn't have any business groups configured.</p>
-        </div>
-    ` : `
-        <div class="business-groups-container">
-            ${businessGroups.map(bg => {
-                const isSelected = currentBG && currentBG.id === bg.id;
-                const indent = '  '.repeat(bg.level);
+    ${mainContent}
+</div>
+`;
 
-                return `
-                    <div class="business-group-card ${bg.isRoot ? 'root' : ''} ${isSelected ? 'selected' : ''}"
-                         onclick="selectBusinessGroup('${bg.id}', '${bg.name.replace(/'/g, "\\'")}')">
-                        <div class="business-group-header">
-                            <span class="business-group-icon">${bg.isRoot ? '🏛️' : '🏢'}</span>
-                            <span class="business-group-name">${bg.name}</span>
-                            ${bg.isRoot ? '<span class="root-badge">Root</span>' : ''}
-                            ${isSelected ? '<span class="selected-badge">✓ Selected</span>' : ''}
-                        </div>
-                        ${bg.level > 0 ? `
-                            <div class="business-group-path">
-                                ${bg.fullPath}
-                            </div>
-                        ` : ''}
-                        <div class="business-group-id">ID: ${bg.id}</div>
-                    </div>
-                `;
-            }).join('')}
-        </div>
-    `}
-
-    <script>
+    const scripts = `
         const vscode = acquireVsCodeApi();
 
         function selectBusinessGroup(businessGroupId, businessGroupName) {
@@ -542,7 +277,6 @@ async function getBusinessGroupSelectorWebviewContent(
             });
         }
 
-        // Search functionality
         const searchInput = document.getElementById('searchInput');
         let searchTimeout;
 
@@ -557,7 +291,174 @@ async function getBusinessGroupSelectorWebviewContent(
                 }, 300);
             });
         }
-    </script>
-</body>
-</html>`;
+    `;
+
+    const extraStyles = `
+        .bgs-stack { margin-bottom: 16px; }
+        .bgs-account-info {
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+        }
+        .bgs-account-info-row {
+            display: flex;
+            gap: 8px;
+            font-size: 13px;
+        }
+        .bgs-account-info-label {
+            font-weight: 600;
+            color: var(--am-text-primary);
+            min-width: 120px;
+        }
+        .bgs-account-info-value {
+            color: var(--am-text-secondary);
+        }
+        .bgs-current-bg {
+            margin-bottom: 16px;
+            background: color-mix(in srgb, var(--am-info) 12%, transparent);
+            border: 1px solid color-mix(in srgb, var(--am-info) 35%, transparent);
+        }
+        .bgs-current-bg-label {
+            font-size: 12px;
+            text-transform: uppercase;
+            font-weight: 600;
+            color: var(--am-text-muted);
+            margin-bottom: 6px;
+        }
+        .bgs-current-bg-value {
+            font-size: 14px;
+            color: var(--am-text-primary);
+            font-weight: 500;
+        }
+        .bgs-info-callout {
+            margin-bottom: 20px;
+            font-size: 13px;
+            color: var(--am-text-secondary);
+            border-left: 3px solid var(--am-info);
+        }
+        .bgs-controls {
+            align-items: stretch;
+            margin-bottom: 20px;
+        }
+        .bgs-search-wrap {
+            flex: 1;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            min-width: 0;
+            padding: 4px 4px 4px 12px;
+            background: var(--am-bg-input);
+            border: 1px solid var(--am-border-input);
+            border-radius: var(--am-radius-md);
+        }
+        .bgs-search-wrap:focus-within {
+            border-color: var(--am-border-focus);
+        }
+        .bgs-search-input {
+            flex: 1;
+            min-width: 0;
+            border: none;
+            background: transparent;
+            box-shadow: none;
+        }
+        .bgs-search-input:focus {
+            outline: none;
+            border: none;
+        }
+        .bgs-groups {
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+        }
+        .bgs-group-card {
+            background: var(--am-bg-surface);
+            border: 1px solid var(--am-border);
+            border-radius: var(--am-radius-md);
+            padding: 15px;
+            cursor: pointer;
+            transition: border-color 0.2s, background 0.2s;
+        }
+        .bgs-group-card:hover {
+            background: var(--am-bg-surface-hover);
+            border-color: var(--am-border-focus);
+        }
+        .bgs-group-card--selected {
+            background: color-mix(in srgb, var(--am-info) 14%, var(--am-bg-surface));
+            border-color: var(--am-border-focus);
+            border-width: 2px;
+        }
+        .bgs-group-card--root {
+            border-left: 3px solid var(--am-info);
+        }
+        .bgs-group-card-header {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            margin-bottom: 8px;
+            flex-wrap: wrap;
+        }
+        .bgs-group-card-icon {
+            font-size: 20px;
+        }
+        .bgs-group-card-name {
+            font-size: 16px;
+            font-weight: 600;
+            color: var(--am-text-primary);
+            flex: 1;
+            min-width: 0;
+        }
+        .bgs-group-card-path {
+            font-size: 13px;
+            color: var(--am-text-secondary);
+            margin-left: 30px;
+            font-style: italic;
+        }
+        .bgs-group-card-id {
+            font-size: 11px;
+            color: var(--am-text-muted);
+            margin-left: 30px;
+            font-family: var(--vscode-editor-font-family, ui-monospace, monospace);
+            margin-top: 4px;
+        }
+        .bgs-loading {
+            text-align: center;
+            padding: 40px;
+            color: var(--am-text-secondary);
+        }
+        .bgs-loading-spinner {
+            display: inline-block;
+            width: 40px;
+            height: 40px;
+            border: 4px solid var(--am-border);
+            border-top-color: var(--am-border-focus);
+            border-radius: 50%;
+            animation: bgs-spin 1s linear infinite;
+            margin-bottom: 15px;
+        }
+        @keyframes bgs-spin {
+            to { transform: rotate(360deg); }
+        }
+        .bgs-error {
+            background: color-mix(in srgb, var(--am-error) 12%, var(--am-bg-surface));
+            border: 1px solid color-mix(in srgb, var(--am-error) 40%, var(--am-border));
+            border-radius: var(--am-radius-md);
+            padding: 15px;
+            margin: 8px 0 0;
+            color: var(--am-error);
+        }
+        .bgs-error h3 {
+            margin-bottom: 8px;
+            color: var(--am-text-primary);
+        }
+        .bgs-error p {
+            color: var(--am-text-secondary);
+        }
+    `;
+
+    return wrapWebviewHtml({
+        title: 'Select Business Group',
+        body,
+        scripts,
+        extraStyles
+    });
 }

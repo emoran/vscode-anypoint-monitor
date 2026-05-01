@@ -219,6 +219,20 @@ export function getComponentStyles(): string {
             background: var(--am-btn-secondary-hover);
         }
 
+        .am-btn-danger {
+            background: var(--am-error);
+            color: #fff;
+        }
+
+        .am-btn-danger:hover {
+            filter: brightness(1.15);
+        }
+
+        .am-btn:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+        }
+
         .am-btn-ghost {
             background: transparent;
             color: var(--am-text-primary);
@@ -614,11 +628,13 @@ export function healthIndicator(score: number, status: HealthStatus, tooltip?: s
     `;
 }
 
-export function button(text: string, opts: { variant?: 'primary' | 'secondary' | 'ghost'; onclick?: string; icon?: string } = {}): string {
+export function button(text: string, opts: { variant?: 'primary' | 'secondary' | 'ghost' | 'danger'; onclick?: string; icon?: string; id?: string; disabled?: boolean } = {}): string {
     const variant = opts.variant || 'ghost';
     const clickAttr = opts.onclick ? ` onclick="${escapeAttr(opts.onclick)}"` : '';
+    const idAttr = opts.id ? ` id="${escapeAttr(opts.id)}"` : '';
+    const disabledAttr = opts.disabled ? ' disabled' : '';
     const iconHtml = opts.icon ? `<span>${opts.icon}</span>` : '';
-    return `<button class="am-btn am-btn-${variant}"${clickAttr}>${iconHtml}${escapeHtml(text)}</button>`;
+    return `<button class="am-btn am-btn-${variant}"${idAttr}${clickAttr}${disabledAttr}>${iconHtml}${escapeHtml(text)}</button>`;
 }
 
 export function iconButton(icon: string, opts: { onclick?: string; title?: string } = {}): string {
@@ -707,6 +723,14 @@ export function escapeAttr(str: string): string {
 }
 
 /**
+ * Strips outer `<script>` / `</script>` tags so raw JS can be embedded
+ * inside the single `<script>` block that `wrapWebviewHtml` generates.
+ */
+export function stripScriptTags(html: string): string {
+    return html.replace(/^\s*<script[^>]*>\s*/i, '').replace(/\s*<\/script>\s*$/i, '').trim();
+}
+
+/**
  * Wraps full page HTML with theme + component styles.
  */
 export function wrapWebviewHtml(opts: {
@@ -715,12 +739,15 @@ export function wrapWebviewHtml(opts: {
     scripts?: string;
     extraStyles?: string;
     nonce?: string;
+    /** Optional tags/markup inserted in <head> after the viewport meta (e.g. Content-Security-Policy). */
+    headExtra?: string;
 }): string {
     return `<!DOCTYPE html>
 <html lang="en">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    ${opts.headExtra || ''}
     <title>${escapeHtml(opts.title)}</title>
     <style>
         ${getAllBaseStylesInline()}
@@ -730,7 +757,7 @@ export function wrapWebviewHtml(opts: {
 </head>
 <body>
     ${opts.body}
-    ${opts.scripts ? `<script>${opts.scripts}</script>` : ''}
+    ${opts.scripts ? `<script${opts.nonce ? ` nonce="${escapeAttr(opts.nonce)}"` : ''}>${opts.scripts}</script>` : ''}
 </body>
 </html>`;
 }

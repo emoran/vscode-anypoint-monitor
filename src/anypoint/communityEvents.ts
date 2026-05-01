@@ -164,130 +164,61 @@ async function filterByEventType(events: CommunityEvent[]): Promise<CommunityEve
 }
 
 function generateEventsTableHTML(events: CommunityEvent[]): string {
+    const { wrapWebviewHtml, summaryCard, badge, escapeHtml: uiEscapeHtml, escapeAttr } = require('../webview/ui-kit');
+
     const tableRows = events.map(event => {
         const eventDate = new Date(event.start_date);
         const formattedDate = eventDate.toLocaleDateString('en-US', {
-            year: 'numeric',
-            month: 'short',
-            day: 'numeric',
-            hour: '2-digit',
-            minute: '2-digit'
+            year: 'numeric', month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit'
         });
-
-        const tags = event.tags.slice(0, 3).join(', '); // Limit to first 3 tags
-        const location = `${event.chapter.city}, ${event.chapter.country}`;
+        const tags = event.tags.slice(0, 3).map((t: string) => badge(uiEscapeHtml(t), 'default')).join(' ');
+        const location = `${uiEscapeHtml(event.chapter.city)}, ${uiEscapeHtml(event.chapter.country)}`;
 
         return `
-            <tr>
-                <td><a href="${event.url}" style="color: #007acc; text-decoration: none;">${event.title}</a></td>
-                <td>${formattedDate}</td>
+            <tr class="am-row">
+                <td><a href="${escapeAttr(event.url)}" style="color:var(--am-text-link);text-decoration:none">${uiEscapeHtml(event.title)}</a></td>
+                <td style="white-space:nowrap">${uiEscapeHtml(formattedDate)}</td>
                 <td>${location}</td>
-                <td>${event.event_type_title}</td>
-                <td>${event.chapter.name}</td>
-                <td style="max-width: 200px; word-wrap: break-word;">${event.description_short}</td>
+                <td>${badge(uiEscapeHtml(event.event_type_title), 'info')}</td>
+                <td>${uiEscapeHtml(event.chapter.name)}</td>
+                <td style="max-width:200px;overflow:hidden;text-overflow:ellipsis">${uiEscapeHtml(event.description_short)}</td>
                 <td>${tags}</td>
-            </tr>
-        `;
+            </tr>`;
     }).join('');
 
-    return `
-        <!DOCTYPE html>
-        <html lang="en">
-        <head>
-            <meta charset="UTF-8">
-            <meta name="viewport" content="width=device-width, initial-scale=1.0">
-            <title>MuleSoft Community Events</title>
-            <style>
-                body {
-                    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-                    margin: 20px;
-                    background: var(--vscode-editor-background);
-                    color: var(--vscode-editor-foreground);
-                }
-                .header {
-                    margin-bottom: 20px;
-                    border-bottom: 1px solid var(--vscode-panel-border);
-                    padding-bottom: 10px;
-                }
-                .events-count {
-                    font-size: 14px;
-                    color: var(--vscode-descriptionForeground);
-                    margin-bottom: 15px;
-                }
-                table {
-                    width: 100%;
-                    border-collapse: collapse;
-                    background: var(--vscode-editor-background);
-                }
-                th {
-                    background: var(--vscode-list-headerBackground);
-                    color: var(--vscode-list-headerForeground);
-                    padding: 12px 8px;
-                    text-align: left;
-                    border-bottom: 1px solid var(--vscode-panel-border);
-                    font-weight: 600;
-                    font-size: 13px;
-                    white-space: nowrap;
-                }
-                td {
-                    padding: 12px 8px;
-                    border-bottom: 1px solid var(--vscode-panel-border);
-                    font-size: 13px;
-                    vertical-align: top;
-                }
-                tr:hover {
-                    background: var(--vscode-list-hoverBackground);
-                }
-                a {
-                    color: var(--vscode-textLink-foreground);
-                    text-decoration: none;
-                }
-                a:hover {
-                    text-decoration: underline;
-                }
-                .refresh-info {
-                    margin-top: 20px;
-                    padding: 10px;
-                    background: var(--vscode-textBlockQuote-background);
-                    border-left: 4px solid var(--vscode-textBlockQuote-border);
-                    font-size: 12px;
-                    color: var(--vscode-descriptionForeground);
-                }
-            </style>
-        </head>
-        <body>
-            <div class="header">
-                <h1>
-                    <svg width="24" height="24" viewBox="0 0 24 24" style="vertical-align: middle; margin-right: 8px;">
-                        <path fill="#00A0DF" d="M12 0C5.373 0 0 5.373 0 12s5.373 12 12 12 12-5.373 12-12S18.627 0 12 0zm5.568 7.178l-2.83 2.83c-.39.39-1.024.39-1.414 0-.39-.39-.39-1.024 0-1.414l2.83-2.83c.39-.39 1.024-.39 1.414 0 .39.39.39 1.024 0 1.414zM12 16c-2.206 0-4-1.794-4-4s1.794-4 4-4 4 1.794 4 4-1.794 4-4 4zm0-6c-1.103 0-2 .897-2 2s.897 2 2 2 2-.897 2-2-.897-2-2-2z"/>
-                        <path fill="#FF6B35" d="M8.432 7.178c.39-.39 1.024-.39 1.414 0 .39.39.39 1.024 0 1.414l-2.83 2.83c-.39.39-1.024.39-1.414 0-.39-.39-.39-1.024 0-1.414l2.83-2.83z"/>
-                    </svg>
-                    MuleSoft Community Events
-                </h1>
-                <div class="events-count">Showing ${events.length} upcoming event(s)</div>
+    const regions = [...new Set(events.map(e => e.chapter.country))];
+
+    const body = `
+    <div class="am-container">
+        <div class="am-page-header">
+            <div>
+                <h1>MuleSoft Community Events</h1>
+                <div class="am-page-header-meta">
+                    ${badge(`${events.length} upcoming`, 'info', true)}
+                    ${badge(`${regions.length} regions`, 'default', true)}
+                </div>
             </div>
-            
-            <table>
-                <thead>
-                    <tr>
-                        <th>Event Title</th>
-                        <th>Date & Time</th>
-                        <th>Location</th>
-                        <th>Type</th>
-                        <th>Chapter</th>
-                        <th>Description</th>
-                        <th>Tags</th>
-                    </tr>
-                </thead>
-                <tbody>
-                    ${tableRows}
-                </tbody>
+        </div>
+
+        <div class="am-summary-cards">
+            ${summaryCard({ icon: '📅', value: events.length, label: 'Upcoming Events', animationDelay: '0.1s' })}
+            ${summaryCard({ icon: '🌍', value: regions.length, label: 'Regions', animationDelay: '0.15s' })}
+        </div>
+
+        <div class="am-table-container">
+            <table class="am-table">
+                <thead><tr>
+                    <th>Event Title</th><th>Date &amp; Time</th><th>Location</th>
+                    <th>Type</th><th>Chapter</th><th>Description</th><th>Tags</th>
+                </tr></thead>
+                <tbody>${tableRows}</tbody>
             </table>
-            
-            <div class="refresh-info">
-                💡 Tip: Run the command again to see the latest events. Click on event titles to open registration pages.
-            </div>
-        </body>
-        </html>
-    `;
+        </div>
+
+        <div style="margin-top:16px;padding:10px 14px;background:var(--am-bg-surface);border:1px solid var(--am-border);border-radius:var(--am-radius-md);font-size:12px;color:var(--am-text-muted)">
+            Run the command again to see the latest events. Click on event titles to open registration pages.
+        </div>
+    </div>`;
+
+    return wrapWebviewHtml({ title: 'MuleSoft Community Events', body });
 }

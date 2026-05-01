@@ -3,6 +3,12 @@ import * as fs from 'fs';
 import { ApiHelper } from '../controllers/apiHelper.js';
 import {showApiManagerAPIDetail} from '../anypoint/apiMananagerAPIDetail'; // adjust path if needed
 import { telemetryService } from '../services/telemetryService';
+import {
+  wrapWebviewHtml,
+  badge,
+  summaryCard,
+  button,
+} from '../webview/ui-kit';
 
 // Keep references so we can update the same panel
 let currentPanel: vscode.WebviewPanel | undefined;
@@ -75,7 +81,9 @@ export async function showAPIManagerWebview(
  * Fetches data from the API with refresh logic, updates the existing webview’s HTML.
  */
 async function loadAPIsAndRender() {
-  if (!currentPanel || !currentContext) return;
+  if (!currentPanel || !currentContext) {
+    return;
+  }
 
   const { getBaseUrl } = await import('../constants.js');
   const baseUrl = await getBaseUrl(currentContext);
@@ -94,11 +102,25 @@ async function loadAPIsAndRender() {
   // Update the existing panel's HTML with new data
   currentPanel.webview.html = getAPIManagerHtml(
     apiData,
-    currentPanel.webview,
-    currentContext.extensionUri,
     currentEnvironmentId,
     currentOrganizationId
   );
+}
+
+/** Row payload for client-side table (search, sort, pagination). */
+interface ApiTableRowPayload {
+  id: string;
+  organizationId: string;
+  environmentId: string;
+  name: string;
+  version: string;
+  stage: string;
+  tech: string;
+  status: string;
+  autodisco: string;
+  created: string;
+  updated: string;
+  statusHtml: string;
 }
 
 /**
@@ -107,449 +129,346 @@ async function loadAPIsAndRender() {
  */
 function getAPIManagerHtml(
   apis: any[],
-  webview: vscode.Webview,
-  extensionUri: vscode.Uri,
   environmentId: string,
   organizationId: string
 ): string {
-  const jqueryJs = 'https://code.jquery.com/jquery-3.6.0.min.js';
-  const dataTableJs = 'https://cdn.datatables.net/1.13.4/js/jquery.dataTables.min.js';
-  const dataTableCss = 'https://cdn.datatables.net/1.13.4/css/jquery.dataTables.min.css';
-  const googleFontLink = 'https://fonts.googleapis.com/css2?family=Fira+Code:wght@400;600&display=swap';
-
   function renderStatus(status: string): string {
     switch (status) {
       case 'active':
-        return `<span class="status-indicator active">active</span>`;
+        return badge('active', 'success');
       case 'unregistered':
-        return `<span class="status-indicator unregistered">unregistered</span>`;
+        return badge('unregistered', 'error');
       case 'inactive':
-        return `<span class="status-indicator inactive">inactive</span>`;
+        return badge('inactive', 'error');
       default:
-        return `<span class="status-indicator unknown">${status}</span>`;
+        return badge(status || 'unknown', 'default');
     }
   }
 
-  const rowsHtml = apis
-    .map((api) => {
-      const name = api.asset?.exchangeAssetName || '';
-      const version = api.assetVersion || '';
-      const stage = api.stage || '';
-      const tech = api.technology || '';
-      const status = renderStatus(api.status || '');
-      const autodisco = api.autodiscoveryInstanceName || '';
+  const rowPayloads: ApiTableRowPayload[] = apis.map((api) => {
+    const name = api.asset?.exchangeAssetName || '';
+    const createdDate = api.audit?.created?.date
+      ? new Date(api.audit.created.date).toLocaleString()
+      : '';
+    const updatedDate = api.audit?.updated?.date
+      ? new Date(api.audit.updated.date).toLocaleString()
+      : '';
+    return {
+      id: api.id,
+      organizationId,
+      environmentId,
+      name,
+      version: api.assetVersion || '',
+      stage: api.stage || '',
+      tech: api.technology || '',
+      status: api.status || '',
+      autodisco: api.autodiscoveryInstanceName || '',
+      created: createdDate,
+      updated: updatedDate,
+      statusHtml: renderStatus(api.status || ''),
+    };
+  });
 
-      const createdDate = api.audit?.created?.date
-        ? new Date(api.audit.created.date).toLocaleString()
-        : '';
-      const updatedDate = api.audit?.updated?.date
-        ? new Date(api.audit.updated.date).toLocaleString()
-        : '';
+  const activeCount = apis.filter((a) => (a.status || '') === 'active').length;
 
-      return `
-        <tr>
-          <td>
-            <a href="#" class="api-name"
-               data-id="${api.id}"
-               data-org="${organizationId}"
-               data-env="${environmentId}">
-              ${name}
-            </a>
-          </td>
-          <td>${version}</td>
-          <td>${stage}</td>
-          <td>${tech}</td>
-          <td>${status}</td>
-          <td>${autodisco}</td>
-          <td>${createdDate}</td>
-          <td>${updatedDate}</td>
-        </tr>
-      `;
-    })
+  const pageSizeOptions = [10, 25, 50, 100];
+  const pageSizeOptionsHtml = pageSizeOptions
+    .map((n) => `<option value="${n}">${n}</option>`)
     .join('');
 
-  return /*html*/ `
-<!DOCTYPE html>
-<html lang="en">
-  <head>
-    <meta charset="UTF-8" />
-    <title>API Manager - APIs</title>
-    <link rel="stylesheet" href="${dataTableCss}" />
-    <link rel="stylesheet" href="${googleFontLink}" />
-    <style>
-      /* Code Time inspired theme */
-      :root {
-        --background-primary: #1e2328;
-        --background-secondary: #161b22;
-        --surface-primary: #21262d;
-        --surface-secondary: #30363d;
-        --text-primary: #f0f6fc;
-        --text-secondary: #7d8590;
-        --text-muted: #656d76;
-        --accent-blue: #58a6ff;
-        --accent-light: #79c0ff;
-        --border-primary: #30363d;
-        --border-muted: #21262d;
-        --success: #3fb950;
-        --warning: #d29922;
-        --error: #f85149;
-      }
-
-      * {
-        box-sizing: border-box;
-      }
-
-      body {
-        margin: 0;
-        padding: 0;
-        background-color: var(--background-primary);
-        color: var(--text-primary);
-        font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Noto Sans', Helvetica, Arial, sans-serif;
-        font-size: 14px;
-        line-height: 1.5;
-      }
-
-      /* Header Section */
-      .header {
-        background-color: var(--background-secondary);
-        border-bottom: 1px solid var(--border-primary);
-        padding: 24px 32px;
-      }
-
-      .header-content {
-        max-width: 1200px;
-        margin: 0 auto;
-      }
-
-      .header h1 {
-        font-size: 28px;
-        font-weight: 600;
-        margin: 0 0 8px 0;
-        color: var(--text-primary);
-      }
-
-      .header p {
-        font-size: 16px;
-        color: var(--text-secondary);
-        margin: 0;
-      }
-
-      /* Main Content */
-      .container {
-        max-width: 1200px;
-        margin: 0 auto;
-        padding: 32px;
-      }
-
-      /* API Manager Card */
-      .card {
-        background-color: var(--surface-primary);
-        border: 1px solid var(--border-primary);
-        border-radius: 12px;
-        padding: 24px;
-      }
-
-      .card-header {
-        display: flex;
-        align-items: center;
-        justify-content: space-between;
-        margin-bottom: 20px;
-      }
-
-      .card-title {
-        font-size: 18px;
-        font-weight: 600;
-        color: var(--text-primary);
-        margin: 0;
-      }
-
-      .button-group {
-        display: flex;
-        gap: 8px;
-      }
-
-      .button {
-        background-color: var(--accent-blue);
-        color: var(--text-primary);
-        border: none;
-        border-radius: 8px;
-        padding: 12px 16px;
-        font-size: 14px;
-        font-weight: 500;
-        cursor: pointer;
-        transition: all 0.2s;
-      }
-
-      .button:hover {
-        background-color: var(--accent-light);
-      }
-
-      /* Table Styles */
-      .table-wrapper {
-        overflow-x: auto;
-        border-radius: 8px;
-        border: 1px solid var(--border-primary);
-        margin-top: 16px;
-      }
-
-      table {
-        width: 100%;
-        border-collapse: collapse;
-        background-color: var(--surface-secondary);
-      }
-
-      th {
-        background-color: var(--background-secondary);
-        color: var(--text-primary);
-        font-weight: 600;
-        padding: 16px 12px;
-        text-align: left;
-        border-bottom: 1px solid var(--border-primary);
-        font-size: 13px;
-      }
-
-      td {
-        padding: 16px 12px;
-        border-bottom: 1px solid var(--border-muted);
-        color: var(--text-primary);
-        font-size: 14px;
-      }
-
-      tr:last-child td {
-        border-bottom: none;
-      }
-
-      tr:hover {
-        background-color: var(--border-muted);
-      }
-
-      /* Status Indicators */
-      .status-indicator {
-        display: inline-flex;
-        align-items: center;
-        gap: 6px;
-        padding: 4px 8px;
-        border-radius: 6px;
-        font-size: 12px;
-        font-weight: 500;
-        text-transform: capitalize;
-      }
-
-      .status-indicator.active {
-        background-color: rgba(63, 185, 80, 0.15);
-        color: var(--success);
-      }
-
-      .status-indicator.unregistered,
-      .status-indicator.inactive {
-        background-color: rgba(248, 81, 73, 0.15);
-        color: var(--error);
-      }
-
-      .status-indicator.unknown {
-        background-color: rgba(125, 133, 144, 0.15);
-        color: var(--text-secondary);
-      }
-
-      /* API Name Links */
-      .api-name {
-        color: var(--accent-blue);
-        text-decoration: none;
-        font-weight: 500;
-      }
-
-      .api-name:hover {
-        text-decoration: underline;
-        color: var(--accent-light);
-      }
-
-      /* DataTables Styling */
-      .dataTables_wrapper {
-        color: var(--text-primary);
-      }
-
-      .dataTables_length,
-      .dataTables_filter,
-      .dataTables_info,
-      .dataTables_paginate {
-        font-size: 14px;
-        margin: 12px 0;
-        color: var(--text-primary);
-      }
-
-      .dataTables_length select {
-        background-color: var(--surface-secondary);
-        color: var(--text-primary);
-        border: 1px solid var(--border-primary);
-        border-radius: 6px;
-        padding: 6px 8px;
-        font-size: 14px;
-      }
-
-      .dataTables_filter input[type='search'] {
-        background-color: var(--surface-secondary);
-        color: var(--text-primary);
-        border: 1px solid var(--border-primary);
-        border-radius: 6px;
-        padding: 8px 12px;
-        font-size: 14px;
-      }
-
-      .dataTables_filter input[type='search']:focus {
-        outline: none;
-        border-color: var(--accent-blue);
-      }
-
-      .dataTables_paginate .paginate_button {
-        background-color: var(--surface-secondary) !important;
-        color: var(--text-primary) !important;
-        border: 1px solid var(--border-primary) !important;
-        border-radius: 6px !important;
-        padding: 8px 12px !important;
-        margin: 0 2px !important;
-      }
-
-      .dataTables_paginate .paginate_button:hover {
-        background-color: var(--accent-blue) !important;
-        color: var(--text-primary) !important;
-      }
-
-      .dataTables_paginate .paginate_button.current {
-        background-color: var(--accent-blue) !important;
-        color: var(--text-primary) !important;
-      }
-
-      /* Responsive Design */
-      @media (max-width: 768px) {
-        .container {
-          padding: 16px;
-        }
-        
-        .header {
-          padding: 16px;
-        }
-
-        .card {
-          padding: 16px;
-        }
-
-        .card-header {
-          flex-direction: column;
-          align-items: stretch;
-          gap: 16px;
-        }
-
-        .button-group {
-          justify-content: stretch;
-        }
-
-        .button {
-          flex: 1;
-        }
-      }
-    </style>
-  </head>
-  <body>
-    <!-- Header -->
-    <div class="header">
-      <div class="header-content">
-        <h1>API Manager - APIs</h1>
-        <p>Manage and monitor your APIs across environments</p>
+  const body = `
+<div class="am-container">
+  <div class="am-page-header">
+    <div>
+      <h1>API Manager - APIs</h1>
+      <p class="am-api-subtitle">Manage and monitor your APIs across environments</p>
+    </div>
+  </div>
+  <div class="am-summary-cards">
+    ${summaryCard({ icon: '📡', value: apis.length, label: 'Total APIs' })}
+    ${summaryCard({
+      icon: '✓',
+      value: activeCount,
+      label: 'Active',
+      variant: 'healthy',
+      animationDelay: '0.05s',
+    })}
+  </div>
+  <div class="am-card am-api-list-card">
+    <div class="am-api-card-toolbar">
+      <h2 class="am-card-title am-api-card-title-reset">APIs</h2>
+      <div class="am-api-toolbar-actions">
+        ${button('Refresh', { variant: 'primary', id: 'refreshAPIs' })}
+        ${button('Download as CSV', { variant: 'secondary', id: 'downloadCSV' })}
       </div>
     </div>
-
-    <!-- Main Content -->
-    <div class="container">
-      <div class="card">
-        <div class="card-header">
-          <h2 class="card-title">APIs</h2>
-          <div class="button-group">
-            <button id="refreshAPIs" class="button">Refresh</button>
-            <button id="downloadCSV" class="button">Download as CSV</button>
-          </div>
-        </div>
-        <div class="table-wrapper">
-          <table id="apiTable" class="display">
-            <thead>
-              <tr>
-                <th>Name</th>
-                <th>Version</th>
-                <th>Stage</th>
-                <th>Technology</th>
-                <th>Status</th>
-                <th>Autodiscovery</th>
-                <th>Created</th>
-                <th>Updated</th>
-              </tr>
-            </thead>
-            <tbody>
-              ${rowsHtml}
-            </tbody>
-          </table>
-        </div>
+    <div class="am-filters am-api-table-controls">
+      <label class="am-api-entries-label">Show <select id="pageSizeSelect" class="am-select">${pageSizeOptionsHtml}</select> entries</label>
+      <div class="am-api-search-wrap">
+        <span class="am-api-search-label">Search:</span>
+        <input type="search" id="searchInput" class="am-input am-api-search" placeholder="Filter APIs…" />
       </div>
     </div>
-    <script src="${jqueryJs}"></script>
-    <script src="${dataTableJs}"></script>
-    <script>
-      const vscode = acquireVsCodeApi();
+    <div class="am-table-container am-api-table-outer">
+      <table id="apiTable" class="am-table">
+        <thead>
+          <tr>
+            <th class="am-sortable" data-sort-key="name" data-sort-type="string">Name <span class="am-sort-icon" data-sort-indicator="name"></span></th>
+            <th class="am-sortable" data-sort-key="version" data-sort-type="string">Version <span class="am-sort-icon" data-sort-indicator="version"></span></th>
+            <th class="am-sortable" data-sort-key="stage" data-sort-type="string">Stage <span class="am-sort-icon" data-sort-indicator="stage"></span></th>
+            <th class="am-sortable" data-sort-key="tech" data-sort-type="string">Technology <span class="am-sort-icon" data-sort-indicator="tech"></span></th>
+            <th class="am-sortable" data-sort-key="status" data-sort-type="string">Status <span class="am-sort-icon" data-sort-indicator="status"></span></th>
+            <th class="am-sortable" data-sort-key="autodisco" data-sort-type="string">Autodiscovery <span class="am-sort-icon" data-sort-indicator="autodisco"></span></th>
+            <th class="am-sortable" data-sort-key="created" data-sort-type="string">Created <span class="am-sort-icon" data-sort-indicator="created"></span></th>
+            <th class="am-sortable" data-sort-key="updated" data-sort-type="string">Updated <span class="am-sort-icon" data-sort-indicator="updated"></span></th>
+          </tr>
+        </thead>
+        <tbody id="apiTableBody"></tbody>
+      </table>
+    </div>
+    <div class="am-api-table-footer">
+      <span id="tableInfo" class="am-api-table-info"></span>
+      <div class="am-api-pagination" id="paginationControls"></div>
+    </div>
+  </div>
+</div>
+`;
 
-      // CSV download
-      document.getElementById('downloadCSV').addEventListener('click', () => {
-        vscode.postMessage({
-          command: 'downloadCSV',
-          data: ${JSON.stringify(apis)},
-        });
+  const extraStyles = `
+    .am-api-subtitle {
+      color: var(--am-text-secondary);
+      font-size: 14px;
+      margin-top: 6px;
+      font-weight: 400;
+    }
+    .am-api-list-card { margin-top: 8px; }
+    .am-api-card-toolbar {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 16px;
+      flex-wrap: wrap;
+      gap: 12px;
+    }
+    .am-api-card-title-reset { margin-bottom: 0; }
+    .am-api-toolbar-actions { display: flex; gap: 8px; flex-wrap: wrap; }
+    .am-api-table-controls { margin-bottom: 12px; align-items: center; }
+    .am-api-search-wrap {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      margin-left: auto;
+    }
+    .am-api-search-label { font-size: 13px; color: var(--am-text-muted); white-space: nowrap; }
+    .am-api-search { min-width: 180px; max-width: 360px; flex: 1; }
+    .am-api-table-outer { overflow-x: auto; }
+    .am-api-table-footer {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-top: 16px;
+      flex-wrap: wrap;
+      gap: 12px;
+      font-size: 13px;
+      color: var(--am-text-muted);
+    }
+    .am-api-pagination { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; }
+    .am-api-page-jump { display: flex; align-items: center; gap: 6px; font-size: 13px; }
+    .am-api-page-jump input {
+      width: 52px;
+      padding: 4px 8px;
+      background: var(--am-bg-input);
+      border: 1px solid var(--am-border-input);
+      border-radius: var(--am-radius-sm);
+      color: var(--am-text-primary);
+      font-size: 13px;
+    }
+  `;
+
+  const rowsJson = JSON.stringify(rowPayloads);
+  const apisExportJson = JSON.stringify(apis);
+
+  const scripts = `
+    const vscode = acquireVsCodeApi();
+    const ROWS = ${rowsJson};
+    const APIS_EXPORT = ${apisExportJson};
+
+    function esc(s) {
+      if (s == null) return '';
+      return String(s)
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#039;');
+    }
+    function escAttr(s) {
+      if (s == null) return '';
+      return String(s)
+        .replace(/&/g, '&amp;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#039;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;');
+    }
+
+    let filtered = ROWS.slice();
+    let currentPage = 1;
+    let pageSize = 10;
+    let sortKey = 'name';
+    let sortAsc = false;
+
+    function compareRows(a, b, key) {
+      const av = a[key] != null ? String(a[key]) : '';
+      const bv = b[key] != null ? String(b[key]) : '';
+      return av.localeCompare(bv, undefined, { sensitivity: 'base', numeric: true });
+    }
+
+    function applySort() {
+      const mult = sortAsc ? 1 : -1;
+      filtered.sort((a, b) => mult * compareRows(a, b, sortKey));
+    }
+
+    function updateSortIndicators() {
+      document.querySelectorAll('[data-sort-indicator]').forEach((el) => {
+        const k = el.getAttribute('data-sort-indicator');
+        el.textContent = k === sortKey ? (sortAsc ? '▲' : '▼') : '';
       });
+    }
 
-      // Refresh button
-      document.getElementById('refreshAPIs').addEventListener('click', () => {
-        vscode.postMessage({
-          command: 'refreshAPIs'
-        });
-      });
+    function renderTable() {
+      const tbody = document.getElementById('apiTableBody');
+      const total = filtered.length;
+      const totalPages = Math.max(1, Math.ceil(total / pageSize));
+      if (currentPage > totalPages) currentPage = totalPages;
+      if (currentPage < 1) currentPage = 1;
+      const start = total === 0 ? 0 : (currentPage - 1) * pageSize;
+      const pageRows = filtered.slice(start, start + pageSize);
 
-      $(document).ready(function () {
-        $('#apiTable').DataTable({
-          pageLength: 10,
-          lengthMenu: [[10, 25, 50, 100], [10, 25, 50, 100]],
-          language: {
-            lengthMenu: 'Show _MENU_ entries',
-            search: 'Search:',
-            info: 'Showing _START_ to _END_ of _TOTAL_ entries',
-            infoEmpty: 'Showing 0 to 0 of 0 entries',
-            zeroRecords: 'No matching entries found',
-            paginate: {
-              first: 'First',
-              last: 'Last',
-              next: 'Next',
-              previous: 'Previous'
-            }
-          }
-        });
+      tbody.innerHTML = pageRows.map((r) => \`
+        <tr class="am-row">
+          <td><a href="#" class="api-name" data-id="\${escAttr(r.id)}" data-org="\${escAttr(r.organizationId)}" data-env="\${escAttr(r.environmentId)}">\${esc(r.name)}</a></td>
+          <td>\${esc(r.version)}</td>
+          <td>\${esc(r.stage)}</td>
+          <td>\${esc(r.tech)}</td>
+          <td>\${r.statusHtml}</td>
+          <td>\${esc(r.autodisco)}</td>
+          <td>\${esc(r.created)}</td>
+          <td>\${esc(r.updated)}</td>
+        </tr>
+      \`).join('');
 
-        // Handle clicks on the Name column to open a new webview
-        document.querySelectorAll('.api-name').forEach(link => {
-          link.addEventListener('click', (event) => {
-            event.preventDefault();
-            const target = event.target;
-            const recordId = target.getAttribute('data-id');
-            const orgId = target.getAttribute('data-org');
-            const envId = target.getAttribute('data-env');
-
-            vscode.postMessage({
-              command: 'openApiDetails',
-              recordId: recordId,
-              organizationId: orgId,
-              environmentId: envId
-            });
+      document.querySelectorAll('.api-name').forEach((link) => {
+        link.addEventListener('click', (event) => {
+          event.preventDefault();
+          const target = event.currentTarget;
+          vscode.postMessage({
+            command: 'openApiDetails',
+            recordId: target.getAttribute('data-id'),
+            organizationId: target.getAttribute('data-org'),
+            environmentId: target.getAttribute('data-env')
           });
         });
       });
-    </script>
-  </body>
-</html>
-`;
+
+      const startIdx = total === 0 ? 0 : start + 1;
+      const endIdx = Math.min(start + pageSize, total);
+      document.getElementById('tableInfo').textContent = total
+        ? 'Showing ' + startIdx + ' to ' + endIdx + ' of ' + total + ' entries'
+        : 'Showing 0 to 0 of 0 entries';
+
+      const pag = document.getElementById('paginationControls');
+      const prevDisabled = currentPage <= 1 ? ' disabled' : '';
+      const nextDisabled = currentPage >= totalPages ? ' disabled' : '';
+      pag.innerHTML =
+        '<button type="button" class="am-btn am-btn-ghost am-api-page-first"' + prevDisabled + '>First</button>' +
+        '<button type="button" class="am-btn am-btn-ghost am-api-page-prev"' + prevDisabled + '>Previous</button>' +
+        '<span class="am-api-page-jump">Page <input type="number" min="1" max="' + totalPages + '" value="' + currentPage + '" id="pageJumpInput" /> of ' + totalPages + '</span>' +
+        '<button type="button" class="am-btn am-btn-ghost am-api-page-next"' + nextDisabled + '>Next</button>' +
+        '<button type="button" class="am-btn am-btn-ghost am-api-page-last"' + nextDisabled + '>Last</button>';
+
+      const bindNav = (sel, fn) => {
+        const btn = pag.querySelector(sel);
+        if (btn && !btn.disabled) btn.addEventListener('click', fn);
+      };
+      bindNav('.am-api-page-first', () => { currentPage = 1; renderTable(); });
+      bindNav('.am-api-page-prev', () => { currentPage--; renderTable(); });
+      bindNav('.am-api-page-next', () => { currentPage++; renderTable(); });
+      bindNav('.am-api-page-last', () => { currentPage = totalPages; renderTable(); });
+
+      const jump = document.getElementById('pageJumpInput');
+      if (jump) {
+        jump.addEventListener('change', () => {
+          let p = parseInt(jump.value, 10);
+          if (isNaN(p) || p < 1) p = 1;
+          if (p > totalPages) p = totalPages;
+          currentPage = p;
+          renderTable();
+        });
+      }
+
+      updateSortIndicators();
+    }
+
+    function runFilter() {
+      const q = document.getElementById('searchInput').value.trim().toLowerCase();
+      if (!q) {
+        filtered = ROWS.slice();
+      } else {
+        filtered = ROWS.filter((r) => {
+          return [r.name, r.version, r.stage, r.tech, r.status, r.autodisco, r.created, r.updated].some((f) =>
+            String(f || '').toLowerCase().includes(q)
+          );
+        });
+      }
+      applySort();
+      currentPage = 1;
+      renderTable();
+    }
+
+    document.getElementById('downloadCSV').addEventListener('click', () => {
+      vscode.postMessage({ command: 'downloadCSV', data: APIS_EXPORT });
+    });
+
+    document.getElementById('refreshAPIs').addEventListener('click', () => {
+      vscode.postMessage({ command: 'refreshAPIs' });
+    });
+
+    document.getElementById('pageSizeSelect').value = String(pageSize);
+    document.getElementById('pageSizeSelect').addEventListener('change', (e) => {
+      pageSize = parseInt(e.target.value, 10) || 10;
+      currentPage = 1;
+      renderTable();
+    });
+
+    document.getElementById('searchInput').addEventListener('input', runFilter);
+
+    document.querySelectorAll('#apiTable thead .am-sortable').forEach((th) => {
+      th.addEventListener('click', () => {
+        const key = th.getAttribute('data-sort-key');
+        if (!key) return;
+        if (sortKey === key) {
+          sortAsc = !sortAsc;
+        } else {
+          sortKey = key;
+          sortAsc = true;
+        }
+        applySort();
+        currentPage = 1;
+        renderTable();
+      });
+    });
+
+    applySort();
+    renderTable();
+  `;
+
+  return wrapWebviewHtml({
+    title: 'API Manager - APIs',
+    body,
+    scripts,
+    extraStyles,
+  });
 }
 
 /** CSV generator */

@@ -4,6 +4,15 @@ import { loginToAnypointWithOAuth } from '../controllers/oauthService.js';
 import { getUserInfo, getEnvironments } from '../controllers/anypointService';
 import { RegionService } from '../controllers/regionService';
 import { telemetryService } from '../services/telemetryService';
+import {
+    wrapWebviewHtml,
+    badge,
+    summaryCard,
+    button,
+    emptyState,
+    escapeHtml,
+    type BadgeVariant
+} from '../webview/ui-kit';
 
 export async function showAccountManagerWebview(context: vscode.ExtensionContext): Promise<void> {
     telemetryService.trackPageView('accountManager');
@@ -261,371 +270,348 @@ export async function showAccountManagerWebview(context: vscode.ExtensionContext
     await updateWebview();
 }
 
+function statusToBadgeVariant(status: string): BadgeVariant {
+    switch (status) {
+        case 'authenticated':
+            return 'success';
+        case 'expired':
+            return 'warning';
+        case 'error':
+            return 'error';
+        default:
+            return 'info';
+    }
+}
+
+function renderAccountTableRow(
+    account: AnypointAccount,
+    opts: {
+        isActive: boolean;
+        lastUsedDate: string;
+        regionDisplay: string;
+        regionIcon: string;
+    }
+): string {
+    const statusLabel = `${getStatusIcon(account.status)} ${account.status}`;
+    const statusBadge = badge(statusLabel, statusToBadgeVariant(account.status), true);
+    const activeBadgeHtml = opts.isActive ? badge('ACTIVE', 'info', true) : '';
+
+    const switchBtn = !opts.isActive
+        ? button('Switch', {
+            variant: 'primary',
+            onclick: `switchAccount(${JSON.stringify(account.id)}, ${JSON.stringify(account.organizationName)})`
+        })
+        : '';
+
+    const refreshBtn =
+        account.status === 'expired' || account.status === 'error'
+            ? button('Refresh', {
+                variant: 'secondary',
+                onclick: `refreshAccount(${JSON.stringify(account.id)})`
+            })
+            : '';
+
+    const rowClass = `am-row${opts.isActive ? ' account-row-active' : ''}`;
+
+    return `
+        <tr class="${rowClass}" data-account-id="${escapeHtml(account.id)}">
+            <td class="account-cell-org">
+                <div class="cell-org-name">${escapeHtml(account.organizationName)}</div>
+                <div class="cell-org-user">${escapeHtml(account.userName)} (${escapeHtml(account.userEmail)})</div>
+            </td>
+            <td class="account-cell-mono">${escapeHtml(account.organizationId)}</td>
+            <td title="Control Plane Region">${opts.regionIcon} ${escapeHtml(opts.regionDisplay)}</td>
+            <td>
+                <span class="account-status-badges" title="${escapeHtml(account.status)}">
+                    ${statusBadge}
+                    ${activeBadgeHtml}
+                </span>
+            </td>
+            <td>${escapeHtml(opts.lastUsedDate)}</td>
+            <td class="account-cell-actions">
+                <div class="account-actions am-actions">
+                    ${switchBtn}
+                    ${refreshBtn}
+                    ${button('Change Region', {
+                        variant: 'secondary',
+                        onclick: `changeRegion(${JSON.stringify(account.id)}, ${JSON.stringify(account.organizationName)})`
+                    })}
+                    ${button('Remove', {
+                        variant: 'danger',
+                        onclick: `removeAccount(${JSON.stringify(account.id)}, ${JSON.stringify(account.organizationName)})`
+                    })}
+                </div>
+            </td>
+        </tr>
+    `;
+}
+
 async function getAccountManagerWebviewContent(
     context: vscode.ExtensionContext,
-    webview: vscode.Webview,
+    _webview: vscode.Webview,
     accountService: AccountService
 ): Promise<string> {
     const accounts = await accountService.getAccounts();
-    const activeAccount = await accountService.getActiveAccount();
     const regionService = new RegionService(context);
 
-    const accountsHtml = await Promise.all(accounts.map(async (account) => {
-        const statusIcon = getStatusIcon(account.status);
-        const statusColor = getStatusColor(account.status);
-        const isActive = account.isActive;
-        const lastUsedDate = new Date(account.lastUsed).toLocaleDateString();
+    const accountRows = await Promise.all(
+        accounts.map(async (account) => {
+            const isActive = account.isActive;
+            const lastUsedDate = new Date(account.lastUsed).toLocaleDateString();
 
-        // Get region information for this account
-        const regionId = account.region || await accountService.getAccountData(account.id, 'region') || 'us';
-        const region = regionService.getRegionById(regionId);
-        const regionDisplay = region ? region.displayName : 'US (Default)';
-        const regionIcon = getRegionIcon(regionId);
+            const regionId = account.region || (await accountService.getAccountData(account.id, 'region')) || 'us';
+            const region = regionService.getRegionById(regionId);
+            const regionDisplay = region ? region.displayName : 'US (Default)';
+            const regionIcon = getRegionIcon(regionId);
 
-        return `
-            <div class="account-card ${isActive ? 'active' : ''}" data-account-id="${account.id}">
-                <div class="account-header">
-                    <div class="account-info">
-                        <h3 class="account-org-name">${account.organizationName}</h3>
-                        <p class="account-details">
-                            <span class="account-user">${account.userName} (${account.userEmail})</span>
-                        </p>
-                        <p class="account-meta">
-                            <span class="org-id">Org ID: ${account.organizationId}</span>
-                            <span class="region-info" title="Control Plane Region">${regionIcon} ${regionDisplay}</span>
-                            <span class="last-used">Last used: ${lastUsedDate}</span>
-                        </p>
-                    </div>
-                    <div class="account-status">
-                        <span class="status-indicator ${account.status}" title="${account.status}">
-                            ${statusIcon}
-                        </span>
-                        ${isActive ? '<span class="active-badge">ACTIVE</span>' : ''}
-                    </div>
+            return renderAccountTableRow(account, {
+                isActive,
+                lastUsedDate,
+                regionDisplay,
+                regionIcon
+            });
+        })
+    );
+
+    const accountsTableBody = accountRows.join('');
+
+    const authenticatedCount = accounts.filter((a) => a.status === 'authenticated').length;
+    const needsAttentionCount = accounts.filter((a) => a.status === 'expired' || a.status === 'error').length;
+    const attentionVariant: 'warning' | 'healthy' =
+        needsAttentionCount > 0 ? 'warning' : 'healthy';
+
+    const summarySection =
+        accounts.length > 0
+            ? `
+        <div class="am-summary-cards account-summary-cards">
+            ${summaryCard({
+                icon: '👤',
+                value: accounts.length,
+                label: 'Accounts',
+                animationDelay: '0s'
+            })}
+            ${summaryCard({
+                icon: '✓',
+                value: authenticatedCount,
+                label: 'Authenticated',
+                variant: 'healthy',
+                animationDelay: '0.05s'
+            })}
+            ${summaryCard({
+                icon: '⚠',
+                value: needsAttentionCount,
+                label: 'Needs refresh',
+                variant: attentionVariant,
+                animationDelay: '0.1s'
+            })}
+        </div>
+    `
+            : '';
+
+    const mainContent =
+        accounts.length > 0
+            ? `
+        <div class="am-card account-list-card">
+            <div class="am-table-container">
+                <table class="am-table account-table">
+                    <thead>
+                        <tr>
+                            <th>Account</th>
+                            <th>Org ID</th>
+                            <th>Region</th>
+                            <th>Status</th>
+                            <th>Last used</th>
+                            <th>Actions</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        ${accountsTableBody}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+            `
+            : emptyState({
+                icon: '👤',
+                title: 'No Accounts Found',
+                description: 'Get started by adding your first Anypoint Platform account.',
+                actionHtml: button('Add your first account', { variant: 'primary', onclick: 'addAccount()', icon: '+' })
+            });
+
+    const body = `
+        <div class="am-container">
+            <div class="am-page-header">
+                <div>
+                    <h1>Anypoint Account Manager</h1>
+                    <p class="am-account-header-desc">Manage multiple Anypoint Platform accounts and switch between organizations</p>
                 </div>
-                <div class="account-actions">
-                    ${!isActive ? `<button class="btn btn-primary" onclick="switchAccount('${account.id}', '${account.organizationName}')">Switch</button>` : ''}
-                    ${account.status === 'expired' || account.status === 'error' ?
-                        `<button class="btn btn-secondary" onclick="refreshAccount('${account.id}')">Refresh</button>` : ''}
-                    <button class="btn btn-secondary" onclick="changeRegion('${account.id}', '${account.organizationName}')">Change Region</button>
-                    <button class="btn btn-danger" onclick="removeAccount('${account.id}', '${account.organizationName}')">Remove</button>
+                <div class="am-page-header-right account-header-actions">
+                    ${button('Add New Account', { variant: 'primary', onclick: 'addAccount()', icon: '+' })}
+                    ${button('Refresh', { variant: 'secondary', onclick: 'refreshView()', icon: '🔄' })}
                 </div>
             </div>
-        `;
-    }));
-
-    const accountsHtmlString = accountsHtml.join('');
-
-    return `
-        <!DOCTYPE html>
-        <html lang="en">
-        <head>
-            <meta charset="UTF-8">
-            <meta name="viewport" content="width=device-width, initial-scale=1.0">
-            <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; script-src 'unsafe-inline';">
-            <title>Anypoint Account Manager</title>
-            <style>
-                body {
-                    font-family: var(--vscode-font-family);
-                    background-color: var(--vscode-editor-background);
-                    color: var(--vscode-editor-foreground);
-                    padding: 20px;
-                    margin: 0;
-                }
-
-                .header {
-                    margin-bottom: 30px;
-                    padding-bottom: 20px;
-                    border-bottom: 1px solid var(--vscode-panel-border);
-                }
-
-                .header h1 {
-                    color: var(--vscode-editor-foreground);
-                    margin: 0 0 10px 0;
-                    font-size: 24px;
-                }
-
-                .header p {
-                    color: var(--vscode-descriptionForeground);
-                    margin: 0;
-                    font-size: 14px;
-                }
-
-                .actions-bar {
-                    margin-bottom: 30px;
-                    display: flex;
-                    gap: 15px;
-                    align-items: center;
-                }
-
-                .account-card {
-                    background-color: var(--vscode-list-hoverBackground);
-                    border: 1px solid var(--vscode-panel-border);
-                    border-radius: 8px;
-                    padding: 20px;
-                    margin-bottom: 15px;
-                    transition: all 0.2s ease;
-                }
-
-                .account-card:hover {
-                    background-color: var(--vscode-list-activeSelectionBackground);
-                    border-color: var(--vscode-focusBorder);
-                }
-
-                .account-card.active {
-                    border-color: var(--vscode-button-background);
-                    background-color: var(--vscode-button-hoverBackground);
-                }
-
-                .account-header {
-                    display: flex;
-                    justify-content: space-between;
-                    align-items: flex-start;
-                    margin-bottom: 15px;
-                }
-
-                .account-info h3 {
-                    margin: 0 0 8px 0;
-                    color: var(--vscode-editor-foreground);
-                    font-size: 18px;
-                    font-weight: 600;
-                }
-
-                .account-details {
-                    margin: 0 0 8px 0;
-                    color: var(--vscode-descriptionForeground);
-                    font-size: 14px;
-                }
-
-                .account-meta {
-                    margin: 0;
-                    font-size: 12px;
-                    color: var(--vscode-descriptionForeground);
-                    display: flex;
-                    flex-direction: column;
-                    gap: 4px;
-                }
-
-                .account-status {
-                    display: flex;
-                    flex-direction: column;
-                    align-items: flex-end;
-                    gap: 8px;
-                }
-
-                .status-indicator {
-                    padding: 4px 8px;
-                    border-radius: 12px;
-                    font-size: 12px;
-                    font-weight: bold;
-                    display: flex;
-                    align-items: center;
-                    gap: 4px;
-                }
-
-                .status-indicator.authenticated {
-                    background-color: var(--vscode-testing-iconPassed);
-                    color: white;
-                }
-
-                .status-indicator.expired {
-                    background-color: var(--vscode-testing-iconQueued);
-                    color: white;
-                }
-
-                .status-indicator.error {
-                    background-color: var(--vscode-testing-iconFailed);
-                    color: white;
-                }
-
-                .active-badge {
-                    background-color: var(--vscode-button-background);
-                    color: var(--vscode-button-foreground);
-                    padding: 2px 8px;
-                    border-radius: 10px;
-                    font-size: 11px;
-                    font-weight: bold;
-                }
-
-                .account-actions {
-                    display: flex;
-                    gap: 10px;
-                    flex-wrap: wrap;
-                }
-
-                .btn {
-                    background-color: var(--vscode-button-background);
-                    color: var(--vscode-button-foreground);
-                    border: none;
-                    padding: 8px 16px;
-                    border-radius: 4px;
-                    cursor: pointer;
-                    font-size: 13px;
-                    font-weight: 500;
-                    transition: background-color 0.2s ease;
-                }
-
-                .btn:hover:not(:disabled) {
-                    background-color: var(--vscode-button-hoverBackground);
-                }
-
-                .btn:disabled {
-                    opacity: 0.5;
-                    cursor: not-allowed;
-                }
-
-                .btn.btn-primary {
-                    background-color: var(--vscode-button-background);
-                }
-
-                .btn.btn-secondary {
-                    background-color: var(--vscode-button-secondaryBackground);
-                    color: var(--vscode-button-secondaryForeground);
-                }
-
-                .btn.btn-secondary:hover:not(:disabled) {
-                    background-color: var(--vscode-button-secondaryHoverBackground);
-                }
-
-                .btn.btn-danger {
-                    background-color: var(--vscode-testing-iconFailed);
-                    color: white;
-                }
-
-                .btn.btn-danger:hover:not(:disabled) {
-                    background-color: #dc3545;
-                }
-
-                .btn.btn-add {
-                    background-color: var(--vscode-testing-iconPassed);
-                    color: white;
-                }
-
-                .btn.btn-add:hover {
-                    background-color: #28a745;
-                }
-
-                .empty-state {
-                    text-align: center;
-                    padding: 60px 20px;
-                    color: var(--vscode-descriptionForeground);
-                }
-
-                .empty-state h2 {
-                    margin-bottom: 15px;
-                    color: var(--vscode-editor-foreground);
-                }
-
-                .empty-state p {
-                    margin-bottom: 30px;
-                    line-height: 1.6;
-                }
-
-                @media (max-width: 600px) {
-                    .account-header {
-                        flex-direction: column;
-                        align-items: stretch;
-                    }
-
-                    .account-status {
-                        flex-direction: row;
-                        align-items: center;
-                        justify-content: space-between;
-                        margin-top: 15px;
-                    }
-
-                    .actions-bar {
-                        flex-direction: column;
-                        align-items: stretch;
-                    }
-                }
-            </style>
-        </head>
-        <body>
-            <div class="header">
-                <h1>Anypoint Account Manager</h1>
-                <p>Manage multiple Anypoint Platform accounts and switch between organizations</p>
-            </div>
-
-            <div class="actions-bar">
-                <button class="btn btn-add" onclick="addAccount()">+ Add New Account</button>
-                <button class="btn btn-secondary" onclick="refreshView()">🔄 Refresh</button>
-            </div>
-
-            ${accounts.length > 0 ? `
-                <div class="accounts-container">
-                    ${accountsHtmlString}
-                </div>
-            ` : `
-                <div class="empty-state">
-                    <h2>No Accounts Found</h2>
-                    <p>Get started by adding your first Anypoint Platform account.</p>
-                    <button class="btn btn-add" onclick="addAccount()">+ Add Your First Account</button>
-                </div>
-            `}
-
-            <script>
-                const vscode = acquireVsCodeApi();
-                let isProcessing = false; // Prevent double-clicks
-
-                function addAccount() {
-                    if (isProcessing) {
-                        console.log('Add account already in progress, ignoring click');
-                        return;
-                    }
-                    console.log('Add account button clicked');
-                    isProcessing = true;
-                    vscode.postMessage({ command: 'addAccount' });
-
-                    // Reset after 30 seconds in case of timeout
-                    setTimeout(() => {
-                        isProcessing = false;
-                    }, 30000);
-                }
-
-                function switchAccount(accountId, accountName) {
-                    console.log('Switch account clicked:', accountId, accountName);
-                    vscode.postMessage({
-                        command: 'switchAccount',
-                        accountId: accountId,
-                        accountName: accountName
-                    });
-                }
-
-                function removeAccount(accountId, accountName) {
-                    console.log('Remove account clicked:', accountId, accountName);
-                    vscode.postMessage({
-                        command: 'removeAccount',
-                        accountId: accountId,
-                        accountName: accountName
-                    });
-                }
-
-                function refreshAccount(accountId) {
-                    console.log('Refresh account clicked:', accountId);
-                    vscode.postMessage({
-                        command: 'refreshAccount',
-                        accountId: accountId
-                    });
-                }
-
-                function changeRegion(accountId, accountName) {
-                    console.log('Change region clicked:', accountId, accountName);
-                    vscode.postMessage({
-                        command: 'changeRegion',
-                        accountId: accountId,
-                        accountName: accountName
-                    });
-                }
-
-                function refreshView() {
-                    console.log('Refresh view clicked');
-                    vscode.postMessage({ command: 'refresh' });
-                }
-            </script>
-        </body>
-        </html>
+            ${summarySection}
+            ${mainContent}
+        </div>
     `;
+
+    const scripts = `
+        const vscode = acquireVsCodeApi();
+        let isProcessing = false;
+
+        function addAccount() {
+            if (isProcessing) {
+                console.log('Add account already in progress, ignoring click');
+                return;
+            }
+            console.log('Add account button clicked');
+            isProcessing = true;
+            vscode.postMessage({ command: 'addAccount' });
+            setTimeout(() => {
+                isProcessing = false;
+            }, 30000);
+        }
+
+        function switchAccount(accountId, accountName) {
+            console.log('Switch account clicked:', accountId, accountName);
+            vscode.postMessage({
+                command: 'switchAccount',
+                accountId: accountId,
+                accountName: accountName
+            });
+        }
+
+        function removeAccount(accountId, accountName) {
+            console.log('Remove account clicked:', accountId, accountName);
+            vscode.postMessage({
+                command: 'removeAccount',
+                accountId: accountId,
+                accountName: accountName
+            });
+        }
+
+        function refreshAccount(accountId) {
+            console.log('Refresh account clicked:', accountId);
+            vscode.postMessage({
+                command: 'refreshAccount',
+                accountId: accountId
+            });
+        }
+
+        function changeRegion(accountId, accountName) {
+            console.log('Change region clicked:', accountId, accountName);
+            vscode.postMessage({
+                command: 'changeRegion',
+                accountId: accountId,
+                accountName: accountName
+            });
+        }
+
+        function refreshView() {
+            console.log('Refresh view clicked');
+            vscode.postMessage({ command: 'refresh' });
+        }
+    `;
+
+    const extraStyles = `
+        .am-account-header-desc {
+            margin-top: 6px;
+            font-size: 14px;
+            color: var(--am-text-secondary);
+            max-width: 520px;
+        }
+
+        .account-header-actions {
+            flex-wrap: wrap;
+        }
+
+        .account-summary-cards {
+            margin-bottom: 24px;
+        }
+
+        .account-list-card {
+            padding: 0;
+            overflow: hidden;
+        }
+
+        .account-list-card .am-table-container {
+            border: none;
+            border-radius: 0;
+            background: transparent;
+        }
+
+        .account-list-card:hover {
+            transform: none;
+        }
+
+        .account-table .account-cell-mono {
+            font-family: var(--vscode-editor-font-family, ui-monospace, monospace);
+            font-size: 12px;
+            color: var(--am-text-secondary);
+        }
+
+        .cell-org-name {
+            font-size: 14px;
+            font-weight: 600;
+            color: var(--am-text-primary);
+            margin-bottom: 4px;
+        }
+
+        .cell-org-user {
+            font-size: 12px;
+            color: var(--am-text-muted);
+        }
+
+        .account-row-active td {
+            background: color-mix(in srgb, var(--am-info) 8%, transparent);
+        }
+
+        .account-table .account-cell-actions {
+            vertical-align: top;
+            min-width: 220px;
+        }
+
+        .account-actions {
+            flex-wrap: wrap;
+            gap: 8px;
+        }
+
+        .account-status-badges {
+            display: flex;
+            flex-direction: column;
+            align-items: flex-start;
+            gap: 6px;
+        }
+
+        @media (max-width: 900px) {
+            .account-table thead {
+                display: none;
+            }
+
+            .account-table tr.am-row {
+                display: block;
+                border-bottom: 1px solid var(--am-border);
+                padding: 12px 0;
+            }
+
+            .account-table tr.am-row td {
+                display: block;
+                border: none;
+                padding: 6px 16px;
+            }
+
+            .account-table tr.am-row td.account-cell-actions {
+                padding-top: 12px;
+            }
+        }
+    `;
+
+    return wrapWebviewHtml({
+        title: 'Anypoint Account Manager',
+        body,
+        scripts,
+        extraStyles
+    });
 }
 
 function getStatusIcon(status: string): string {
@@ -638,19 +624,6 @@ function getStatusIcon(status: string): string {
             return '❌';
         default:
             return '❓';
-    }
-}
-
-function getStatusColor(status: string): string {
-    switch (status) {
-        case 'authenticated':
-            return '#28a745';
-        case 'expired':
-            return '#ffc107';
-        case 'error':
-            return '#dc3545';
-        default:
-            return '#6c757d';
     }
 }
 

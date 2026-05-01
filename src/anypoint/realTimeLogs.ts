@@ -6,6 +6,7 @@ import { AccountService } from '../controllers/accountService.js';
 import { ApiHelper } from '../controllers/apiHelper.js';
 import * as fs from 'fs';
 import { getGitHubStarBannerHtml, getGitHubStarBannerStyles, getGitHubStarBannerScript } from '../utils/starPrompt.js';
+import { wrapWebviewHtml, badge, escapeHtml, stripScriptTags } from '../webview/ui-kit';
 import { telemetryService } from '../services/telemetryService';
 import { jumpToSource, buildReplaySession, getInlineHypotheses } from '../fire/orchestrator.js';
 import { isActionableLogEntry } from '../fire/logParser.js';
@@ -1085,745 +1086,234 @@ async function setRefreshRate(session: RealTimeLogSession, rate: number) {
 }
 
 /**
- * Generate HTML for real-time logs viewer
+ * Strip outer <script> tags so banner script can be merged into webview script bundle.
  */
-function getRealTimeLogsHtml(
-    webview: vscode.Webview,
-    extensionUri: vscode.Uri,
-    applicationDomain: string,
-    cloudhubVersion: 'CH1' | 'CH2' | 'HYBRID' = 'CH1'
-): string {
-    const logoPath = vscode.Uri.joinPath(extensionUri, 'logo.png');
-    const logoSrc = webview.asWebviewUri(logoPath);
+const stripOuterScriptTags = stripScriptTags;
 
+function getRealTimeLogsExtraStyles(): string {
     return `
-<!DOCTYPE html>
-<html lang="en">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Real-Time Logs - ${applicationDomain}</title>
-    <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Fira+Code:wght@400;600&display=swap" />
-    <style>
-        /* Code Time inspired theme */
-        :root {
-            --background-primary: #1e2328;
-            --background-secondary: #161b22;
-            --surface-primary: #21262d;
-            --surface-secondary: #30363d;
-            --surface-accent: #0d1117;
-            --text-primary: #f0f6fc;
-            --text-secondary: #7d8590;
-            --text-muted: #656d76;
-            --accent-blue: #58a6ff;
-            --accent-light: #79c0ff;
-            --border-primary: #30363d;
-            --border-muted: #21262d;
-            --success: #3fb950;
-            --warning: #d29922;
-            --error: #f85149;
+        /* ── Page ──────────────────────────────────────────────────────── */
+        .rtl-page { max-width: 1200px; margin: 0 auto; padding: 36px 40px; animation: rtl-fadeIn 0.4s ease-out; }
+        @keyframes rtl-fadeIn { from { opacity: 0; } to { opacity: 1; } }
+
+        /* ── Header ────────────────────────────────────────────────────── */
+        .rtl-header {
+            display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 32px;
+        }
+        .rtl-title {
+            font-size: 26px; font-weight: 300; letter-spacing: -0.5px;
+            color: var(--am-text-primary); margin: 0 0 8px 0;
+        }
+        .rtl-meta {
+            display: flex; gap: 8px;
+            font-size: 10px; font-weight: 600; text-transform: uppercase;
+            letter-spacing: 0.8px; color: var(--am-text-muted);
+        }
+        .rtl-meta span::after { content: '\\00b7'; margin-left: 6px; }
+        .rtl-meta span:last-child::after { content: ''; margin: 0; }
+
+        .rtl-header-right { display: flex; align-items: center; }
+        .rtl-status-pill {
+            display: flex; align-items: center; gap: 8px;
+            font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.6px;
+            color: var(--am-text-muted);
+        }
+        .rtl-status-dot {
+            width: 8px; height: 8px; border-radius: 50%;
+            background: var(--am-text-muted); opacity: 0.4;
+        }
+        .rtl-status-dot.streaming {
+            background: var(--am-success); opacity: 1;
+            animation: am-pulse 2s infinite;
         }
 
-        * {
-            margin: 0;
-            padding: 0;
-            box-sizing: border-box;
+        /* ── Stats strip (matches Command Center hero) ─────────────── */
+        .rtl-hero { margin-bottom: 32px; }
+        .rtl-stats { display: flex; flex-wrap: wrap; gap: 36px; }
+        .rtl-stat-label {
+            font-size: 10px; font-weight: 600; text-transform: uppercase;
+            letter-spacing: 0.8px; color: var(--am-text-muted); margin-bottom: 4px;
+        }
+        .rtl-stat-value {
+            font-size: 17px; font-weight: 500; color: var(--am-text-primary);
         }
 
-        body {
-            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Noto Sans', Helvetica, Arial, sans-serif;
-            background: var(--background-primary);
-            color: var(--text-primary);
-            font-size: 14px;
-            line-height: 1.5;
+        /* ── Toolbar (icon buttons like CC) ─────────────────────────── */
+        .rtl-toolbar {
+            display: flex; gap: 6px; padding: 8px 0; margin-bottom: 24px;
+            border-bottom: 1px solid var(--am-border); align-items: center; flex-wrap: wrap;
+        }
+        .rtl-toolbar-group { display: flex; gap: 4px; align-items: center; }
+        .rtl-toolbar-sep { width: 1px; background: var(--am-border); margin: 4px 10px; align-self: stretch; }
+        .rtl-tool-btn {
+            background: none; border: 1px solid transparent; border-radius: var(--am-radius-sm);
+            color: var(--am-text-muted); width: 32px; height: 32px;
+            display: flex; align-items: center; justify-content: center;
+            cursor: pointer; transition: all 0.15s; position: relative; font-family: inherit;
+        }
+        .rtl-tool-btn:hover:not(:disabled) { color: var(--am-text-primary); border-color: var(--am-border); background: var(--am-bg-surface); }
+        .rtl-tool-btn:disabled { opacity: 0.3; cursor: not-allowed; }
+        .rtl-tool-btn svg { width: 15px; height: 15px; }
+        .rtl-tool-start { color: var(--am-success); }
+        .rtl-tool-start:hover:not(:disabled) { color: var(--am-success); border-color: var(--am-success); background: color-mix(in srgb, var(--am-success) 8%, transparent); }
+
+        .rtl-tool-btn[title]:hover::after {
+            content: attr(title);
+            position: absolute; top: 100%; left: 50%; transform: translateX(-50%);
+            padding: 4px 8px; font-size: 10px; white-space: nowrap;
+            background: var(--am-bg-secondary); border: 1px solid var(--am-border);
+            border-radius: var(--am-radius-sm); color: var(--am-text-primary);
+            margin-top: 4px; z-index: 10;
         }
 
-        /* Header Section */
-        .header {
-            background-color: var(--background-secondary);
-            border-bottom: 1px solid var(--border-primary);
-            padding: 24px 32px;
+        .rtl-select {
+            background: transparent; border: 1px solid var(--am-border);
+            border-radius: var(--am-radius-sm); color: var(--am-text-secondary);
+            font-size: 11px; font-weight: 600; padding: 6px 10px;
+            cursor: pointer; font-family: inherit;
         }
+        .rtl-select:focus { border-color: var(--am-info); outline: none; }
 
-        .header-content {
-            max-width: 1200px;
-            margin: 0 auto;
-            display: flex;
-            align-items: center;
-            justify-content: space-between;
+        .rtl-search-wrap {
+            flex: 1; max-width: 360px; position: relative; margin-left: auto;
         }
+        .rtl-search-icon {
+            position: absolute; left: 10px; top: 50%; transform: translateY(-50%);
+            color: var(--am-text-muted); pointer-events: none;
+        }
+        .rtl-search-input {
+            width: 100%; background: transparent; border: 1px solid var(--am-border);
+            border-radius: var(--am-radius-sm); color: var(--am-text-primary);
+            font-size: 12px; padding: 7px 32px 7px 32px; font-family: inherit;
+        }
+        .rtl-search-input::placeholder { color: var(--am-text-muted); }
+        .rtl-search-input:focus { border-color: var(--am-info); outline: none; }
+        .rtl-search-clear {
+            position: absolute; right: 4px; top: 50%; transform: translateY(-50%);
+            background: none; border: none; color: var(--am-text-muted); cursor: pointer;
+            font-size: 14px; padding: 4px 6px; font-family: inherit;
+        }
+        .rtl-search-clear:hover { color: var(--am-text-primary); }
 
-        .header-left {
-            display: flex;
-            align-items: center;
-            gap: 12px;
+        /* ── Export progress ────────────────────────────────────────── */
+        .rtl-export-progress {
+            padding: 12px 16px; margin-bottom: 16px;
+            background: var(--am-bg-surface); border: 1px solid var(--am-border);
+            border-radius: var(--am-radius-sm); animation: rtl-fadeIn 0.3s ease;
         }
+        .rtl-progress-content { display: flex; align-items: center; gap: 12px; }
+        .rtl-progress-spinner {
+            width: 16px; height: 16px; border: 2px solid var(--am-border);
+            border-top-color: var(--am-text-secondary); border-radius: 50%;
+            animation: rtl-spin 1s linear infinite;
+        }
+        @keyframes rtl-spin { to { transform: rotate(360deg); } }
+        .rtl-progress-message { font-weight: 500; font-size: 12px; color: var(--am-text-primary); }
+        .rtl-progress-details { font-size: 11px; color: var(--am-text-muted); font-family: var(--vscode-editor-font-family, ui-monospace, monospace); }
 
-        .header-left img {
-            height: 32px;
-            width: auto;
+        /* ── Log panel ─────────────────────────────────────────────── */
+        .rtl-panel {
+            border: 1px solid var(--am-border); border-radius: var(--am-radius-sm);
+            overflow: hidden; display: flex; flex-direction: column;
+            height: calc(100vh - 320px); min-height: 400px;
         }
-
-        .header-info h1 {
-            font-size: 28px;
-            font-weight: 600;
-            margin: 0 0 4px 0;
-            color: var(--text-primary);
+        .rtl-panel-bar {
+            display: flex; justify-content: space-between; align-items: center;
+            padding: 10px 20px; border-bottom: 1px solid var(--am-border);
+            flex-wrap: wrap; gap: 8px;
         }
-
-        .header-info p {
-            font-size: 16px;
-            color: var(--text-secondary);
-            margin: 0;
+        .rtl-panel-stats {
+            font-size: 11px; font-weight: 600; text-transform: uppercase;
+            letter-spacing: 0.6px; color: var(--am-text-muted);
         }
-
-        /* Status Indicator */
-        .status-indicator {
-            display: flex;
-            align-items: center;
-            gap: 8px;
-            padding: 8px 16px;
-            background: var(--surface-primary);
-            border: 1px solid var(--border-primary);
-            border-radius: 8px;
-        }
-
-        .status-dot {
-            width: 8px;
-            height: 8px;
-            border-radius: 50%;
-            background: var(--error);
-        }
-
-        .status-dot.streaming {
-            background: var(--success);
-            animation: pulse 2s infinite;
-        }
-
-        @keyframes pulse {
-            0% { opacity: 1; }
-            50% { opacity: 0.5; }
-            100% { opacity: 1; }
-        }
-
-        /* Statistics Cards */
-        .stats-grid {
-            max-width: 1200px;
-            margin: 0 auto;
-            padding: 32px;
-            display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
-            gap: 20px;
-            margin-bottom: 24px;
-        }
-
-        .stat-card {
-            background-color: var(--surface-primary);
-            border: 1px solid var(--border-primary);
-            border-radius: 12px;
-            padding: 20px;
-            transition: all 0.2s;
-        }
-
-        .stat-card:hover {
-            border-color: var(--border-muted);
-            transform: translateY(-1px);
-        }
-
-        .stat-header {
-            display: flex;
-            align-items: center;
-            justify-content: space-between;
-            margin-bottom: 12px;
-        }
-
-        .stat-title {
-            font-size: 14px;
-            font-weight: 500;
-            color: var(--text-secondary);
-            margin: 0;
-        }
-
-        .stat-value {
-            font-size: 28px;
-            font-weight: 600;
-            color: var(--text-primary);
-            margin: 0 0 4px 0;
-            line-height: 1.2;
-        }
-
-        .stat-subtitle {
-            font-size: 13px;
-            color: var(--text-muted);
-            margin: 0;
-        }
-
-        /* Controls Section */
-        .controls-card {
-            max-width: 1200px;
-            margin: 0 auto 24px auto;
-            padding: 0 32px;
-        }
-
-        .controls {
-            background: var(--surface-primary);
-            border: 1px solid var(--border-primary);
-            border-radius: 12px;
-            padding: 24px;
-            display: flex;
-            flex-wrap: wrap;
-            gap: 16px;
-            align-items: center;
-        }
-
-        .control-group {
-            display: flex;
-            align-items: center;
-            gap: 8px;
-        }
-
-        .btn {
-            padding: 8px 16px;
-            border: 1px solid var(--border-primary);
-            background: var(--surface-secondary);
-            color: var(--text-primary);
-            border-radius: 8px;
-            cursor: pointer;
-            font-size: 14px;
-            font-weight: 500;
-            transition: all 0.2s ease;
-            display: flex;
-            align-items: center;
-            gap: 6px;
-        }
-
-        .btn:hover {
-            background: var(--surface-accent);
-            border-color: var(--accent-blue);
-        }
-
-        .btn:disabled {
-            opacity: 0.5;
-            cursor: not-allowed;
-        }
-
-        .btn:disabled:hover {
-            background: var(--surface-secondary);
-            border-color: var(--border-primary);
-        }
-
-        .btn-primary {
-            background: var(--accent-blue);
-            border-color: var(--accent-blue);
-            color: white;
-        }
-
-        .btn-primary:hover {
-            background: var(--accent-light);
-        }
-
-        .btn-success {
-            background: var(--success);
-            border-color: var(--success);
-            color: white;
-        }
-
-        .btn-success:hover {
-            background: #2ea043;
-        }
-
-        .btn-danger {
-            background: var(--error);
-            border-color: var(--error);
-            color: white;
-        }
-
-        .btn-danger:hover {
-            background: #da3633;
-        }
-
-        /* Search Controls */
-        .search-controls {
-            display: flex;
-            gap: 8px;
-            align-items: center;
-            flex: 1;
-            max-width: 400px;
-        }
-
-        .search-input {
-            flex: 1;
-            padding: 8px 12px;
-            background: var(--background-primary);
-            border: 1px solid var(--border-primary);
-            border-radius: 8px;
-            color: var(--text-primary);
-            font-size: 14px;
-        }
-
-        .search-input:focus {
-            outline: none;
-            border-color: var(--accent-blue);
-        }
-
-        .search-input::placeholder {
-            color: var(--text-muted);
-        }
-
-        /* Export Controls */
-        .export-info {
-            display: flex;
-            align-items: center;
-            gap: 6px;
-            padding: 4px 8px;
-            background: rgba(88, 166, 255, 0.1);
-            border: 1px solid rgba(88, 166, 255, 0.3);
-            border-radius: 6px;
-            font-size: 12px;
-            color: var(--accent-blue);
-        }
-
-        /* Export Progress */
-        .export-progress {
-            margin: 16px 0;
-            padding: 16px;
-            background: var(--surface-primary);
-            border: 1px solid var(--border-primary);
-            border-radius: 8px;
-            animation: fadeIn 0.3s ease;
-        }
-
-        .progress-content {
-            display: flex;
-            align-items: center;
-            gap: 12px;
-        }
-
-        .progress-spinner {
-            width: 20px;
-            height: 20px;
-            border: 2px solid var(--border-primary);
-            border-top: 2px solid var(--accent-blue);
-            border-radius: 50%;
-            animation: spin 1s linear infinite;
-        }
-
-        .progress-text {
-            flex: 1;
-        }
-
-        .progress-message {
-            font-weight: 500;
-            color: var(--text-primary);
-            margin-bottom: 4px;
-        }
-
-        .progress-details {
-            font-size: 12px;
-            color: var(--text-secondary);
-            font-family: 'Fira Code', monospace;
-        }
-
-        @keyframes spin {
-            0% { transform: rotate(0deg); }
-            100% { transform: rotate(360deg); }
-        }
-
-        @keyframes fadeIn {
-            from { opacity: 0; transform: translateY(-10px); }
-            to { opacity: 1; transform: translateY(0); }
-        }
-
-        /* Form Elements */
-        select {
-            padding: 8px 12px;
-            background: var(--background-primary);
-            border: 1px solid var(--border-primary);
-            border-radius: 8px;
-            color: var(--text-primary);
-            font-size: 14px;
-        }
-
-        select:focus {
-            outline: none;
-            border-color: var(--accent-blue);
-        }
-
-        label {
-            font-size: 14px;
-            font-weight: 500;
-            color: var(--text-secondary);
-        }
-
-        /* Logs Container */
-        .logs-container {
-            max-width: 1200px;
-            margin: 0 auto;
-            padding: 0 32px 32px 32px;
-        }
-
-        .logs-card {
-            background: var(--surface-primary);
-            border: 1px solid var(--border-primary);
-            border-radius: 12px;
-            overflow: hidden;
-            height: calc(100vh - 400px);
-            min-height: 500px;
-            display: flex;
-            flex-direction: column;
-        }
-
-        .logs-header {
-            background: var(--background-secondary);
-            border-bottom: 1px solid var(--border-primary);
-            padding: 16px 24px;
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-        }
-
-        .logs-stats {
-            color: var(--text-secondary);
-            font-size: 14px;
-            font-family: 'Fira Code', monospace;
-        }
-        
         .status-message {
-            font-size: 14px;
-            font-weight: 500;
-            padding: 6px 12px;
-            border-radius: 6px;
-            transition: all 0.3s ease;
+            font-size: 11px; font-weight: 600; letter-spacing: 0.4px;
+            padding: 4px 10px; border-radius: var(--am-radius-sm); transition: all 0.3s ease;
         }
-        
-        .status-message.success {
-            background: rgba(63, 185, 80, 0.15);
-            color: var(--success);
-            border: 1px solid rgba(63, 185, 80, 0.3);
-        }
-        
-        .status-message.info {
-            background: rgba(88, 166, 255, 0.15);
-            color: var(--accent-blue);
-            border: 1px solid rgba(88, 166, 255, 0.3);
-        }
-        
-        .status-message.error {
-            background: rgba(248, 81, 73, 0.15);
-            color: var(--error);
-            border: 1px solid rgba(248, 81, 73, 0.3);
-        }
+        .status-message.success { color: var(--am-success); background: color-mix(in srgb, var(--am-success) 10%, transparent); }
+        .status-message.info { color: var(--am-text-secondary); background: color-mix(in srgb, var(--am-info) 8%, transparent); }
+        .status-message.error { color: var(--am-error); background: color-mix(in srgb, var(--am-error) 10%, transparent); }
 
-        .logs-content {
-            flex: 1;
-            overflow-y: auto;
-            background: var(--background-primary);
-        }
+        .rtl-logs-content { flex: 1; overflow-y: auto; }
 
+        /* ── Log entries ───────────────────────────────────────────── */
         .log-entry {
-            padding: 12px 24px;
-            border-bottom: 1px solid var(--border-muted);
-            font-family: 'Fira Code', monospace;
-            font-size: 13px;
-            line-height: 1.4;
-            display: flex;
-            align-items: flex-start;
-            gap: 16px;
-            transition: background-color 0.1s ease;
+            padding: 8px 20px;
+            border-bottom: 1px solid color-mix(in srgb, var(--am-border) 40%, transparent);
+            font-family: var(--vscode-editor-font-family, ui-monospace, monospace);
+            font-size: 12px; line-height: 1.5;
+            display: flex; align-items: flex-start; gap: 12px;
+            transition: background-color 0.1s;
         }
-
-        .log-entry:hover {
-            background: var(--surface-primary);
-        }
-
-        .log-entry:last-child {
-            border-bottom: none;
-        }
+        .log-entry:hover { background: var(--am-bg-surface-hover); }
+        .log-entry:last-child { border-bottom: none; }
 
         .log-timestamp {
-            color: var(--text-secondary);
-            white-space: nowrap;
-            min-width: 180px;
-            font-size: 12px;
+            color: var(--am-text-muted); white-space: nowrap; min-width: 170px; font-size: 11px;
         }
-
         .log-level {
-            min-width: 60px;
-            font-weight: 600;
-            text-align: center;
-            padding: 2px 8px;
-            border-radius: 4px;
-            font-size: 11px;
-            text-transform: uppercase;
+            min-width: 44px; font-weight: 600; text-align: center;
+            font-size: 10px; text-transform: uppercase; letter-spacing: 0.4px;
+            padding: 1px 6px; border-radius: 3px;
         }
-
-        .log-level.ERROR {
-            background: var(--error);
-            color: white;
-        }
-
-        .log-level.WARN {
-            background: var(--warning);
-            color: white;
-        }
-
-        .log-level.INFO {
-            background: var(--accent-blue);
-            color: white;
-        }
-
-        .log-level.DEBUG {
-            background: var(--text-secondary);
-            color: white;
-        }
+        .log-level.ERROR { color: var(--am-error); background: color-mix(in srgb, var(--am-error) 12%, transparent); }
+        .log-level.WARN  { color: var(--am-warning); background: color-mix(in srgb, var(--am-warning) 12%, transparent); }
+        .log-level.INFO  { color: var(--am-text-secondary); background: color-mix(in srgb, var(--am-text-secondary) 10%, transparent); }
+        .log-level.DEBUG { color: var(--am-text-muted); background: color-mix(in srgb, var(--am-text-muted) 8%, transparent); }
 
         .log-message {
-            flex: 1;
-            word-break: break-word;
-            white-space: pre-wrap;
-            color: var(--text-primary);
+            flex: 1; word-break: break-word; white-space: pre-wrap;
+            color: var(--am-text-primary); font-size: 12px;
         }
 
-        .empty-state {
-            display: flex;
-            flex-direction: column;
-            align-items: center;
-            justify-content: center;
-            height: 100%;
-            color: var(--text-secondary);
-            text-align: center;
-            padding: 40px 20px;
+        /* ── Empty / error states ──────────────────────────────────── */
+        .rtl-empty-state {
+            display: flex; flex-direction: column; align-items: center;
+            justify-content: center; height: 100%;
+            color: var(--am-text-muted); text-align: center; padding: 40px 20px;
+        }
+        .rtl-empty-state p { font-size: 13px; margin: 0; font-weight: 400; }
+        .rtl-empty-state strong { color: var(--am-success); }
+
+        .rtl-error-banner {
+            background: color-mix(in srgb, var(--am-error) 12%, transparent);
+            color: var(--am-error); padding: 10px 16px; margin: 8px 16px;
+            border-radius: var(--am-radius-sm); font-size: 12px; font-weight: 500;
         }
 
-        .empty-state-icon {
-            font-size: 48px;
-            margin-bottom: 16px;
-            opacity: 0.6;
-        }
-
-        .empty-state p {
-            font-size: 16px;
-            margin: 0;
-        }
-
-        .error-message {
-            background: var(--error);
-            color: white;
-            padding: 12px 16px;
-            margin: 8px 16px;
-            border-radius: 8px;
-            font-size: 14px;
-        }
-
-        /* Responsive Design */
-        @media (max-width: 768px) {
-            .header {
-                padding: 16px;
-            }
-            
-            .stats-grid {
-                padding: 16px;
-                grid-template-columns: 1fr;
-            }
-            
-            .controls-card {
-                padding: 0 16px;
-            }
-            
-            .logs-container {
-                padding: 0 16px 16px 16px;
-            }
-            
-            .controls {
-                flex-direction: column;
-                align-items: stretch;
-            }
-            
-            .control-group {
-                justify-content: center;
-            }
-            
-            .search-controls {
-                max-width: none;
-            }
-        }
-
-        /* GitHub Star Banner Styles */
-        ${getGitHubStarBannerStyles()}
-/* FIRE — Failure Intelligence & Replay Engine */
-        .log-entry-actionable {
-            border-left: 3px solid var(--error);
-        }
-        .fire-actions {
-            display: inline-flex;
-            gap: 6px;
-            margin-left: 10px;
-            vertical-align: middle;
-        }
+        /* ── FIRE actions ──────────────────────────────────────────── */
+        .log-entry-actionable { border-left: 2px solid var(--am-error); }
+        .fire-actions { display: inline-flex; gap: 4px; margin-left: 8px; vertical-align: middle; }
         .fire-btn {
-            padding: 2px 10px;
-            font-size: 11px;
-            font-weight: 500;
-            border-radius: 4px;
-            border: 1px solid;
-            cursor: pointer;
-            transition: opacity 0.15s;
-            font-family: inherit;
+            padding: 1px 8px; font-size: 10px; font-weight: 600;
+            border-radius: 3px; border: 1px solid; cursor: pointer;
+            transition: opacity 0.15s; font-family: inherit; text-transform: uppercase; letter-spacing: 0.3px;
         }
-        .fire-btn:hover { opacity: 0.8; }
-        .fire-jump {
-            background: rgba(88,166,255,0.15);
-            border-color: var(--accent-blue);
-            color: var(--accent-blue);
-        }
-        .fire-replay {
-            background: rgba(63,185,80,0.15);
-            border-color: var(--success);
-            color: var(--success);
-        }
+        .fire-btn:hover { opacity: 0.75; }
+        .fire-jump { border-color: var(--am-text-muted); color: var(--am-text-secondary); background: transparent; }
+        .fire-replay { border-color: var(--am-text-muted); color: var(--am-text-secondary); background: transparent; }
         .fire-hypothesis {
-            margin-top: 6px;
-            padding: 8px 10px;
-            background: rgba(248,81,73,0.08);
-            border-left: 2px solid var(--error);
-            border-radius: 0 4px 4px 0;
-            font-size: 11px;
-            line-height: 1.5;
+            margin-top: 4px; padding: 6px 10px;
+            border-left: 2px solid var(--am-error);
+            border-radius: 0 3px 3px 0; font-size: 11px; line-height: 1.5;
         }
-        .fire-hypothesis-title {
-            font-weight: 600;
-            color: var(--error);
-            margin-bottom: 2px;
+        .fire-hypothesis-title { font-weight: 600; color: var(--am-error); margin-bottom: 2px; }
+        .fire-hypothesis-suggestion { color: var(--am-text-muted); }
+
+        /* ── Responsive ────────────────────────────────────────────── */
+        @media (max-width: 768px) {
+            .rtl-page { padding: 20px; }
+            .rtl-stats { gap: 24px; }
+            .rtl-toolbar { flex-direction: column; align-items: stretch; }
+            .rtl-search-wrap { max-width: none; margin-left: 0; }
         }
-        .fire-hypothesis-suggestion {
-            color: var(--text-secondary);
-        }
-    </style>
-</head>
-<body>
-    <!-- Header -->
-    <div class="header">
-        <div class="header-content">
-            <div class="header-left">
-                <img src="${logoSrc}" alt="Logo"/>
-                <div class="header-info">
-                    <h1>Real-Time Logs</h1>
-                    <p>${applicationDomain} (${cloudhubVersion === 'CH1' ? 'CloudHub 1.0' : 'CloudHub 2.0'})</p>
-                </div>
-            </div>
-            <div class="status-indicator">
-                <div class="status-dot" id="statusDot"></div>
-                <span id="statusText">Stopped</span>
-            </div>
-        </div>
-    </div>
 
-    <!-- Statistics Grid -->
-    <div class="stats-grid">
-        <div class="stat-card">
-            <div class="stat-header">
-                <h3 class="stat-title">Total Logs</h3>
-            </div>
-            <div class="stat-value" id="totalCount">0</div>
-            <p class="stat-subtitle">Messages received</p>
-        </div>
+        ${getGitHubStarBannerStyles()}
+    `;
+}
 
-        <div class="stat-card">
-            <div class="stat-header">
-                <h3 class="stat-title">Filtered Logs</h3>
-            </div>
-            <div class="stat-value" id="filteredCount">0</div>
-            <p class="stat-subtitle">Currently visible</p>
-        </div>
-
-        <div class="stat-card">
-            <div class="stat-header">
-                <h3 class="stat-title">Stream Status</h3>
-            </div>
-            <div class="stat-value" id="streamStatus" style="font-size: 18px;">Stopped</div>
-            <p class="stat-subtitle">Real-time monitoring</p>
-        </div>
-
-        <div class="stat-card">
-            <div class="stat-header">
-                <h3 class="stat-title">Started At</h3>
-            </div>
-            <div class="stat-value" id="startTime" style="font-size: 16px;">-</div>
-            <p class="stat-subtitle">Session start time</p>
-        </div>
-    </div>
-
-    <!-- Controls Card -->
-    <div class="controls-card">
-        <div class="controls">
-            <div class="control-group">
-                <button class="btn btn-success" id="startBtn">
-                    <span>▶</span> Start Streaming
-                </button>
-                <button class="btn btn-danger" id="stopBtn" disabled>
-                    <span>⏸</span> Stop
-                </button>
-                <button class="btn" id="clearBtn">
-                    <span>🗑</span> Clear
-                </button>
-            </div>
-            
-            <div class="control-group">
-                <label>Refresh Rate:</label>
-                <select id="refreshRate">
-                    <option value="1000">1s</option>
-                    <option value="2000" selected>2s</option>
-                    <option value="5000">5s</option>
-                    <option value="10000">10s</option>
-                </select>
-            </div>
-            
-            <div class="search-controls">
-                <input type="text" class="search-input" id="searchInput" placeholder="Filter logs by message, level, or thread...">
-                <button class="btn" id="searchBtn">
-                    <span>🔍</span>
-                </button>
-            </div>
-            
-            <div class="control-group">
-                <button class="btn" id="exportBtn">
-                    <span>💾</span> Export All Logs
-                </button>
-                <div class="export-info">
-                    <span>ℹ️</span>
-                    Limited to 2,000 recent logs
-                </div>
-            </div>
-
-            
-            <!-- Export Progress Display -->
-            <div id="exportProgress" class="export-progress" style="display: none;">
-                <!-- Progress content will be dynamically inserted here -->
-            </div>
-        </div>
-    </div>
-
-    <!-- Logs Container -->
-    <div class="logs-container">
-        <div class="logs-card">
-            <div class="logs-header">
-                <div class="logs-stats">
-                    Total: <span id="totalCountHeader">0</span> | 
-                    Filtered: <span id="filteredCountHeader">0</span> |
-                    Since: <span id="startTimeHeader">-</span>
-                </div>
-                <div id="statusMessage" class="status-message"></div>
-            </div>
-            <div class="logs-content" id="logsContent">
-                <div class="empty-state">
-                    <div class="empty-state-icon">📋</div>
-                    <p>Click "Start Streaming" to begin monitoring logs in real-time</p>
-                </div>
-            </div>
-        </div>
-    </div>
-
-    <script>
+function getRealTimeLogsWebviewScript(): string {
+    return `
         console.log('Real-time logs: Script starting to load');
         
         try {
@@ -2036,11 +1526,11 @@ function getRealTimeLogsHtml(
             if (progressDiv) {
                 progressDiv.style.display = 'block';
                 progressDiv.innerHTML = \`
-                    <div class="progress-content">
-                        <div class="progress-spinner"></div>
-                        <div class="progress-text">
-                            <div class="progress-message">\${message}</div>
-                            <div class="progress-details">Offset: \${offset} | Total logs: \${totalLogs}</div>
+                    <div class="rtl-progress-content">
+                        <div class="rtl-progress-spinner"></div>
+                        <div class="rtl-progress-text">
+                            <div class="rtl-progress-message">\${message}</div>
+                            <div class="rtl-progress-details">Offset: \${offset} | Total logs: \${totalLogs}</div>
                         </div>
                     </div>
                 \`;
@@ -2088,8 +1578,8 @@ function getRealTimeLogsHtml(
             const container = elements.logsContent;
             if (filteredLogs.length === 0) {
                 container.innerHTML = \`
-                    <div class="empty-state">
-                        <div class="empty-state-icon">\${logs.length === 0 ? '📋' : '🔍'}</div>
+                    <div class="rtl-empty-state">
+                        <div class="rtl-empty-state-icon">\${logs.length === 0 ? '📋' : '🔍'}</div>
                         <p>\${logs.length === 0 ? 'No logs yet. Waiting for new log entries...' : 'No logs match your filter criteria'}</p>
                     </div>
 \`;
@@ -2135,7 +1625,7 @@ const fireButtons = isActionable ? \`
 
         function showError(message) {
             const errorDiv = document.createElement('div');
-            errorDiv.className = 'error-message';
+            errorDiv.className = 'rtl-error-banner';
             errorDiv.textContent = message;
             document.body.insertBefore(errorDiv, document.body.firstChild);
             
@@ -2202,12 +1692,126 @@ const fireButtons = isActionable ? \`
             console.error('Real-time logs: Script error:', error);
             console.error('Error stack:', error.stack);
         }
-    </script>
 
-    <!-- GitHub Star Banner -->
-    ${getGitHubStarBannerHtml()}
-    ${getGitHubStarBannerScript()}
-</body>
-</html>
     `;
+}
+
+/**
+ * Generate HTML for real-time logs viewer
+ */
+function getRealTimeLogsHtml(
+    webview: vscode.Webview,
+    extensionUri: vscode.Uri,
+    applicationDomain: string,
+    cloudhubVersion: 'CH1' | 'CH2' | 'HYBRID' = 'CH1'
+): string {
+    const logoPath = vscode.Uri.joinPath(extensionUri, 'logo.png');
+    const logoSrc = webview.asWebviewUri(logoPath);
+    const chLabel =
+        cloudhubVersion === 'CH1' ? 'CloudHub 1.0' :
+        cloudhubVersion === 'CH2' ? 'CloudHub 2.0' :
+        'Hybrid';
+
+    const body = `
+<div class="rtl-page">
+    <!-- Header -->
+    <div class="rtl-header">
+        <div>
+            <h1 class="rtl-title">${escapeHtml(applicationDomain)}</h1>
+            <div class="rtl-meta">
+                <span>${chLabel.toUpperCase()}</span>
+                <span>REAL-TIME LOGS</span>
+            </div>
+        </div>
+        <div class="rtl-header-right">
+            <div class="rtl-status-pill" id="statusPill">
+                <div class="rtl-status-dot" id="statusDot"></div>
+                <span id="statusText">Stopped</span>
+            </div>
+        </div>
+    </div>
+
+    <!-- Stats strip -->
+    <div class="rtl-hero">
+        <div class="rtl-stats">
+            <div class="rtl-stat">
+                <div class="rtl-stat-label">TOTAL</div>
+                <div class="rtl-stat-value" id="totalCount">0</div>
+            </div>
+            <div class="rtl-stat">
+                <div class="rtl-stat-label">FILTERED</div>
+                <div class="rtl-stat-value" id="filteredCount">0</div>
+            </div>
+            <div class="rtl-stat">
+                <div class="rtl-stat-label">STATUS</div>
+                <div class="rtl-stat-value" id="streamStatus">Idle</div>
+            </div>
+            <div class="rtl-stat">
+                <div class="rtl-stat-label">SINCE</div>
+                <div class="rtl-stat-value" id="startTime">&mdash;</div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Toolbar -->
+    <div class="rtl-toolbar">
+        <div class="rtl-toolbar-group">
+            <button type="button" class="rtl-tool-btn rtl-tool-start" id="startBtn" title="Start Streaming">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><polygon points="5,3 19,12 5,21"/></svg>
+            </button>
+            <button type="button" class="rtl-tool-btn" id="stopBtn" title="Stop" disabled>
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><rect x="6" y="4" width="4" height="16"/><rect x="14" y="4" width="4" height="16"/></svg>
+            </button>
+            <button type="button" class="rtl-tool-btn" id="clearBtn" title="Clear">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3,6 5,6 21,6"/><path d="M19,6v14a2,2,0,0,1-2,2H7a2,2,0,0,1-2-2V6m3,0V4a2,2,0,0,1,2-2h4a2,2,0,0,1,2,2v2"/></svg>
+            </button>
+            <div class="rtl-toolbar-sep"></div>
+            <button type="button" class="rtl-tool-btn" id="exportBtn" title="Export Logs">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21,15v4a2,2,0,0,1-2,2H5a2,2,0,0,1-2-2V15"/><polyline points="7,10 12,15 17,10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+            </button>
+        </div>
+        <div class="rtl-toolbar-group">
+            <select id="refreshRate" class="rtl-select">
+                <option value="1000">1 s</option>
+                <option value="2000" selected>2 s</option>
+                <option value="5000">5 s</option>
+                <option value="10000">10 s</option>
+            </select>
+        </div>
+        <div class="rtl-search-wrap">
+            <svg class="rtl-search-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+            <input type="text" class="rtl-search-input" id="searchInput" placeholder="Filter by message, level, or thread…" />
+            <button type="button" class="rtl-search-clear" id="searchBtn" title="Apply">&crarr;</button>
+        </div>
+    </div>
+
+    <!-- Export progress -->
+    <div id="exportProgress" class="rtl-export-progress" style="display: none;"></div>
+
+    <!-- Log panel -->
+    <div class="rtl-panel">
+        <div class="rtl-panel-bar">
+            <span class="rtl-panel-stats">
+                <span id="totalCountHeader">0</span> total &middot;
+                <span id="filteredCountHeader">0</span> visible &middot;
+                since <span id="startTimeHeader">&mdash;</span>
+            </span>
+            <div id="statusMessage" class="status-message"></div>
+        </div>
+        <div class="rtl-logs-content" id="logsContent">
+            <div class="rtl-empty-state">
+                <p>Press <strong>&#9654;</strong> to begin streaming</p>
+            </div>
+        </div>
+    </div>
+</div>
+${getGitHubStarBannerHtml()}
+`;
+
+    return wrapWebviewHtml({
+        title: `Real-Time Logs - ${applicationDomain}`,
+        body,
+        extraStyles: getRealTimeLogsExtraStyles(),
+        scripts: `${getRealTimeLogsWebviewScript()}\n${stripOuterScriptTags(getGitHubStarBannerScript())}`,
+    });
 }

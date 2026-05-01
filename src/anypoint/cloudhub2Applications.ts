@@ -5,6 +5,14 @@ import { ApiHelper } from '../controllers/apiHelper.js';
 import { BASE_URL, getBaseUrl } from '../constants';
 import { getGitHubStarBannerHtml, getGitHubStarBannerStyles, getGitHubStarBannerScript } from '../utils/starPrompt.js';
 import { telemetryService } from '../services/telemetryService';
+import {
+    wrapWebviewHtml,
+    summaryCard,
+    badge,
+    button as uiButton,
+    escapeHtml as uiEscapeHtml,
+    stripScriptTags
+} from '../webview/ui-kit';
 
 // ==================== MAIN ENTRY POINTS ====================
 
@@ -263,837 +271,308 @@ function getCloudHub2ApplicationsHtml(
   environment?: string,
   businessGroup?: { id: string, name: string }
 ): string {
-  const logoPath = vscode.Uri.joinPath(extensionUri, 'logo.png');
-  const logoSrc = webview.asWebviewUri(logoPath);
-
-  // Calculate statistics
   const totalApps = applications.length;
   const runningApps = applications.filter(app => (app.application?.status || app.status) === 'RUNNING' || (app.application?.status || app.status) === 'STARTED').length;
   const stoppedApps = applications.filter(app => ['STOPPED', 'UNDEPLOYED', 'FAILED'].includes(app.application?.status || app.status)).length;
   const totalVCores = applications.reduce((sum, app) => sum + (app.target?.resources?.cpu?.reserved || 0), 0);
 
-  return /* html */ `
-    <!DOCTYPE html>
-    <html lang="en">
-      <head>
-        <meta charset="UTF-8" />
-        <title>CloudHub 2.0 Applications - ${environment || 'Unknown Environment'}</title>
-        <style>
-          /* Code Time inspired theme */
-          :root {
-            --background-primary: #1e2328;
-            --background-secondary: #161b22;
-            --surface-primary: #21262d;
-            --surface-secondary: #30363d;
-            --surface-accent: #0d1117;
-            --text-primary: #f0f6fc;
-            --text-secondary: #7d8590;
-            --text-muted: #656d76;
-            --accent-blue: #58a6ff;
-            --accent-light: #79c0ff;
-            --border-primary: #30363d;
-            --border-muted: #21262d;
-            --success: #3fb950;
-            --warning: #d29922;
-            --error: #f85149;
-          }
+  const body = `
+    <div class="am-container">
+      <div class="am-page-header">
+        <div>
+          <h1>CloudHub 2.0 Applications</h1>
+          <div class="am-page-header-meta">
+            ${environment ? badge(uiEscapeHtml(environment), 'info', true) : ''}
+            ${businessGroup ? badge(uiEscapeHtml(businessGroup.name), 'default', true) : ''}
+          </div>
+        </div>
+        <div class="am-page-header-right" style="display:flex;gap:8px">
+          ${uiButton('Refresh', { variant: 'secondary', id: 'btnRefreshApps' })}
+          ${uiButton('Download CSV', { variant: 'primary', id: 'btnDownloadCH2Csv' })}
+        </div>
+      </div>
 
-          * {
-            box-sizing: border-box;
-          }
+      <div class="am-summary-cards">
+        ${summaryCard({ icon: '📦', value: totalApps, label: 'Total Applications', animationDelay: '0.1s' })}
+        ${summaryCard({ icon: '✅', value: runningApps, label: 'Running', variant: 'healthy', animationDelay: '0.15s' })}
+        ${summaryCard({ icon: '🔴', value: stoppedApps, label: 'Stopped', variant: 'critical', animationDelay: '0.2s' })}
+        ${summaryCard({ icon: '⚡', value: totalVCores, label: 'Total vCores', animationDelay: '0.25s' })}
+      </div>
 
-          body {
-            margin: 0;
-            padding: 0;
-            background-color: var(--background-primary);
-            color: var(--text-primary);
-            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Noto Sans', Helvetica, Arial, sans-serif;
-            font-size: 14px;
-            line-height: 1.5;
-          }
-
-          /* Header Section */
-          .header {
-            background-color: var(--background-secondary);
-            border-bottom: 1px solid var(--border-primary);
-            padding: 24px 32px;
-          }
-
-          .header-content {
-            max-width: 1200px;
-            margin: 0 auto;
-          }
-
-          .header h1 {
-            font-size: 28px;
-            font-weight: 600;
-            margin: 0 0 8px 0;
-            color: var(--text-primary);
-          }
-
-          .header p {
-            font-size: 16px;
-            color: var(--text-secondary);
-            margin: 0;
-          }
-
-          /* Environment Info */
-          .environment-badge {
-            display: inline-flex;
-            align-items: center;
-            background-color: var(--surface-primary);
-            border: 1px solid var(--border-primary);
-            border-radius: 8px;
-            padding: 8px 12px;
-            margin-top: 12px;
-            color: var(--accent-blue);
-            font-weight: 500;
-          }
-
-          /* Main Content */
-          .container {
-            max-width: 1200px;
-            margin: 0 auto;
-            padding: 32px;
-          }
-
-          /* Statistics Grid */
-          .stats-grid {
-            display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
-            gap: 20px;
-            margin-bottom: 32px;
-          }
-
-          .stat-card {
-            background-color: var(--surface-primary);
-            border: 1px solid var(--border-primary);
-            border-radius: 12px;
-            padding: 24px;
-            transition: all 0.2s;
-          }
-
-          .stat-card:hover {
-            border-color: var(--border-muted);
-            transform: translateY(-1px);
-          }
-
-          .stat-header {
-            display: flex;
-            align-items: center;
-            justify-content: space-between;
-            margin-bottom: 16px;
-          }
-
-          .stat-title {
-            font-size: 14px;
-            font-weight: 500;
-            color: var(--text-secondary);
-            margin: 0;
-          }
-
-          .stat-value {
-            font-size: 32px;
-            font-weight: 600;
-            color: var(--text-primary);
-            margin: 0 0 8px 0;
-            line-height: 1.2;
-          }
-
-          .stat-subtitle {
-            font-size: 13px;
-            color: var(--text-muted);
-            margin: 0;
-          }
-
-          /* Applications Table Card */
-          .applications-card {
-            background-color: var(--surface-primary);
-            border: 1px solid var(--border-primary);
-            border-radius: 12px;
-            padding: 24px;
-          }
-
-          .card-header {
-            display: flex;
-            align-items: center;
-            justify-content: space-between;
-            margin-bottom: 20px;
-          }
-
-          .card-title {
-            font-size: 18px;
-            font-weight: 600;
-            color: var(--text-primary);
-            margin: 0;
-          }
-
-          .button-group {
-            display: flex;
-            gap: 8px;
-          }
-
-          .button {
-            background-color: var(--accent-blue);
-            color: var(--text-primary);
-            border: none;
-            border-radius: 8px;
-            padding: 12px 16px;
-            font-size: 14px;
-            font-weight: 500;
-            cursor: pointer;
-            transition: all 0.2s;
-          }
-
-          .button:hover {
-            background-color: var(--accent-light);
-          }
-
-          .button:disabled {
-            background-color: var(--text-muted);
-            cursor: not-allowed;
-          }
-
-          .button-danger {
-            background-color: var(--error);
-            color: var(--text-primary);
-          }
-
-          .button-danger:hover {
-            background-color: #ff6b6b;
-          }
-
-          .button-ghost {
-            background-color: transparent;
-            border: 1px solid var(--border-primary);
-          }
-
-          .action-bar {
-            display: flex;
-            align-items: center;
-            justify-content: space-between;
-            margin-bottom: 16px;
-            gap: 12px;
-            flex-wrap: wrap;
-          }
-
-          .selection-info {
-            color: var(--text-secondary);
-            font-size: 13px;
-          }
-
-          /* Table Controls */
-          .table-controls {
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-            margin-bottom: 16px;
-            flex-wrap: wrap;
-            gap: 16px;
-          }
-
-          .entries-control {
-            display: flex;
-            align-items: center;
-            gap: 8px;
-            font-size: 14px;
-            color: var(--text-secondary);
-          }
-
-          .entries-control select {
-            background-color: var(--surface-secondary);
-            color: var(--text-primary);
-            border: 1px solid var(--border-primary);
-            border-radius: 6px;
-            padding: 6px 8px;
-            font-size: 14px;
-          }
-
-          .search-control {
-            display: flex;
-            align-items: center;
-            gap: 8px;
-          }
-
-          .search-input {
-            background-color: var(--surface-secondary);
-            color: var(--text-primary);
-            border: 1px solid var(--border-primary);
-            border-radius: 6px;
-            padding: 8px 12px;
-            font-size: 14px;
-            width: 250px;
-          }
-
-          .search-input:focus {
-            outline: none;
-            border-color: var(--accent-blue);
-          }
-
-          /* Table Styles */
-          .table-wrapper {
-            overflow-x: auto;
-            border-radius: 8px;
-            border: 1px solid var(--border-primary);
-          }
-
-          table {
-            width: 100%;
-            border-collapse: collapse;
-            background-color: var(--surface-secondary);
-          }
-
-          .checkbox-cell {
-            width: 40px;
-            text-align: center;
-          }
-
-          input[type="checkbox"] {
-            width: 16px;
-            height: 16px;
-          }
-
-          th {
-            background-color: var(--background-secondary);
-            color: var(--text-primary);
-            font-weight: 600;
-            padding: 16px 12px;
-            text-align: left;
-            border-bottom: 1px solid var(--border-primary);
-            font-size: 13px;
-          }
-
-          td {
-            padding: 16px 12px;
-            border-bottom: 1px solid var(--border-muted);
-            color: var(--text-primary);
-            font-size: 14px;
-          }
-
-          tr:last-child td {
-            border-bottom: none;
-          }
-
-          tr:hover {
-            background-color: var(--border-muted);
-          }
-
-          /* App Name Links */
-          .app-name-link {
-            color: var(--accent-blue);
-            text-decoration: none;
-            cursor: pointer;
-            font-weight: 500;
-          }
-
-          .app-name-link:hover {
-            text-decoration: underline;
-            color: var(--accent-light);
-          }
-
-          /* Status Badges */
-          .status-badge {
-            display: inline-flex;
-            align-items: center;
-            gap: 6px;
-            padding: 4px 8px;
-            border-radius: 6px;
-            font-size: 12px;
-            font-weight: 500;
-          }
-
-          .status-running {
-            background-color: rgba(63, 185, 80, 0.15);
-            color: var(--success);
-          }
-
-          .status-stopped {
-            background-color: rgba(248, 81, 73, 0.15);
-            color: var(--error);
-          }
-
-          .status-default {
-            background-color: rgba(125, 133, 144, 0.15);
-            color: var(--text-secondary);
-          }
-
-          .status-dot {
-            width: 6px;
-            height: 6px;
-            border-radius: 50%;
-            background-color: currentColor;
-          }
-
-          /* Pagination */
-          .pagination {
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-            margin-top: 16px;
-            font-size: 14px;
-            color: var(--text-secondary);
-          }
-
-          .pagination-controls {
-            display: flex;
-            gap: 8px;
-          }
-
-          .pagination-btn {
-            background-color: var(--surface-secondary);
-            color: var(--text-primary);
-            border: 1px solid var(--border-primary);
-            border-radius: 6px;
-            padding: 8px 12px;
-            font-size: 14px;
-            cursor: pointer;
-            transition: all 0.2s;
-          }
-
-          .pagination-btn:hover:not(:disabled) {
-            background-color: var(--accent-blue);
-          }
-
-          .pagination-btn:disabled {
-            opacity: 0.5;
-            cursor: not-allowed;
-          }
-
-          /* Responsive Design */
-          @media (max-width: 768px) {
-            .container {
-              padding: 16px;
-            }
-            
-            .header {
-              padding: 16px;
-            }
-            
-            .stats-grid {
-              grid-template-columns: 1fr;
-            }
-
-            .table-controls {
-              flex-direction: column;
-              align-items: stretch;
-            }
-
-            .search-input {
-              width: 100%;
-            }
-          }
-
-          /* GitHub Star Banner Styles */
-          ${getGitHubStarBannerStyles()}
-        </style>
-      </head>
-      <body>
-        <!-- Header -->
-        <div class="header">
-          <div class="header-content">
-            <h1>CloudHub 2.0 Applications</h1>
-            <p>Next-generation application monitoring and management</p>
-            <div style="display: flex; gap: 12px; margin-top: 12px; flex-wrap: wrap;">
-              ${environment ? `<div class="environment-badge">🌍 Environment: ${environment}</div>` : ''}
-              ${businessGroup ? `<div class="environment-badge" style="background: var(--surface-secondary); border-color: var(--accent-blue);">🏢 Business Group: ${businessGroup.name}</div>` : ''}
-            </div>
+      <div class="ch2-controls">
+        <div class="ch2-table-controls">
+          <div class="ch2-entries-control">
+            <label>Show</label>
+            <select id="entriesPerPage">
+              <option value="10">10</option>
+              <option value="25">25</option>
+              <option value="50">50</option>
+              <option value="100">100</option>
+            </select>
+            <label>entries</label>
+          </div>
+          <div class="ch2-search-control">
+            <input type="text" id="appSearch" class="ch2-search-input" placeholder="Search applications...">
           </div>
         </div>
 
-        <!-- Main Content -->
-        <div class="container">
-          <!-- Statistics Grid -->
-          <div class="stats-grid">
-            <div class="stat-card">
-              <div class="stat-header">
-                <h3 class="stat-title">Total Applications</h3>
-              </div>
-              <div class="stat-value">${totalApps}</div>
-              <p class="stat-subtitle">All applications</p>
-            </div>
-
-            <div class="stat-card">
-              <div class="stat-header">
-                <h3 class="stat-title">Running Applications</h3>
-              </div>
-              <div class="stat-value">${runningApps}</div>
-              <p class="stat-subtitle">Currently active</p>
-            </div>
-
-            <div class="stat-card">
-              <div class="stat-header">
-                <h3 class="stat-title">Stopped Applications</h3>
-              </div>
-              <div class="stat-value">${stoppedApps}</div>
-              <p class="stat-subtitle">Currently inactive</p>
-            </div>
-
-            <div class="stat-card">
-              <div class="stat-header">
-                <h3 class="stat-title">Total vCores</h3>
-              </div>
-              <div class="stat-value">${totalVCores}</div>
-              <p class="stat-subtitle">Allocated vCores</p>
-            </div>
-          </div>
-
-          <!-- Applications Table -->
-          <div class="applications-card">
-            <div class="card-header">
-              <h2 class="card-title">Applications</h2>
-              <div class="button-group">
-                <button id="btnRefreshApps" class="button">Refresh</button>
-                <button id="btnDownloadCH2Csv" class="button">Download as CSV</button>
-              </div>
-            </div>
-
-            <div class="table-controls">
-              <div class="entries-control">
-                <label>Show</label>
-                <select id="entriesPerPage">
-                  <option value="10">10</option>
-                  <option value="25">25</option>
-                  <option value="50">50</option>
-                  <option value="100">100</option>
-                </select>
-                <label>entries</label>
-              </div>
-              <div class="search-control">
-                <label>Search:</label>
-                <input type="text" id="appSearch" class="search-input" placeholder="Search applications...">
-              </div>
-            </div>
-
-            <div class="action-bar">
-              <div class="selection-info" id="selectionSummary">No applications selected</div>
-              <div class="button-group">
-                <button id="btnRestartSelected" class="button button-ghost" disabled>Start Selected</button>
-                <button id="btnStopSelected" class="button button-danger" disabled>Stop Selected</button>
-              </div>
-            </div>
-
-            <div class="table-wrapper">
-              <table id="appTable">
-                <thead>
-                  <tr>
-                    <th class="checkbox-cell"><input type="checkbox" id="ch2SelectAll"></th>
-                    <th>Status</th>
-                    <th>Name</th>
-                    <th>Creation Date</th>
-                    <th>Current Runtime Version</th>
-                    <th>Last Modified Date</th>
-                    <th>Last Successful Runtime Version</th>
-                  </tr>
-                </thead>
-                <tbody id="ch2AppsTbody">
-                  <!-- Table content will be populated by JavaScript -->
-                </tbody>
-              </table>
-            </div>
-
-            <div class="pagination">
-              <div id="ch2AppsInfo">Showing 0 to 0 of 0 entries</div>
-              <div class="pagination-controls">
-                <button id="ch2AppsPrev" class="pagination-btn">Previous</button>
-                <button id="ch2AppsNext" class="pagination-btn">Next</button>
-              </div>
-            </div>
+        <div class="ch2-action-bar">
+          <div class="ch2-selection-info" id="selectionSummary">No applications selected</div>
+          <div style="display:flex;gap:8px">
+            ${uiButton('Start Selected', { variant: 'secondary', id: 'btnRestartSelected', disabled: true })}
+            ${uiButton('Stop Selected', { variant: 'danger', id: 'btnStopSelected', disabled: true })}
           </div>
         </div>
+      </div>
 
-        <script>
-          const vscode = acquireVsCodeApi();
-          const applicationsRaw = ${JSON.stringify(applications)};
-          const applicationsData = Array.isArray(applicationsRaw) ? applicationsRaw : [];
-          const environmentName = '${environment || ''}';
-          let filteredApplications = [...applicationsData];
-          let currentPage = 1;
-          let entriesPerPage = 10;
-          const selectedApps = new Map();
+      <div class="am-table-container">
+        <table class="am-table" id="appTable">
+          <thead>
+            <tr>
+              <th style="width:40px;text-align:center"><input type="checkbox" id="ch2SelectAll"></th>
+              <th>Status</th>
+              <th>Name</th>
+              <th>Creation Date</th>
+              <th>Current Runtime Version</th>
+              <th>Last Modified Date</th>
+              <th>Last Successful Runtime Version</th>
+            </tr>
+          </thead>
+          <tbody id="ch2AppsTbody"></tbody>
+        </table>
+      </div>
 
-          function getDomain(app) {
-            if (!app || typeof app !== 'object') {
-              return '';
-            }
-            return app.application?.domain || app.domain || app.name || '';
-          }
+      <div class="ch2-pagination">
+        <div id="ch2AppsInfo">Showing 0 to 0 of 0 entries</div>
+        <div style="display:flex;gap:8px">
+          ${uiButton('Previous', { variant: 'secondary', id: 'ch2AppsPrev' })}
+          ${uiButton('Next', { variant: 'secondary', id: 'ch2AppsNext' })}
+        </div>
+      </div>
+    </div>
 
-          function getDeploymentId(app) {
-            return app?.deploymentId || app?.id || app?.application?.id || '';
-          }
+    ${getGitHubStarBannerHtml()}`;
 
-          // Render status badge
-          function renderStatus(status) {
-            const statusClass = 
-              (status === 'RUNNING' || status === 'STARTED') ? 'status-running' :
-              ['STOPPED', 'UNDEPLOYED', 'FAILED'].includes(status) ? 'status-stopped' :
-              'status-default';
-            
-            return \`<span class="status-badge \${statusClass}">
-              <span class="status-dot"></span>
-              \${status || 'Unknown'}
-            </span>\`;
-          }
+  const scripts = `
+    ${stripScriptTags(getGitHubStarBannerScript())}
+    const vscode = acquireVsCodeApi();
+    const applicationsRaw = ${JSON.stringify(applications)};
+    const applicationsData = Array.isArray(applicationsRaw) ? applicationsRaw : [];
+    const environmentName = '${environment || ''}';
+    let filteredApplications = [...applicationsData];
+    let currentPage = 1;
+    let entriesPerPage = 10;
+    const selectedApps = new Map();
 
-          // Format date safely
-          function formatDateSafe(dateStr) {
-            if (!dateStr) return 'N/A';
-            try {
-              return new Date(dateStr).toLocaleDateString();
-            } catch {
-              return dateStr;
-            }
-          }
+    function getDomain(app) {
+      if (!app || typeof app !== 'object') return '';
+      return app.application?.domain || app.domain || app.name || '';
+    }
 
-          function updateSelectionSummary() {
-            const summaryEl = document.getElementById('selectionSummary');
-            const selectedCount = selectedApps.size;
-            if (summaryEl) {
-              summaryEl.textContent = selectedCount === 0
-                ? 'No applications selected'
-                : \`\${selectedCount} application(s) selected\`;
-            }
+    function getDeploymentId(app) {
+      return app?.deploymentId || app?.id || app?.application?.id || '';
+    }
 
-            const restartBtn = document.getElementById('btnRestartSelected');
-            const stopBtn = document.getElementById('btnStopSelected');
-            const hasSelection = selectedCount > 0;
-            if (restartBtn) restartBtn.disabled = !hasSelection;
-            if (stopBtn) stopBtn.disabled = !hasSelection;
-          }
+    function renderStatus(status) {
+      const variant =
+        (status === 'RUNNING' || status === 'STARTED') ? 'success' :
+        ['STOPPED','UNDEPLOYED','FAILED'].includes(status) ? 'error' : 'default';
+      return '<span class="am-badge am-badge--' + variant + ' am-badge--dot">' + (status || 'Unknown') + '</span>';
+    }
 
-          function getPaginationBounds() {
-            const startIndex = (currentPage - 1) * entriesPerPage;
-            return { startIndex, endIndex: startIndex + entriesPerPage };
-          }
+    function formatDateSafe(dateStr) {
+      if (!dateStr) return 'N/A';
+      try { return new Date(dateStr).toLocaleDateString(); } catch { return dateStr; }
+    }
 
-          function getPageApplications() {
-            const { startIndex, endIndex } = getPaginationBounds();
-            return filteredApplications.slice(startIndex, endIndex);
-          }
+    function updateSelectionSummary() {
+      const summaryEl = document.getElementById('selectionSummary');
+      const count = selectedApps.size;
+      if (summaryEl) summaryEl.textContent = count === 0 ? 'No applications selected' : \`\${count} application(s) selected\`;
+      const hasSelection = count > 0;
+      ['btnRestartSelected','btnStopSelected'].forEach(id => {
+        const el = document.getElementById(id);
+        if (el) el.disabled = !hasSelection;
+      });
+    }
 
-          function syncSelectAllCheckbox() {
-            const selectAllEl = document.getElementById('ch2SelectAll');
-            if (!selectAllEl) {
-              return;
-            }
+    function getPaginationBounds() {
+      const si = (currentPage - 1) * entriesPerPage;
+      return { startIndex: si, endIndex: si + entriesPerPage };
+    }
 
-            const pageApps = getPageApplications();
-            if (pageApps.length === 0) {
-              selectAllEl.checked = false;
-              selectAllEl.indeterminate = false;
-              return;
-            }
+    function getPageApplications() {
+      const { startIndex, endIndex } = getPaginationBounds();
+      return filteredApplications.slice(startIndex, endIndex);
+    }
 
-            const pageDomains = pageApps.map(getDomain).filter(Boolean);
-            const allSelected = pageDomains.length > 0 && pageDomains.every(domain => selectedApps.has(domain));
-            const someSelected = pageDomains.some(domain => selectedApps.has(domain));
-            selectAllEl.checked = allSelected;
-            selectAllEl.indeterminate = !allSelected && someSelected;
-          }
+    function syncSelectAllCheckbox() {
+      const el = document.getElementById('ch2SelectAll');
+      if (!el) return;
+      const pageApps = getPageApplications();
+      if (!pageApps.length) { el.checked = false; el.indeterminate = false; return; }
+      const pd = pageApps.map(getDomain).filter(Boolean);
+      const allSel = pd.length > 0 && pd.every(d => selectedApps.has(d));
+      const someSel = pd.some(d => selectedApps.has(d));
+      el.checked = allSel;
+      el.indeterminate = !allSel && someSel;
+    }
 
-          function sendBulkAction(action) {
-            if (!selectedApps.size) {
-              alert('Select at least one application first.');
-              return;
-            }
+    function sendBulkAction(action) {
+      if (!selectedApps.size) { alert('Select at least one application first.'); return; }
+      const deployments = Array.from(selectedApps.values()).map(i => i.deploymentId).filter(Boolean);
+      if (!deployments.length) { alert('Could not resolve deployment IDs.'); return; }
+      vscode.postMessage({ command: 'ch2BulkAction', action, domains: Array.from(selectedApps.keys()), deployments });
+    }
 
-            const deployments = Array.from(selectedApps.values())
-              .map(item => item.deploymentId)
-              .filter(Boolean);
+    function renderTable() {
+      const { startIndex, endIndex } = getPaginationBounds();
+      const pageApps = filteredApplications.slice(startIndex, endIndex);
+      const tbody = document.getElementById('ch2AppsTbody');
+      if (!tbody) return;
+      tbody.innerHTML = pageApps.map((app, pi) => {
+        if (!app || typeof app !== 'object') return '';
+        const ai = applicationsData.indexOf(app);
+        const status = (app.application && app.application.status) || app.status || '';
+        const domain = getDomain(app);
+        const depId = getDeploymentId(app);
+        const isSel = domain && selectedApps.has(domain);
+        return \`<tr data-app-index="\${ai}">
+          <td style="width:40px;text-align:center">
+            <input type="checkbox" class="row-select" data-app-index="\${ai}" data-deployment-id="\${depId || ''}" data-domain="\${domain || ''}" \${domain ? '' : 'disabled'} \${isSel ? 'checked' : ''}>
+          </td>
+          <td>\${renderStatus(status)}</td>
+          <td><a href="#" class="app-name-link" data-app-name="\${app.name || ''}" data-app-index="\${ai}">\${app.name || 'Unknown'}</a></td>
+          <td>\${formatDateSafe(app.creationDate)}</td>
+          <td>\${app.currentRuntimeVersion || 'N/A'}</td>
+          <td>\${formatDateSafe(app.lastModifiedDate)}</td>
+          <td>\${app.lastSuccessfulRuntimeVersion || 'N/A'}</td>
+        </tr>\`;
+      }).filter(r => r !== '').join('');
+      updatePagination();
+      updateSelectionSummary();
+      syncSelectAllCheckbox();
+    }
 
-            if (!deployments.length) {
-              alert('Could not resolve deployment IDs for the selected applications.');
-              return;
-            }
+    function updatePagination() {
+      const total = filteredApplications.length;
+      const totalPages = Math.ceil(total / entriesPerPage);
+      const si = (currentPage - 1) * entriesPerPage + 1;
+      const ei = Math.min(currentPage * entriesPerPage, total);
+      document.getElementById('ch2AppsInfo').textContent =
+        total === 0 ? 'Showing 0 to 0 of 0 entries' : \`Showing \${si} to \${ei} of \${total} entries\`;
+      document.getElementById('ch2AppsPrev').disabled = currentPage <= 1;
+      document.getElementById('ch2AppsNext').disabled = currentPage >= totalPages;
+    }
 
-            vscode.postMessage({
-              command: 'ch2BulkAction',
-              action,
-              domains: Array.from(selectedApps.keys()),
-              deployments
-            });
-          }
-
-          // Render table
-          function renderTable() {
-            const { startIndex, endIndex } = getPaginationBounds();
-            const pageApplications = filteredApplications.slice(startIndex, endIndex);
-            
-            const tbody = document.getElementById('ch2AppsTbody');
-            if (!tbody) return;
-
-            const rowsHtml = pageApplications.map((app, pageIndex) => {
-              if (!app || typeof app !== 'object') return '';
-              
-              const actualIndex = applicationsData.indexOf(app);
-              const status = (app.application && app.application.status) || app.status || '';
-              const domain = getDomain(app);
-              const deploymentId = getDeploymentId(app);
-              const isSelected = domain && selectedApps.has(domain);
-
-              return \`
-                <tr data-app-index="\${actualIndex}">
-                  <td class="checkbox-cell">
-                    <input type="checkbox" class="row-select" data-app-index="\${actualIndex}" data-deployment-id="\${deploymentId || ''}" data-domain="\${domain || ''}" \${domain ? '' : 'disabled'} \${isSelected ? 'checked' : ''}>
-                  </td>
-                  <td>\${renderStatus(status)}</td>
-                  <td><a href="#" class="app-name-link" data-app-name="\${app.name || ''}" data-app-index="\${actualIndex}">\${app.name || 'Unknown'}</a></td>
-                  <td>\${formatDateSafe(app.creationDate)}</td>
-                  <td>\${app.currentRuntimeVersion || 'N/A'}</td>
-                  <td>\${formatDateSafe(app.lastModifiedDate)}</td>
-                  <td>\${app.lastSuccessfulRuntimeVersion || 'N/A'}</td>
-                </tr>
-              \`;
-            }).filter(row => row !== '').join('');
-
-            tbody.innerHTML = rowsHtml;
-            updatePagination();
-            updateSelectionSummary();
-            syncSelectAllCheckbox();
-          }
-
-          // Update pagination
-          function updatePagination() {
-            const totalItems = filteredApplications.length;
-            const totalPages = Math.ceil(totalItems / entriesPerPage);
-            const startIndex = (currentPage - 1) * entriesPerPage + 1;
-            const endIndex = Math.min(currentPage * entriesPerPage, totalItems);
-
-            document.getElementById('ch2AppsInfo').textContent = 
-              totalItems === 0 ? 'Showing 0 to 0 of 0 entries' :
-              \`Showing \${startIndex} to \${endIndex} of \${totalItems} entries\`;
-
-            document.getElementById('ch2AppsPrev').disabled = currentPage <= 1;
-            document.getElementById('ch2AppsNext').disabled = currentPage >= totalPages;
-          }
-
-          // Handle app name clicks
-          document.addEventListener('click', (e) => {
-            if (e.target.classList.contains('app-name-link')) {
-              e.preventDefault();
-              const appName = e.target.dataset.appName;
-              const appIndex = parseInt(e.target.dataset.appIndex);
-              if (appIndex >= 0 && appIndex < applicationsData.length) {
-                const appData = applicationsData[appIndex];
-                console.log('Sending app data with environment:', environmentName);
-                vscode.postMessage({
-                  command: 'openApplicationDetails',
-                  appName: appName,
-                  appData: appData,
-                  environment: environmentName
-                });
-              }
-            }
+    document.addEventListener('click', (e) => {
+      if (e.target.classList.contains('app-name-link')) {
+        e.preventDefault();
+        const appIndex = parseInt(e.target.dataset.appIndex);
+        if (appIndex >= 0 && appIndex < applicationsData.length) {
+          vscode.postMessage({
+            command: 'openApplicationDetails',
+            appName: e.target.dataset.appName,
+            appData: applicationsData[appIndex],
+            environment: environmentName
           });
+        }
+      }
+    });
 
-          // Download CSV button
-          document.getElementById('btnDownloadCH2Csv')?.addEventListener('click', () => {
-            vscode.postMessage({ command: 'downloadCH2Csv' });
-          });
+    document.getElementById('btnDownloadCH2Csv')?.addEventListener('click', () => vscode.postMessage({ command: 'downloadCH2Csv' }));
+    document.getElementById('btnRefreshApps')?.addEventListener('click', () => vscode.postMessage({ command: 'refreshApplications' }));
+    document.getElementById('btnRestartSelected')?.addEventListener('click', () => sendBulkAction('START'));
+    document.getElementById('btnStopSelected')?.addEventListener('click', () => sendBulkAction('STOP'));
 
-          // Refresh button
-          document.getElementById('btnRefreshApps')?.addEventListener('click', () => {
-            vscode.postMessage({ command: 'refreshApplications' });
-          });
+    document.addEventListener('change', (e) => {
+      const target = e.target;
+      if (target?.id === 'ch2SelectAll') {
+        const pageApps = getPageApplications();
+        pageApps.forEach(app => {
+          const domain = getDomain(app);
+          const depId = getDeploymentId(app);
+          if (domain) { target.checked ? selectedApps.set(domain, { domain, deploymentId: depId }) : selectedApps.delete(domain); }
+        });
+        renderTable();
+      }
+      if (target?.classList?.contains('row-select')) {
+        const app = applicationsData[Number(target.dataset.appIndex)];
+        const domain = getDomain(app);
+        const depId = getDeploymentId(app);
+        if (domain) { target.checked ? selectedApps.set(domain, { domain, deploymentId: depId }) : selectedApps.delete(domain); }
+        updateSelectionSummary();
+        syncSelectAllCheckbox();
+      }
+    });
 
-          document.getElementById('btnRestartSelected')?.addEventListener('click', () => {
-            sendBulkAction('START');
-          });
+    document.getElementById('appSearch')?.addEventListener('input', (e) => {
+      const term = e.target.value.toLowerCase();
+      filteredApplications = applicationsData.filter(app => {
+        if (!app || typeof app !== 'object') return false;
+        return Object.values(app).some(v => v != null && String(v).toLowerCase().includes(term));
+      });
+      currentPage = 1;
+      renderTable();
+    });
 
-          document.getElementById('btnStopSelected')?.addEventListener('click', () => {
-            sendBulkAction('STOP');
-          });
+    document.getElementById('entriesPerPage')?.addEventListener('change', (e) => {
+      entriesPerPage = parseInt(e.target.value);
+      currentPage = 1;
+      renderTable();
+    });
 
-          document.addEventListener('change', (e) => {
-            const target = e.target;
+    document.getElementById('ch2AppsPrev')?.addEventListener('click', () => { if (currentPage > 1) { currentPage--; renderTable(); } });
+    document.getElementById('ch2AppsNext')?.addEventListener('click', () => {
+      if (currentPage < Math.ceil(filteredApplications.length / entriesPerPage)) { currentPage++; renderTable(); }
+    });
 
-            if (target?.id === 'ch2SelectAll') {
-              const pageApps = getPageApplications();
-              if (target.checked) {
-                pageApps.forEach(app => {
-                  const domain = getDomain(app);
-                  const deploymentId = getDeploymentId(app);
-                  if (domain) {
-                    selectedApps.set(domain, { domain, deploymentId });
-                  }
-                });
-              } else {
-                pageApps.forEach(app => {
-                  const domain = getDomain(app);
-                  if (domain) {
-                    selectedApps.delete(domain);
-                  }
-                });
-              }
-              renderTable();
-            }
-
-            if (target?.classList?.contains('row-select')) {
-              const appIndex = Number(target.dataset.appIndex);
-              const app = applicationsData[appIndex];
-              const domain = getDomain(app);
-              const deploymentId = getDeploymentId(app);
-              if (domain) {
-                if (target.checked) {
-                  selectedApps.set(domain, { domain, deploymentId });
-                } else {
-                  selectedApps.delete(domain);
-                }
-              }
-              updateSelectionSummary();
-              syncSelectAllCheckbox();
-            }
-          });
-
-          // Search functionality
-          const searchInput = document.getElementById('appSearch');
-          searchInput?.addEventListener('input', (e) => {
-            const searchTerm = e.target.value.toLowerCase();
-            filteredApplications = applicationsData.filter(app => {
-              if (!app || typeof app !== 'object') return false;
-              return Object.values(app).some(value => {
-                if (value === null || value === undefined) return false;
-                return String(value).toLowerCase().includes(searchTerm);
-              });
-            });
-            currentPage = 1;
-            renderTable();
-          });
-
-          // Entries per page
-          const entriesSelect = document.getElementById('entriesPerPage');
-          entriesSelect?.addEventListener('change', (e) => {
-            entriesPerPage = parseInt(e.target.value);
-            currentPage = 1;
-            renderTable();
-          });
-
-          // Pagination
-          document.getElementById('ch2AppsPrev')?.addEventListener('click', () => {
-            if (currentPage > 1) {
-              currentPage--;
-              renderTable();
-            }
-          });
-
-          document.getElementById('ch2AppsNext')?.addEventListener('click', () => {
-            const totalPages = Math.ceil(filteredApplications.length / entriesPerPage);
-            if (currentPage < totalPages) {
-              currentPage++;
-              renderTable();
-            }
-          });
-
-          // Initial render
-          renderTable();
-        </script>
-
-        <!-- GitHub Star Banner -->
-        ${getGitHubStarBannerHtml()}
-        ${getGitHubStarBannerScript()}
-      </body>
-    </html>
+    renderTable();
   `;
+
+  return wrapWebviewHtml({
+    title: `CloudHub 2.0 Applications - ${environment || 'Unknown Environment'}`,
+    body,
+    scripts,
+    extraStyles: `
+      ${getGitHubStarBannerStyles()}
+      .ch2-controls { margin-bottom: 16px; }
+      .ch2-table-controls {
+        display: flex; justify-content: space-between; align-items: center;
+        margin-bottom: 12px; flex-wrap: wrap; gap: 12px;
+      }
+      .ch2-entries-control {
+        display: flex; align-items: center; gap: 8px;
+        font-size: 13px; color: var(--am-text-muted);
+      }
+      .ch2-entries-control select {
+        background: var(--am-bg-secondary); color: var(--am-text-primary);
+        border: 1px solid var(--am-border); border-radius: var(--am-radius-sm);
+        padding: 4px 8px; font-size: 13px;
+      }
+      .ch2-search-input {
+        background: var(--am-bg-secondary); color: var(--am-text-primary);
+        border: 1px solid var(--am-border); border-radius: var(--am-radius-sm);
+        padding: 6px 12px; font-size: 13px; width: 250px;
+      }
+      .ch2-search-input:focus { outline: none; border-color: var(--am-accent); }
+      .ch2-action-bar {
+        display: flex; align-items: center; justify-content: space-between;
+        gap: 12px; margin-bottom: 12px; flex-wrap: wrap;
+      }
+      .ch2-selection-info { color: var(--am-text-muted); font-size: 13px; }
+      .ch2-pagination {
+        display: flex; justify-content: space-between; align-items: center;
+        margin-top: 12px; font-size: 13px; color: var(--am-text-muted);
+      }
+      .app-name-link {
+        color: var(--am-accent); text-decoration: none; cursor: pointer;
+        font-weight: 500; transition: color 0.2s;
+      }
+      .app-name-link:hover { text-decoration: underline; }
+      input[type="checkbox"] { width: 16px; height: 16px; }
+    `
+  });
 }
 
 /**

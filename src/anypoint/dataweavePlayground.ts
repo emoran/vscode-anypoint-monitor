@@ -1,20 +1,15 @@
 import * as vscode from 'vscode';
 import { telemetryService } from '../services/telemetryService';
+import { wrapWebviewHtml } from '../webview/ui-kit';
 
-/**
- * Show DataWeave Playground in a webview panel
- * Embeds MuleSoft's official DataWeave Playground
- */
 export async function showDataWeavePlayground(context: vscode.ExtensionContext) {
     telemetryService.trackPageView('dataweavePlayground');
-    // Check if there's already an active panel
     const existingPanel = DataWeavePlaygroundPanel.currentPanel;
     if (existingPanel) {
         existingPanel.reveal();
         return;
     }
 
-    // Create new panel
     const panel = vscode.window.createWebviewPanel(
         'dataweavePlayground',
         'DataWeave Playground',
@@ -38,11 +33,7 @@ class DataWeavePlaygroundPanel {
     constructor(panel: vscode.WebviewPanel, context: vscode.ExtensionContext) {
         this._panel = panel;
         this._context = context;
-
-        // Set HTML content
         this._panel.webview.html = this._getPlaygroundHtml(this._panel.webview);
-
-        // Listen for when the panel is disposed
         this._panel.onDidDispose(() => this.dispose(), null, this._disposables);
     }
 
@@ -54,151 +45,78 @@ class DataWeavePlaygroundPanel {
         const logoPath = vscode.Uri.joinPath(this._context.extensionUri, 'logo.png');
         const logoSrc = webview.asWebviewUri(logoPath);
 
-        return /* html */ `
-<!DOCTYPE html>
-<html lang="en">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>DataWeave Playground</title>
-    <style>
-        * {
-            margin: 0;
-            padding: 0;
-            box-sizing: border-box;
-        }
+        const body = `
+        <div class="dw-page">
+            <div class="dw-header-bar">
+                <img src="${logoSrc}" alt="Anypoint Monitor" class="dw-logo">
+                <span class="dw-title">DataWeave Playground</span>
+            </div>
+            <div class="dw-iframe-container">
+                <div class="dw-loading" id="loading">
+                    <div class="dw-spinner"></div>
+                    <div class="dw-loading-text">Loading DataWeave Playground...</div>
+                </div>
+                <iframe
+                    id="playground-frame"
+                    src="https://dataweave.mulesoft.com/learn/playground"
+                    sandbox="allow-scripts allow-same-origin allow-forms allow-popups allow-downloads allow-modals"
+                    onload="hideLoading()"
+                ></iframe>
+            </div>
+        </div>`;
 
-        body {
-            background-color: var(--vscode-editor-background);
-            color: var(--vscode-editor-foreground);
-            font-family: var(--vscode-font-family);
-            overflow: hidden;
-            height: 100vh;
-            display: flex;
-            flex-direction: column;
-        }
-
-        .header {
-            background-color: var(--vscode-sideBar-background);
-            border-bottom: 1px solid var(--vscode-panel-border);
-            padding: 8px 16px;
-            display: flex;
-            align-items: center;
-            gap: 10px;
-            flex-shrink: 0;
-        }
-
-        .header img {
-            width: 20px;
-            height: 20px;
-        }
-
-        .header h1 {
-            font-size: 13px;
-            font-weight: 400;
-            color: var(--vscode-foreground);
-        }
-
-        .iframe-container {
-            flex: 1;
-            width: 100%;
-            height: 100%;
-            position: relative;
-            background-color: #ffffff;
-        }
-
-        iframe {
-            width: 100%;
-            height: 100%;
-            border: none;
-            display: block;
-            filter: brightness(1.2) contrast(0.85) saturate(0.8);
-            background-color: #ffffff;
-        }
-
-
-
-        .loading {
-            position: absolute;
-            top: 50%;
-            left: 50%;
-            transform: translate(-50%, -50%);
-            text-align: center;
-            color: var(--vscode-foreground);
-            z-index: 10;
-        }
-
-        .loading-spinner {
-            border: 2px solid var(--vscode-input-border);
-            border-top: 2px solid var(--vscode-button-background);
-            border-radius: 50%;
-            width: 32px;
-            height: 32px;
-            animation: spin 1s linear infinite;
-            margin: 0 auto 16px;
-        }
-
-        @keyframes spin {
-            0% { transform: rotate(0deg); }
-            100% { transform: rotate(360deg); }
-        }
-
-        .loading-text {
-            font-size: 13px;
-            opacity: 0.8;
-        }
-    </style>
-</head>
-<body>
-    <div class="header">
-        <img src="${logoSrc}" alt="Anypoint Monitor">
-        <h1>DataWeave Playground</h1>
-    </div>
-    <div class="iframe-container">
-        <div class="loading" id="loading">
-            <div class="loading-spinner"></div>
-            <div class="loading-text">Loading DataWeave Playground...</div>
-        </div>
-        <iframe
-            id="playground-frame"
-            src="https://dataweave.mulesoft.com/learn/playground"
-            sandbox="allow-scripts allow-same-origin allow-forms allow-popups allow-downloads allow-modals"
-            onload="hideLoading()"
-        ></iframe>
-    </div>
-
-    <script>
-        function hideLoading() {
-            const loading = document.getElementById('loading');
-            if (loading) {
-                loading.style.display = 'none';
+        const scripts = `
+            function hideLoading() {
+                const loading = document.getElementById('loading');
+                if (loading) { loading.style.display = 'none'; }
             }
-        }
-
-
-        // Handle iframe load error
-        const iframe = document.getElementById('playground-frame');
-        iframe.onerror = function() {
-            const loading = document.getElementById('loading');
-            loading.innerHTML = '<div style="color: var(--vscode-errorForeground);">⚠️ Unable to load DataWeave Playground</div><div style="margin-top: 10px; font-size: 12px; opacity: 0.8;">Please check your internet connection and try again.</div>';
-        };
-    </script>
-</body>
-</html>
+            const iframe = document.getElementById('playground-frame');
+            iframe.onerror = function() {
+                const loading = document.getElementById('loading');
+                loading.innerHTML = '<div style="color:var(--am-error)">Unable to load DataWeave Playground</div><div style="margin-top:10px;font-size:12px;color:var(--am-text-muted)">Please check your internet connection and try again.</div>';
+            };
         `;
+
+        return wrapWebviewHtml({
+            title: 'DataWeave Playground',
+            body,
+            scripts,
+            extraStyles: `
+                body { overflow: hidden; padding: 0; }
+                .dw-page { display: flex; flex-direction: column; height: 100vh; }
+                .dw-header-bar {
+                    flex-shrink: 0; height: 40px; background: var(--am-bg-secondary);
+                    border-bottom: 1px solid var(--am-border);
+                    display: flex; align-items: center; padding: 0 16px; gap: 10px;
+                }
+                .dw-logo { width: 20px; height: 20px; }
+                .dw-title { font-size: 13px; color: var(--am-text-primary); }
+                .dw-iframe-container { flex: 1; position: relative; background: #ffffff; }
+                .dw-iframe-container iframe {
+                    width: 100%; height: 100%; border: none; display: block;
+                    filter: brightness(1.2) contrast(0.85) saturate(0.8); background: #ffffff;
+                }
+                .dw-loading {
+                    position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%);
+                    text-align: center; color: var(--am-text-primary); z-index: 10;
+                }
+                .dw-spinner {
+                    border: 2px solid var(--am-border); border-top-color: var(--am-info);
+                    border-radius: 50%; width: 32px; height: 32px;
+                    animation: am-spin 0.8s linear infinite; margin: 0 auto 16px;
+                }
+                .dw-loading-text { font-size: 13px; color: var(--am-text-secondary); }
+                @keyframes am-spin { to { transform: rotate(360deg); } }
+            `
+        });
     }
 
     public dispose() {
         DataWeavePlaygroundPanel.currentPanel = undefined;
-
-        // Clean up resources
         this._panel.dispose();
-
         while (this._disposables.length) {
             const disposable = this._disposables.pop();
-            if (disposable) {
-                disposable.dispose();
-            }
+            if (disposable) { disposable.dispose(); }
         }
     }
 }

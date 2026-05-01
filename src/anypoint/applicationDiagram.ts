@@ -3,6 +3,7 @@ import axios, { AxiosError } from 'axios';
 import JSZip from 'jszip';
 import * as fs from 'fs';
 
+import { badge, button, escapeHtml, wrapWebviewHtml } from '../webview/ui-kit';
 import { BASE_URL, getBaseUrl } from '../constants';
 import { refreshAccessToken } from '../controllers/oauthService';
 import { getCH2Deployments } from './cloudhub2Applications';
@@ -2047,309 +2048,246 @@ function renderDiagramWebview(
     );
 
     const nonce = createNonce();
-    const toolkitUri = 'https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.esm.min.mjs';
-    const sanitizedMermaid = mermaid.replace(/`/g, '\\`');
+    const mermaidScriptUri = 'https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.min.js';
     const cspSource = panel.webview.cspSource;
 
-    panel.webview.html = /* html */ `
-        <!DOCTYPE html>
-        <html lang="en">
-        <head>
-            <meta charset="UTF-8">
-            <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src ${cspSource} 'unsafe-inline'; img-src ${cspSource} https: data:; font-src ${cspSource} https: data:; script-src 'nonce-${nonce}' https://cdn.jsdelivr.net;">
-            <meta name="viewport" content="width=device-width, initial-scale=1.0">
-            <title>${escapeHtml(appLabel)} — Mule Flow Diagram</title>
-            <style>
-                body {
-                    font-family: "Segoe UI", sans-serif;
-                    margin: 0;
-                    background: #0d1117;
-                    color: #c9d1d9;
-                }
+    const metaBadges = [
+        badge(`${graph.nodes.length} flows`, 'info', true),
+        badge(`${graph.edges.length} connections`, 'default', true),
+        badge(`${metadata.fileCount} XML files`, 'default', true),
+        metadata.artifactName ? badge(`Artifact: ${metadata.artifactName}`, 'default', true) : '',
+    ].filter(Boolean).join('');
 
-                header {
-                    padding: 16px 24px;
-                    border-bottom: 1px solid #21262d;
-                }
-
-                .meta {
-                    display: flex;
-                    flex-wrap: wrap;
-                    gap: 12px;
-                    margin-top: 8px;
-                    font-size: 12px;
-                    text-transform: uppercase;
-                    letter-spacing: 0.08em;
-                }
-
-                #diagram {
-                    padding: 16px;
-                    overflow: auto;
-                    height: calc(100vh - 120px);
-                    animation: fadeIn 1s ease-out 0.4s both;
-                }
-
-                /* Enhanced animations and emotional design */
-                @keyframes fadeIn {
-                    from { opacity: 0; transform: translateY(20px); }
-                    to { opacity: 1; transform: translateY(0); }
-                }
-                
-                @keyframes pulse {
-                    0%, 100% { transform: scale(1); }
-                    50% { transform: scale(1.05); }
-                }
-                
-                @keyframes glow {
-                    0%, 100% { box-shadow: 0 0 5px rgba(102, 126, 234, 0.3); }
-                    50% { box-shadow: 0 0 20px rgba(102, 126, 234, 0.6), 0 0 30px rgba(102, 126, 234, 0.4); }
-                }
-                
-                /* Enhanced Mermaid styling with animations */
-                #diagram svg {
-                    filter: drop-shadow(0 4px 8px rgba(0, 0, 0, 0.3));
-                    transition: transform 0.3s ease;
-                }
-                
-                #diagram svg:hover {
-                    transform: scale(1.02);
-                }
-                
-                /* Animated nodes */
-                .node rect, .node circle, .node ellipse, .node polygon {
-                    transition: all 0.3s ease;
-                    cursor: pointer;
-                }
-                
-                .node:hover rect, .node:hover circle, .node:hover ellipse, .node:hover polygon {
-                    animation: pulse 1.5s infinite;
-                    filter: brightness(1.2);
-                }
-                
-                /* Animated edges */
-                .edgePath path {
-                    transition: stroke-width 0.3s ease, stroke 0.3s ease;
-                }
-                
-                .edgePath:hover path {
-                    stroke-width: 3px;
-                    filter: drop-shadow(0 0 5px currentColor);
-                }
-
-                pre {
-                    display: none;
-                }
-
-                .stats {
-                    font-size: 13px;
-                    display: flex;
-                    gap: 16px;
-                }
-
-                .list {
-                    padding: 16px 24px;
-                    border-top: 1px solid #21262d;
-                    background: #0b0d12;
-                    font-size: 13px;
-                }
-
-                .list ul {
-                    margin: 8px 0 0;
-                    padding-left: 20px;
-                    columns: 2;
-                    column-gap: 32px;
-                }
-
-                .controls {
-                    margin-top: 12px;
-                    display: flex;
-                    gap: 8px;
-                    flex-wrap: wrap;
-                    align-items: center;
-                }
-
-                .export-controls {
-                    display: flex;
-                    gap: 8px;
-                    flex-wrap: wrap;
-                }
-
-                .zoom-controls {
-                    display: flex;
-                    gap: 4px;
-                    align-items: center;
-                    margin-right: 16px;
-                }
-
-                .export-btn, .zoom-btn {
-                    background: #238636;
-                    color: white;
-                    border: 1px solid #2ea043;
-                    border-radius: 6px;
-                    padding: 6px 12px;
-                    font-size: 12px;
-                    cursor: pointer;
-                    transition: background-color 0.2s;
-                    min-width: 32px;
-                }
-
-                .zoom-btn {
-                    background: #1f6feb;
-                    border: 1px solid #388bfd;
-                    padding: 4px 8px;
-                    font-weight: bold;
-                }
-
-                .export-btn:hover, .zoom-btn:hover {
-                    background: #2ea043;
-                }
-
-                .zoom-btn:hover {
-                    background: #388bfd;
-                }
-
-                .export-btn:active, .zoom-btn:active {
-                    background: #1a7f37;
-                }
-
-                .zoom-btn:active {
-                    background: #1f6feb;
-                }
-
-                .zoom-level {
-                    color: #7d8590;
-                    font-size: 11px;
-                    margin: 0 4px;
-                    min-width: 30px;
-                    text-align: center;
-                }
-
-                #diagram {
-                    position: relative;
-                    overflow: auto;
-                }
-
-                #diagram svg {
-                    background: white;
-                    border-radius: 6px;
-                    padding: 16px;
-                    transition: transform 0.2s ease;
-                    transform-origin: top left;
-                }
-            </style>
-        </head>
-        <body>
-            <header>
-                <h2>${escapeHtml(appLabel)}</h2>
-                <div class="meta">
-                    <span>${graph.nodes.length} flows</span>
-                    <span>${graph.edges.length} connections</span>
-                    <span>${metadata.fileCount} XML files</span>
-                    ${metadata.artifactName ? `<span>Artifact: ${escapeHtml(metadata.artifactName)}</span>` : ''}
-                </div>
-                <div class="controls">
-                    <div class="zoom-controls">
-                        <button id="zoom-out" class="zoom-btn">−</button>
-                        <span id="zoom-level" class="zoom-level">100%</span>
-                        <button id="zoom-in" class="zoom-btn">+</button>
-                        <button id="zoom-reset" class="zoom-btn">Reset</button>
-                    </div>
-                    <div class="export-controls">
-                        <button id="copy-mermaid" class="export-btn">📋 Copy Mermaid Code</button>
+    const body = `
+        <div class="am-container ad-diagram-page">
+            <header class="am-page-header">
+                <div class="ad-diagram-header-main">
+                    <h1>${escapeHtml(appLabel)}</h1>
+                    <div class="am-page-header-meta">${metaBadges}</div>
+                    <div class="ad-diagram-controls">
+                        <div class="ad-zoom-controls">
+                            ${button('−', { variant: 'secondary', id: 'zoom-out' })}
+                            <span id="zoom-level" class="ad-zoom-level">100%</span>
+                            ${button('+', { variant: 'secondary', id: 'zoom-in' })}
+                            ${button('Reset', { variant: 'ghost', id: 'zoom-reset' })}
+                        </div>
+                        <div class="ad-export-controls">
+                            ${button('📋 Copy Mermaid Code', { variant: 'primary', id: 'copy-mermaid' })}
+                        </div>
                     </div>
                 </div>
             </header>
-            <section id="diagram"></section>
-            <pre id="mermaid-source">${sanitizedMermaid}</pre>
-            <section class="list">
+            <section id="diagram" class="ad-diagram-canvas"></section>
+            <pre id="mermaid-source" class="ad-mermaid-source">${escapeHtml(mermaid)}</pre>
+            <section class="ad-flow-list">
                 <strong>Flows by file</strong>
                 <ul>
                     ${renderFlowsByFile(graph.nodes)}
                 </ul>
             </section>
-            <script type="module" nonce="${nonce}">
-                import mermaid from '${toolkitUri}';
-                mermaid.initialize({
-                    startOnLoad: false,
-                    securityLevel: 'loose',
-                    theme: 'dark'
-                });
+        </div>
+        <script nonce="${nonce}" src="${mermaidScriptUri}"></script>
+    `;
 
-                const source = document.getElementById('mermaid-source');
-                const target = document.getElementById('diagram');
+    panel.webview.html = wrapWebviewHtml({
+        title: `${appLabel} — Mule Flow Diagram`,
+        nonce,
+        headExtra: `<meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src ${cspSource} 'unsafe-inline'; img-src ${cspSource} https: data:; font-src ${cspSource} https: data:; script-src 'nonce-${nonce}' https://cdn.jsdelivr.net;">`,
+        body,
+        extraStyles: getApplicationDiagramExtraStyles(),
+        scripts: getApplicationDiagramInlineScripts(),
+    });
+}
 
-                mermaid.render('mule-diagram', source.textContent ?? '')
-                    .then(result => {
-                        target.innerHTML = result.svg;
-                        setupExportHandlers();
-                        setupZoomHandlers();
-                    })
-                    .catch(err => {
-                        const message = err && typeof err === 'object' && 'message' in err ? err.message : String(err);
-                        target.innerHTML = '<pre style="color:#ff6b6b;">Mermaid rendering failed: ' + message + '</pre>';
-                    });
+function getApplicationDiagramExtraStyles(): string {
+    return `
+        .ad-diagram-page {
+            max-width: none;
+        }
+        .ad-diagram-page .am-page-header {
+            flex-wrap: wrap;
+        }
+        .ad-diagram-header-main {
+            flex: 1;
+            min-width: 0;
+        }
+        .ad-diagram-controls {
+            margin-top: 12px;
+            display: flex;
+            gap: 8px;
+            flex-wrap: wrap;
+            align-items: center;
+        }
+        .ad-zoom-controls {
+            display: flex;
+            gap: 4px;
+            align-items: center;
+            margin-right: 16px;
+        }
+        .ad-zoom-controls .am-btn-secondary {
+            padding: 4px 10px;
+            min-width: 36px;
+            justify-content: center;
+            font-weight: 700;
+        }
+        .ad-export-controls {
+            display: flex;
+            gap: 8px;
+            flex-wrap: wrap;
+        }
+        .ad-zoom-level {
+            color: var(--am-text-muted);
+            font-size: 11px;
+            margin: 0 4px;
+            min-width: 40px;
+            text-align: center;
+        }
+        .ad-diagram-canvas {
+            padding: 16px 0;
+            overflow: auto;
+            min-height: 200px;
+            max-height: calc(100vh - 280px);
+            position: relative;
+            animation: am-fadeIn 1s ease-out 0.2s both;
+        }
+        .ad-mermaid-source {
+            display: none;
+        }
+        @keyframes ad-diagram-pulse {
+            0%, 100% { transform: scale(1); }
+            50% { transform: scale(1.05); }
+        }
+        #diagram svg,
+        .ad-diagram-canvas svg {
+            filter: drop-shadow(var(--am-shadow-md));
+            transition: transform 0.3s ease;
+        }
+        #diagram svg:hover,
+        .ad-diagram-canvas svg:hover {
+            transform: scale(1.02);
+        }
+        .ad-diagram-canvas .node rect,
+        .ad-diagram-canvas .node circle,
+        .ad-diagram-canvas .node ellipse,
+        .ad-diagram-canvas .node polygon {
+            transition: all 0.3s ease;
+            cursor: pointer;
+        }
+        .ad-diagram-canvas .node:hover rect,
+        .ad-diagram-canvas .node:hover circle,
+        .ad-diagram-canvas .node:hover ellipse,
+        .ad-diagram-canvas .node:hover polygon {
+            animation: ad-diagram-pulse 1.5s infinite;
+            filter: brightness(1.15);
+        }
+        .ad-diagram-canvas .edgePath path {
+            transition: stroke-width 0.3s ease, stroke 0.3s ease;
+        }
+        .ad-diagram-canvas .edgePath:hover path {
+            stroke-width: 3px;
+            filter: drop-shadow(0 0 5px currentColor);
+        }
+        .ad-diagram-canvas svg {
+            background: var(--am-bg-surface);
+            border: 1px solid var(--am-border);
+            border-radius: var(--am-radius-md);
+            padding: 16px;
+            transition: transform 0.2s ease;
+            transform-origin: top left;
+        }
+        .ad-flow-list {
+            margin-top: 16px;
+            border-top: 1px solid var(--am-border);
+            background: var(--am-bg-secondary);
+            border-radius: var(--am-radius-md);
+            padding: 16px 20px;
+            font-size: 13px;
+        }
+        .ad-flow-list ul {
+            margin: 8px 0 0;
+            padding-left: 20px;
+            columns: 2;
+            column-gap: 32px;
+        }
+    `;
+}
 
-                function setupExportHandlers() {
-                    // Copy Mermaid code
-                    document.getElementById('copy-mermaid').addEventListener('click', () => {
-                        const mermaidSource = document.getElementById('mermaid-source');
-                        if (mermaidSource) {
-                            navigator.clipboard.writeText(mermaidSource.textContent || '').then(() => {
-                                const btn = document.getElementById('copy-mermaid');
-                                const originalText = btn.textContent;
-                                btn.textContent = '✅ Copied!';
-                                setTimeout(() => {
-                                    btn.textContent = originalText;
-                                }, 2000);
-                            });
-                        }
+function getApplicationDiagramInlineScripts(): string {
+    return `
+        mermaid.initialize({
+            startOnLoad: false,
+            securityLevel: 'loose',
+            theme: 'dark'
+        });
+
+        const source = document.getElementById('mermaid-source');
+        const target = document.getElementById('diagram');
+
+        mermaid.render('mule-diagram', source.textContent ?? '')
+            .then(result => {
+                target.innerHTML = result.svg;
+                setupExportHandlers();
+                setupZoomHandlers();
+            })
+            .catch(err => {
+                const message = err && typeof err === 'object' && 'message' in err ? err.message : String(err);
+                target.innerHTML = '<pre style="color:var(--am-error);">Mermaid rendering failed: ' + message + '</pre>';
+            });
+
+        function setupExportHandlers() {
+            document.getElementById('copy-mermaid').addEventListener('click', () => {
+                const mermaidSource = document.getElementById('mermaid-source');
+                if (mermaidSource) {
+                    navigator.clipboard.writeText(mermaidSource.textContent || '').then(() => {
+                        const btn = document.getElementById('copy-mermaid');
+                        const originalText = btn.textContent;
+                        btn.textContent = '✅ Copied!';
+                        setTimeout(() => {
+                            btn.textContent = originalText;
+                        }, 2000);
                     });
                 }
+            });
+        }
 
+        function setupZoomHandlers() {
+            const svgElement = document.querySelector('#diagram svg');
+            const zoomLevelElement = document.getElementById('zoom-level');
+            let currentZoom = 1.0;
+            const zoomStep = 0.2;
+            const minZoom = 0.2;
+            const maxZoom = 3.0;
 
-                function setupZoomHandlers() {
-                    const svgElement = document.querySelector('#diagram svg');
-                    const zoomLevelElement = document.getElementById('zoom-level');
-                    let currentZoom = 1.0;
-                    const zoomStep = 0.2;
-                    const minZoom = 0.2;
-                    const maxZoom = 3.0;
-
-                    function updateZoom(newZoom) {
-                        currentZoom = Math.max(minZoom, Math.min(maxZoom, newZoom));
-                        if (svgElement) {
-                            svgElement.style.transform = 'scale(' + currentZoom + ')';
-                        }
-                        if (zoomLevelElement) {
-                            zoomLevelElement.textContent = Math.round(currentZoom * 100) + '%';
-                        }
-                    }
-
-                    document.getElementById('zoom-in').addEventListener('click', () => {
-                        updateZoom(currentZoom + zoomStep);
-                    });
-
-                    document.getElementById('zoom-out').addEventListener('click', () => {
-                        updateZoom(currentZoom - zoomStep);
-                    });
-
-                    document.getElementById('zoom-reset').addEventListener('click', () => {
-                        updateZoom(1.0);
-                    });
-
-                    // Mouse wheel zoom
-                    document.getElementById('diagram').addEventListener('wheel', (e) => {
-                        if (e.ctrlKey || e.metaKey) {
-                            e.preventDefault();
-                            const delta = e.deltaY > 0 ? -zoomStep : zoomStep;
-                            updateZoom(currentZoom + delta);
-                        }
-                    });
+            function updateZoom(newZoom) {
+                currentZoom = Math.max(minZoom, Math.min(maxZoom, newZoom));
+                if (svgElement) {
+                    svgElement.style.transform = 'scale(' + currentZoom + ')';
                 }
+                if (zoomLevelElement) {
+                    zoomLevelElement.textContent = Math.round(currentZoom * 100) + '%';
+                }
+            }
 
-            </script>
-        </body>
-        </html>
+            document.getElementById('zoom-in').addEventListener('click', () => {
+                updateZoom(currentZoom + zoomStep);
+            });
+
+            document.getElementById('zoom-out').addEventListener('click', () => {
+                updateZoom(currentZoom - zoomStep);
+            });
+
+            document.getElementById('zoom-reset').addEventListener('click', () => {
+                updateZoom(1.0);
+            });
+
+            document.getElementById('diagram').addEventListener('wheel', (e) => {
+                if (e.ctrlKey || e.metaKey) {
+                    e.preventDefault();
+                    const delta = e.deltaY > 0 ? -zoomStep : zoomStep;
+                    updateZoom(currentZoom + delta);
+                }
+            });
+        }
     `;
 }
 
@@ -2378,14 +2316,6 @@ function renderFlowsByFile(nodes: MuleFlowNode[]): string {
 
 function createNonce(): string {
     return Math.random().toString(36).slice(2, 12);
-}
-
-function escapeHtml(input: string): string {
-    return input
-        .replace(/&/g, '&amp;')
-        .replace(/</g, '&lt;')
-        .replace(/>/g, '&gt;')
-        .replace(/"/g, '&quot;');
 }
 
 function isUnauthorized(error: unknown): boolean {

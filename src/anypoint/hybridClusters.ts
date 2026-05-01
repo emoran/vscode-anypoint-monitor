@@ -1,9 +1,13 @@
 import * as vscode from 'vscode';
 import { telemetryService } from '../services/telemetryService';
+import {
+    wrapWebviewHtml,
+    summaryCard,
+    badge,
+    emptyState,
+    escapeHtml as uiEscapeHtml
+} from '../webview/ui-kit';
 
-/**
- * Creates a webview panel and displays Hybrid clusters
- */
 export function showHybridClustersWebview(
   context: vscode.ExtensionContext,
   data: any,
@@ -23,91 +27,42 @@ export function showHybridClustersWebview(
 }
 
 function getHybridClustersHtml(clusters: any[]): string {
-  return /* html */ `
-    <!DOCTYPE html>
-    <html lang="en">
-      <head>
-        <meta charset="UTF-8" />
-        <title>Hybrid Clusters</title>
-        <style>
-          :root {
-            --background-primary: #1e2328;
-            --surface-primary: #21262d;
-            --text-primary: #f0f6fc;
-            --text-secondary: #7d8590;
-            --border-primary: #30363d;
-            --success: #3fb950;
-          }
-          * { box-sizing: border-box; }
-          body {
-            margin: 0;
-            padding: 0;
-            background-color: var(--background-primary);
-            color: var(--text-primary);
-            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
-            font-size: 14px;
-          }
-          .container {
-            max-width: 1200px;
-            margin: 0 auto;
-            padding: 32px;
-          }
-          h1 { font-size: 28px; margin-bottom: 24px; }
-          .card {
-            background-color: var(--surface-primary);
-            border: 1px solid var(--border-primary);
-            border-radius: 12px;
-            padding: 24px;
-            margin-bottom: 20px;
-          }
-          .cluster-name {
-            font-size: 18px;
-            font-weight: 600;
-            margin-bottom: 12px;
-          }
-          .cluster-info {
-            display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
-            gap: 16px;
-            margin-top: 16px;
-          }
-          .info-item {
-            color: var(--text-secondary);
-          }
-          .info-value {
-            color: var(--text-primary);
-            font-weight: 500;
-          }
-        </style>
-      </head>
-      <body>
-        <div class="container">
-          <h1>Hybrid Clusters</h1>
-          ${clusters.length > 0 ? clusters.map(c => `
-            <div class="card">
-              <div class="cluster-name">${c.name || 'Unnamed Cluster'}</div>
-              <div class="cluster-info">
-                <div class="info-item">
-                  <div>Status</div>
-                  <div class="info-value">${c.status || 'N/A'}</div>
-                </div>
-                <div class="info-item">
-                  <div>Nodes</div>
-                  <div class="info-value">${c.serversCount || c.servers?.length || 0}</div>
-                </div>
-                <div class="info-item">
-                  <div>Mule Version</div>
-                  <div class="info-value">${c.muleVersion || 'N/A'}</div>
-                </div>
-                <div class="info-item">
-                  <div>Multicast</div>
-                  <div class="info-value">${c.multicastEnabled ? 'Enabled' : 'Disabled'}</div>
-                </div>
-              </div>
-            </div>
-          `).join('') : '<p style="color: var(--text-secondary);">No clusters found</p>'}
+  const totalNodes = clusters.reduce((sum: number, c: any) => sum + (c.serversCount || c.servers?.length || 0), 0);
+
+  const tableRows = clusters.map(c => {
+    const status = c.status || 'N/A';
+    const statusVariant: 'success' | 'error' | 'warning' = status.toLowerCase().includes('running') ? 'success'
+      : status.toLowerCase().includes('disconnect') ? 'error' : 'warning';
+    return `
+      <tr class="am-row">
+        <td style="font-weight:500">${uiEscapeHtml(c.name || 'Unnamed Cluster')}</td>
+        <td>${badge(uiEscapeHtml(status), statusVariant, true)}</td>
+        <td>${c.serversCount || c.servers?.length || 0}</td>
+        <td>${uiEscapeHtml(c.muleVersion || 'N/A')}</td>
+        <td>${badge(c.multicastEnabled ? 'Enabled' : 'Disabled', c.multicastEnabled ? 'success' : 'default')}</td>
+      </tr>`;
+  }).join('');
+
+  const body = `
+    <div class="am-container">
+      <div class="am-page-header">
+        <div><h1>Hybrid Clusters</h1></div>
+      </div>
+
+      <div class="am-summary-cards">
+        ${summaryCard({ icon: '🔗', value: clusters.length, label: 'Clusters', animationDelay: '0.1s' })}
+        ${summaryCard({ icon: '🖥️', value: totalNodes, label: 'Total Nodes', animationDelay: '0.15s' })}
+      </div>
+
+      ${clusters.length > 0 ? `
+        <div class="am-table-container">
+          <table class="am-table">
+            <thead><tr><th>Cluster Name</th><th>Status</th><th>Nodes</th><th>Mule Version</th><th>Multicast</th></tr></thead>
+            <tbody>${tableRows}</tbody>
+          </table>
         </div>
-      </body>
-    </html>
-  `;
+      ` : emptyState({ icon: '🔗', title: 'No Clusters', description: 'No hybrid clusters found in this environment.' })}
+    </div>`;
+
+  return wrapWebviewHtml({ title: 'Hybrid Clusters', body });
 }

@@ -1,26 +1,23 @@
 import * as vscode from 'vscode';
+import {
+    wrapWebviewHtml,
+    badge,
+    escapeHtml as uiEscapeHtml
+} from '../webview/ui-kit';
 
-/**
- * Example: getOrgInfoWebviewContent
- * Reverts "Usage vs Plan" to a progress bar style (Used vs Remaining),
- * while keeping the dark theme + navbar layout.
- */
 export function getOrgInfoWebviewContent(
   orgObject: any,
   webview: vscode.Webview,
   extensionUri: vscode.Uri
 ): string {
-  // Destructure top-level org data
   const orgName = orgObject.name ?? 'N/A';
   const orgId = orgObject.id ?? 'N/A';
   const orgCsId = orgObject.csId ?? 'N/A';
   const orgEnabled = orgObject.enabled ?? false;
 
-  // Global Deployment info
   const globalDeployment = orgObject.globalDeployment ?? {};
   const defaultRegion = globalDeployment.defaultRegion ?? 'N/A';
 
-  // Additional boolean flags
   const downloadAppsEnabled = orgObject.downloadApplicationsEnabled ?? false;
   const persistentQueuesEncryptionEnabled = orgObject.persistentQueuesEncryptionEnabled ?? false;
   const osV1Disabled = orgObject.osV1Disabled ?? false;
@@ -28,551 +25,215 @@ export function getOrgInfoWebviewContent(
   const loggingCustomLog4jEnabled = orgObject.loggingCustomLog4jEnabled ?? false;
   const multitenancy = orgObject.multitenancy?.enabled ?? false;
 
-  // Plan & Usage objects
   const plan = orgObject.plan || {};
   const usage = orgObject.usage || {};
 
-  // Construct the webview-safe URI for logo
-  const logoPath = vscode.Uri.joinPath(extensionUri, 'logo.png');
-  const logoSrc = webview.asWebviewUri(logoPath);
-
-  /**
-   * Renders a progress bar showing used vs. remaining.
-   * - If planVal = 0 => Show "N/A"
-   * - Else => Show usageVal / planVal with a bar
-   */
-  function renderUsageBar(usageVal: number, planVal: number): string {
-    if (!planVal || planVal === 0) {
-      return /* html */ `
-        <p><strong>Usage:</strong> ${usageVal} / <em>N/A</em></p>
-        <div class="bar-container">
-          <div class="bar" style="width: 0%;"></div>
-        </div>
-      `;
-    }
-
-    const used = usageVal || 0;
-    const total = planVal;
-    const percent = Math.min((used / total) * 100, 100).toFixed(1);
-
-    return /* html */ `
-      <p><strong>Usage:</strong> ${used} / ${total}</p>
-      <div class="bar-container">
-        <div class="bar" style="width: ${percent}%"></div>
-      </div>
-    `;
-  }
-
-  // We'll build an array of usage items so we can loop over them
-  // Each item: { label: string, usageVal: number, planVal: number }
   const usageItems = [
-    {
-      label: 'Production Workers',
-      usageVal: usage.productionWorkers ?? 0,
-      planVal: plan.maxProductionWorkers ?? 0
-    },
-    {
-      label: 'Sandbox Workers',
-      usageVal: usage.sandboxWorkers ?? 0,
-      planVal: plan.maxSandboxWorkers ?? 0
-    },
-    {
-      label: 'Standard Connectors',
-      usageVal: usage.standardConnectors ?? 0,
-      planVal: plan.maxStandardConnectors ?? 0
-    },
-    {
-      label: 'Premium Connectors',
-      usageVal: usage.premiumConnectors ?? 0,
-      planVal: plan.maxPremiumConnectors ?? 0
-    },
-    {
-      label: 'Static IPs',
-      usageVal: usage.staticIps ?? 0,
-      planVal: plan.maxStaticIps ?? 0
-    },
-    {
-      label: 'Deployment Groups',
-      usageVal: usage.deploymentGroups ?? 0,
-      planVal: plan.maxDeploymentGroups ?? 0
-    }
+    { label: 'Production Workers', usageVal: usage.productionWorkers ?? 0, planVal: plan.maxProductionWorkers ?? 0 },
+    { label: 'Sandbox Workers', usageVal: usage.sandboxWorkers ?? 0, planVal: plan.maxSandboxWorkers ?? 0 },
+    { label: 'Standard Connectors', usageVal: usage.standardConnectors ?? 0, planVal: plan.maxStandardConnectors ?? 0 },
+    { label: 'Premium Connectors', usageVal: usage.premiumConnectors ?? 0, planVal: plan.maxPremiumConnectors ?? 0 },
+    { label: 'Static IPs', usageVal: usage.staticIps ?? 0, planVal: plan.maxStaticIps ?? 0 },
+    { label: 'Deployment Groups', usageVal: usage.deploymentGroups ?? 0, planVal: plan.maxDeploymentGroups ?? 0 }
   ];
 
-  // Generate the usage cards with progress bars
-  const usageCardsHtml = usageItems
-    .map((item) => {
-      return /* html */ `
-        <div class="usage-card">
-          <h3>${item.label}</h3>
-          ${renderUsageBar(item.usageVal, item.planVal)}
+  const gaugeRadius = 52;
+  const gaugeCircumference = 2 * Math.PI * gaugeRadius;
+
+  interface GaugeItem { label: string; used: number; total: number; }
+  const gaugeItems: GaugeItem[] = [
+    { label: 'Production Workers', used: usage.productionWorkers ?? 0, total: plan.maxProductionWorkers ?? 0 },
+    { label: 'Sandbox Workers',    used: usage.sandboxWorkers ?? 0,    total: plan.maxSandboxWorkers ?? 0 },
+    { label: 'Static IPs',         used: usage.staticIps ?? 0,         total: plan.maxStaticIps ?? 0 },
+  ];
+
+  function gaugeColor(pct: number): string {
+    if (pct >= 90) { return 'var(--am-error)'; }
+    if (pct >= 75) { return 'var(--am-warning)'; }
+    return 'var(--am-info)';
+  }
+
+  function renderGauge(g: GaugeItem): string {
+    const pct = g.total > 0 ? Math.min((g.used / g.total) * 100, 100) : 0;
+    const offset = gaugeCircumference - (gaugeCircumference * pct / 100);
+    return `
+      <div class="od-gauge">
+        <div class="od-gauge-ring">
+          <svg viewBox="0 0 120 120" width="110" height="110">
+            <circle cx="60" cy="60" r="${gaugeRadius}" fill="none" stroke="var(--am-border)" stroke-width="3" opacity="0.4"/>
+            <circle cx="60" cy="60" r="${gaugeRadius}" fill="none" stroke="${gaugeColor(pct)}" stroke-width="3"
+              stroke-linecap="round" stroke-dasharray="${gaugeCircumference}" stroke-dashoffset="${offset}"
+              style="transform:rotate(-90deg);transform-origin:center;transition:stroke-dashoffset 1s ease"/>
+          </svg>
+          <div class="od-gauge-value">${g.used}</div>
         </div>
-      `;
-    })
-    .join('');
+        <div class="od-gauge-label">${uiEscapeHtml(g.label)}</div>
+        <div class="od-gauge-sub">${g.total > 0 ? `of ${g.total}` : 'unlimited'}</div>
+      </div>`;
+  }
 
-  // Build the entire HTML for the webview
-  return /* html */ `
-  <!DOCTYPE html>
-  <html lang="en">
-  <head>
-    <meta charset="UTF-8" />
-    <title>Organization Dashboard</title>
+  function barColor(pct: number): string {
+    if (pct >= 90) { return 'var(--am-error)'; }
+    if (pct >= 75) { return 'var(--am-warning)'; }
+    return 'var(--am-info)';
+  }
 
-    <style>
-      /* Code Time inspired theme */
-      :root {
-        --background-primary: #1e2328;
-        --background-secondary: #161b22;
-        --surface-primary: #21262d;
-        --surface-secondary: #30363d;
-        --surface-accent: #0d1117;
-        --text-primary: #f0f6fc;
-        --text-secondary: #7d8590;
-        --text-muted: #656d76;
-        --accent-blue: #58a6ff;
-        --accent-light: #79c0ff;
-        --border-primary: #30363d;
-        --border-muted: #21262d;
-        --success: #3fb950;
-        --warning: #d29922;
-        --error: #f85149;
-      }
-
-      * {
-        box-sizing: border-box;
-      }
-
-      body {
-        margin: 0;
-        padding: 0;
-        background-color: var(--background-primary);
-        color: var(--text-primary);
-        font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Noto Sans', Helvetica, Arial, sans-serif;
-        font-size: 14px;
-        line-height: 1.5;
-      }
-
-      /* Header Section */
-      .header {
-        background-color: var(--background-secondary);
-        border-bottom: 1px solid var(--border-primary);
-        padding: 24px 32px;
-      }
-
-      .header-content {
-        max-width: 1200px;
-        margin: 0 auto;
-      }
-
-      .header h1 {
-        font-size: 28px;
-        font-weight: 600;
-        margin: 0 0 8px 0;
-        color: var(--text-primary);
-      }
-
-      .header p {
-        font-size: 16px;
-        color: var(--text-secondary);
-        margin: 0;
-      }
-
-      /* Main Content */
-      .container {
-        max-width: 1200px;
-        margin: 0 auto;
-        padding: 32px;
-      }
-
-
-      /* Statistics Grid */
-      .stats-grid {
-        display: grid;
-        grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
-        gap: 20px;
-        margin-bottom: 32px;
-      }
-
-      .stat-card {
-        background-color: var(--surface-primary);
-        border: 1px solid var(--border-primary);
-        border-radius: 12px;
-        padding: 24px;
-        position: relative;
-        transition: all 0.2s;
-      }
-
-      .stat-card:hover {
-        border-color: var(--border-muted);
-        transform: translateY(-1px);
-      }
-
-      .stat-header {
-        display: flex;
-        align-items: center;
-        justify-content: space-between;
-        margin-bottom: 16px;
-      }
-
-      .stat-title {
-        font-size: 14px;
-        font-weight: 500;
-        color: var(--text-secondary);
-        margin: 0;
-      }
-
-      .stat-icon {
-        width: 16px;
-        height: 16px;
-        opacity: 0.6;
-      }
-
-      .stat-value {
-        font-size: 32px;
-        font-weight: 600;
-        color: var(--text-primary);
-        margin: 0 0 8px 0;
-        line-height: 1.2;
-      }
-
-      .stat-subtitle {
-        font-size: 13px;
-        color: var(--text-muted);
-        margin: 0;
-      }
-
-      .stat-trend {
-        display: flex;
-        align-items: center;
-        gap: 4px;
-        font-size: 12px;
-        margin-top: 8px;
-      }
-
-      .trend-up { color: var(--success); }
-      .trend-down { color: var(--error); }
-      .trend-neutral { color: var(--text-muted); }
-
-      /* Usage Progress Bars */
-      .usage-card {
-        background-color: var(--surface-primary);
-        border: 1px solid var(--border-primary);
-        border-radius: 12px;
-        padding: 24px;
-      }
-
-      .usage-header {
-        display: flex;
-        justify-content: space-between;
-        align-items: center;
-        margin-bottom: 16px;
-      }
-
-      .usage-title {
-        font-size: 16px;
-        font-weight: 600;
-        color: var(--text-primary);
-        margin: 0;
-      }
-
-      .usage-subtitle {
-        font-size: 14px;
-        color: var(--text-secondary);
-        margin: 0 0 20px 0;
-      }
-
-      .usage-items {
-        display: grid;
-        gap: 20px;
-      }
-
-      .usage-item {
-        display: flex;
-        justify-content: space-between;
-        align-items: center;
-        padding: 16px 0;
-        border-bottom: 1px solid var(--border-muted);
-      }
-
-      .usage-item:last-child {
-        border-bottom: none;
-      }
-
-      .usage-info {
-        flex: 1;
-      }
-
-      .usage-label {
-        font-size: 14px;
-        font-weight: 500;
-        color: var(--text-primary);
-        margin: 0 0 4px 0;
-      }
-
-      .usage-details {
-        font-size: 13px;
-        color: var(--text-secondary);
-        margin: 0;
-      }
-
-      .usage-progress {
-        width: 120px;
-        margin-left: 16px;
-      }
-
-      .progress-bar {
-        width: 100%;
-        height: 6px;
-        background-color: var(--surface-secondary);
-        border-radius: 3px;
-        overflow: hidden;
-        margin-bottom: 4px;
-      }
-
-      .progress-fill {
-        height: 100%;
-        background-color: var(--accent-blue);
-        transition: width 0.3s ease;
-      }
-
-      .progress-text {
-        font-size: 12px;
-        color: var(--text-muted);
-        text-align: right;
-      }
-
-      /* Organization Details Table */
-      .details-card {
-        background-color: var(--surface-primary);
-        border: 1px solid var(--border-primary);
-        border-radius: 12px;
-        padding: 24px;
-        margin-bottom: 32px;
-      }
-
-      .details-table {
-        width: 100%;
-        border-collapse: collapse;
-      }
-
-      .details-table tr {
-        border-bottom: 1px solid var(--border-muted);
-      }
-
-      .details-table tr:last-child {
-        border-bottom: none;
-      }
-
-      .details-table th,
-      .details-table td {
-        padding: 12px 0;
-        text-align: left;
-      }
-
-      .details-table th {
-        font-size: 13px;
-        font-weight: 500;
-        color: var(--text-secondary);
-        width: 200px;
-      }
-
-      .details-table td {
-        font-size: 14px;
-        color: var(--text-primary);
-      }
-
-      /* Status Badges */
-      .status-badge {
-        display: inline-flex;
-        align-items: center;
-        gap: 6px;
-        padding: 4px 8px;
-        border-radius: 6px;
-        font-size: 12px;
-        font-weight: 500;
-      }
-
-      .status-enabled {
-        background-color: rgba(63, 185, 80, 0.15);
-        color: var(--success);
-      }
-
-      .status-disabled {
-        background-color: rgba(248, 81, 73, 0.15);
-        color: var(--error);
-      }
-
-      .status-dot {
-        width: 6px;
-        height: 6px;
-        border-radius: 50%;
-        background-color: currentColor;
-      }
-
-      /* Responsive Design */
-      @media (max-width: 768px) {
-        .container {
-          padding: 16px;
-        }
-        
-        .header {
-          padding: 16px;
-        }
-        
-        .stats-grid {
-          grid-template-columns: 1fr;
-        }
-      }
-    </style>
-  </head>
-  <body>
-    <!-- Header -->
-    <div class="header">
-      <div class="header-content">
-        <h1>${orgName}</h1>
-        <p>Organization Dashboard</p>
-      </div>
-    </div>
-
-    <!-- Main Content -->
-    <div class="container">
-
-      <!-- Statistics Grid -->
-      <div class="stats-grid">
-        <div class="stat-card">
-          <div class="stat-header">
-            <h3 class="stat-title">Production Workers</h3>
-          </div>
-          <div class="stat-value">${usage.productionWorkers || 0}</div>
-          <p class="stat-subtitle">of ${plan.maxProductionWorkers || 'unlimited'} available</p>
+  function renderUsageRow(item: { label: string; usageVal: number; planVal: number }): string {
+    const used = item.usageVal || 0;
+    const total = item.planVal || 0;
+    const pct = total > 0 ? Math.min((used / total) * 100, 100) : 0;
+    return `
+      <div class="od-usage-row">
+        <div class="od-usage-left">
+          <div class="od-usage-name">${uiEscapeHtml(item.label)}</div>
+          <div class="od-usage-count">${used} of ${total > 0 ? total : 'unlimited'}</div>
         </div>
-
-        <div class="stat-card">
-          <div class="stat-header">
-            <h3 class="stat-title">Sandbox Workers</h3>
+        <div class="od-usage-right">
+          <div class="od-bar-track">
+            <div class="od-bar-fill" style="width:${pct}%;background:${barColor(pct)}"></div>
           </div>
-          <div class="stat-value">${usage.sandboxWorkers || 0}</div>
-          <p class="stat-subtitle">of ${plan.maxSandboxWorkers || 'unlimited'} available</p>
+          <div class="od-bar-pct">${pct.toFixed(0)}%</div>
         </div>
+      </div>`;
+  }
 
-        <div class="stat-card">
-          <div class="stat-header">
-            <h3 class="stat-title">Static IPs</h3>
-          </div>
-          <div class="stat-value">${usage.staticIps || 0}</div>
-          <p class="stat-subtitle">of ${plan.maxStaticIps || 'unlimited'} available</p>
-        </div>
+  const boolDot = (val: boolean) => val
+    ? `<span class="od-dot od-dot-on"></span> On`
+    : `<span class="od-dot od-dot-off"></span> Off`;
 
-        <div class="stat-card">
-          <div class="stat-header">
-            <h3 class="stat-title">Default Region</h3>
+  const kvRow = (label: string, value: string) =>
+    `<div class="od-kv"><span class="od-kv-label">${uiEscapeHtml(label)}</span><span class="od-kv-value">${value}</span></div>`;
+
+  const body = `
+    <div class="am-container">
+      <div class="am-page-header">
+        <div>
+          <h1>${uiEscapeHtml(orgName)}</h1>
+          <div class="am-page-header-meta">
+            ${badge('Organization Dashboard', 'default', true)}
+            ${badge(orgEnabled ? 'Enabled' : 'Disabled', orgEnabled ? 'success' : 'error', true)}
           </div>
-          <div class="stat-value" style="font-size: 18px;">${defaultRegion}</div>
-          <p class="stat-subtitle">Primary deployment region</p>
         </div>
       </div>
 
-      <!-- Usage Details -->
-      <div class="usage-card">
-        <div class="usage-header">
-          <h2 class="usage-title">Resource Usage</h2>
+      <div class="od-gauges">
+        ${gaugeItems.map(g => renderGauge(g)).join('')}
+      </div>
+
+      <div class="od-stats">
+        <div>
+          <div class="od-stat-label">Default Region</div>
+          <div class="od-stat-value">${uiEscapeHtml(defaultRegion)}</div>
         </div>
-        <p class="usage-subtitle">Current usage across all resource types</p>
-        
-        <div class="usage-items">
-          ${usageItems.map(item => {
-            const used = item.usageVal || 0;
-            const total = item.planVal || 0;
-            const percentage = total > 0 ? Math.min((used / total) * 100, 100) : 0;
-            
-            return `
-              <div class="usage-item">
-                <div class="usage-info">
-                  <h4 class="usage-label">${item.label}</h4>
-                  <p class="usage-details">${used} of ${total > 0 ? total : 'unlimited'} used</p>
-                </div>
-                <div class="usage-progress">
-                  <div class="progress-bar">
-                    <div class="progress-fill" style="width: ${percentage}%"></div>
-                  </div>
-                  <div class="progress-text">${percentage.toFixed(0)}%</div>
-                </div>
-              </div>
-            `;
-          }).join('')}
+        <div>
+          <div class="od-stat-label">Organization ID</div>
+          <div class="od-stat-value" style="font-size:12px;font-family:monospace">${uiEscapeHtml(orgId)}</div>
+        </div>
+        <div>
+          <div class="od-stat-label">CS ID</div>
+          <div class="od-stat-value" style="font-size:12px;font-family:monospace">${uiEscapeHtml(orgCsId)}</div>
         </div>
       </div>
 
-      <!-- Organization Details -->
-      <div class="details-card">
-        <h2 class="usage-title" style="margin-bottom: 20px;">Organization Details</h2>
-        <table class="details-table">
-          <tr>
-            <th>Organization ID</th>
-            <td>${orgId}</td>
-          </tr>
-          <tr>
-            <th>CS ID</th>
-            <td>${orgCsId}</td>
-          </tr>
-          <tr>
-            <th>Status</th>
-            <td>
-              <span class="status-badge ${orgEnabled ? 'status-enabled' : 'status-disabled'}">
-                <span class="status-dot"></span>
-                ${orgEnabled ? 'Enabled' : 'Disabled'}
-              </span>
-            </td>
-          </tr>
-          <tr>
-            <th>Application Downloads</th>
-            <td>
-              <span class="status-badge ${downloadAppsEnabled ? 'status-enabled' : 'status-disabled'}">
-                <span class="status-dot"></span>
-                ${downloadAppsEnabled ? 'Enabled' : 'Disabled'}
-              </span>
-            </td>
-          </tr>
-          <tr>
-            <th>Queue Encryption</th>
-            <td>
-              <span class="status-badge ${persistentQueuesEncryptionEnabled ? 'status-enabled' : 'status-disabled'}">
-                <span class="status-dot"></span>
-                ${persistentQueuesEncryptionEnabled ? 'Enabled' : 'Disabled'}
-              </span>
-            </td>
-          </tr>
-          <tr>
-            <th>Deployment Groups</th>
-            <td>
-              <span class="status-badge ${deploymentGroupEnabled ? 'status-enabled' : 'status-disabled'}">
-                <span class="status-dot"></span>
-                ${deploymentGroupEnabled ? 'Enabled' : 'Disabled'}
-              </span>
-            </td>
-          </tr>
-          <tr>
-            <th>Custom Log4j</th>
-            <td>
-              <span class="status-badge ${loggingCustomLog4jEnabled ? 'status-enabled' : 'status-disabled'}">
-                <span class="status-dot"></span>
-                ${loggingCustomLog4jEnabled ? 'Enabled' : 'Disabled'}
-              </span>
-            </td>
-          </tr>
-          <tr>
-            <th>Multitenancy</th>
-            <td>
-              <span class="status-badge ${multitenancy ? 'status-enabled' : 'status-disabled'}">
-                <span class="status-dot"></span>
-                ${multitenancy ? 'Enabled' : 'Disabled'}
-              </span>
-            </td>
-          </tr>
-        </table>
+      <div class="od-section">
+        <div class="od-section-title">Resource Usage</div>
+        ${usageItems.map(item => renderUsageRow(item)).join('')}
       </div>
-    </div>
-  </body>
-  </html>
-`;
+
+      <div class="od-section">
+        <div class="od-section-title">Features</div>
+        <div class="od-kv-grid">
+          ${kvRow('Status', boolDot(orgEnabled))}
+          ${kvRow('Application Downloads', boolDot(downloadAppsEnabled))}
+          ${kvRow('Queue Encryption', boolDot(persistentQueuesEncryptionEnabled))}
+          ${kvRow('Object Store V1', boolDot(!osV1Disabled))}
+          ${kvRow('Deployment Groups', boolDot(deploymentGroupEnabled))}
+          ${kvRow('Custom Log4j', boolDot(loggingCustomLog4jEnabled))}
+          ${kvRow('Multitenancy', boolDot(multitenancy))}
+        </div>
+      </div>
+    </div>`;
+
+  return wrapWebviewHtml({
+    title: 'Organization Details',
+    body,
+    extraStyles: getOrgDashboardStyles()
+  });
+}
+
+function getOrgDashboardStyles(): string {
+  return `
+    .od-gauges {
+      display: flex; gap: 48px; justify-content: flex-start;
+      margin-bottom: 32px; padding-bottom: 28px;
+      border-bottom: 1px solid var(--am-border);
+    }
+    .od-gauge { text-align: center; }
+    .od-gauge-ring { position: relative; width: 110px; height: 110px; margin: 0 auto 10px; }
+    .od-gauge-value {
+      position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%);
+      font-size: 28px; font-weight: 300; color: var(--am-text-primary);
+    }
+    .od-gauge-label {
+      font-size: 11px; font-weight: 600; text-transform: uppercase;
+      letter-spacing: 0.6px; color: var(--am-text-secondary);
+    }
+    .od-gauge-sub { font-size: 11px; color: var(--am-text-muted); margin-top: 2px; }
+
+    .od-stats { display: flex; flex-wrap: wrap; gap: 40px; margin-bottom: 32px; }
+    .od-stat-label {
+      font-size: 10px; font-weight: 600; text-transform: uppercase;
+      letter-spacing: 0.8px; color: var(--am-text-muted); margin-bottom: 4px;
+    }
+    .od-stat-value { font-size: 17px; font-weight: 500; color: var(--am-text-primary); }
+
+    .od-section { margin-bottom: 32px; }
+    .od-section-title {
+      font-size: 10px; font-weight: 600; text-transform: uppercase;
+      letter-spacing: 0.8px; color: var(--am-text-muted);
+      margin-bottom: 16px; padding-bottom: 10px;
+      border-bottom: 1px solid var(--am-border);
+    }
+
+    .od-usage-row {
+      display: flex; justify-content: space-between; align-items: center;
+      padding: 14px 0;
+      border-bottom: 1px solid color-mix(in srgb, var(--am-border) 40%, transparent);
+    }
+    .od-usage-row:last-child { border-bottom: none; }
+    .od-usage-left { flex: 1; min-width: 0; }
+    .od-usage-name { font-size: 13px; font-weight: 500; color: var(--am-text-primary); }
+    .od-usage-count { font-size: 11px; color: var(--am-text-muted); margin-top: 2px; }
+    .od-usage-right { display: flex; align-items: center; gap: 12px; flex-shrink: 0; width: 200px; }
+    .od-bar-track {
+      flex: 1; height: 3px; border-radius: 2px;
+      background: color-mix(in srgb, var(--am-border) 60%, transparent);
+      overflow: hidden;
+    }
+    .od-bar-fill { height: 100%; border-radius: 2px; transition: width 0.6s ease; }
+    .od-bar-pct { font-size: 11px; font-weight: 500; color: var(--am-text-muted); min-width: 32px; text-align: right; }
+
+    .od-kv-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 0 40px; }
+    .od-kv {
+      display: flex; justify-content: space-between; align-items: center;
+      padding: 10px 0;
+      border-bottom: 1px solid color-mix(in srgb, var(--am-border) 40%, transparent);
+    }
+    .od-kv-label { font-size: 12px; color: var(--am-text-muted); }
+    .od-kv-value {
+      font-size: 12px; font-weight: 500; color: var(--am-text-primary);
+      text-align: right; word-break: break-all; max-width: 60%;
+      display: flex; align-items: center; gap: 6px;
+    }
+
+    .od-dot { width: 8px; height: 8px; border-radius: 50%; display: inline-block; flex-shrink: 0; }
+    .od-dot-on  { background: var(--am-success); }
+    .od-dot-off { background: var(--am-text-muted); opacity: 0.4; }
+
+    @media (max-width: 600px) {
+      .od-gauges { flex-direction: column; align-items: center; gap: 24px; }
+      .od-kv-grid { grid-template-columns: 1fr; }
+      .od-usage-right { width: 140px; }
+    }
+  `;
 }
