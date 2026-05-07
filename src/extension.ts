@@ -26,7 +26,6 @@ import { auditAPIs } from "./anypoint/apiAudit";
 import { showCommunityEvents } from "./anypoint/communityEvents";
 import { showRealTimeLogs } from "./anypoint/realTimeLogs";
 import { BASE_URL, getBaseUrl } from "./constants";
-import { showApplicationDiagram } from "./anypoint/applicationDiagram";
 import { showDataWeavePlayground } from "./anypoint/dataweavePlayground";
 import { showApplicationCommandCenter } from "./anypoint/applicationCommandCenter";
 import { showMultiAppDashboard } from "./anypoint/multiAppDashboard";
@@ -332,6 +331,7 @@ export function activate(context: vscode.ExtensionContext) {
 			if (!selectedEnvironmentId) {
 				return;
 			}
+			const { showApplicationDiagram } = await import('./anypoint/applicationDiagram.js');
 			await showApplicationDiagram(context, selectedEnvironmentId);
 		}
 		catch (error: any) {
