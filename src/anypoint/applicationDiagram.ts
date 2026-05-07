@@ -16,6 +16,9 @@ import {
     MuleFlowNode,
     selectRelevantXmlEntries
 } from '../utils/muleDiagram';
+import { parseMuleProject, MuleProject } from '../utils/muleProject';
+import { extractJarToWorkspace, ExtractedJar } from '../utils/jarWorkspace';
+import { showProjectDiagramPanel } from './projectDiagramPanel';
 
 interface DeploymentOption extends vscode.QuickPickItem {
     deploymentId: string;
@@ -84,34 +87,7 @@ export async function showApplicationDiagram(context: vscode.ExtensionContext, e
             location: vscode.ProgressLocation.Notification,
             title: `Generating diagram for Local JAR File`,
         }, async (progress) => {
-            progress.report({ message: 'Parsing Mule configuration...' });
-            const xmlFiles = await collectXmlFiles(localJarZip);
-            if (Object.keys(xmlFiles).length === 0) {
-                vscode.window.showWarningMessage('No Mule XML files found in the selected JAR file.');
-                return;
-            }
-
-            const graph = buildMuleFlowGraph(xmlFiles);
-            if (graph.nodes.length === 0) {
-                vscode.window.showWarningMessage('No Mule flows detected in the selected JAR file.');
-                return;
-            }
-
-            // Let user choose rendering mode
-            outputChannel.appendLine(`🔍 Graph contains ${graph.nodes.length} nodes and ${graph.edges.length} edges`);
-            const totalComponents = graph.nodes.reduce((sum, node) => sum + countComponents(node.components), 0);
-            outputChannel.appendLine(`📊 Total components: ${totalComponents}`);
-            
-            await chooseRenderingMode(
-                context,
-                '📁 Local JAR File',
-                graph,
-                {
-                    artifactName: 'Local JAR File',
-                    fileCount: Object.keys(xmlFiles).length,
-                },
-                outputChannel
-            );
+            await openProjectDiagram(context, '📁 Local JAR File', 'Local JAR File', localJarZip, outputChannel, progress);
         });
         return;
     }
@@ -159,46 +135,112 @@ export async function showApplicationDiagram(context: vscode.ExtensionContext, e
             }
             
             outputChannel.appendLine('✅ Using local JAR file for diagram generation');
-            // Continue with the local JAR
-            const xmlFiles = await collectXmlFiles(localJarZip);
-            if (Object.keys(xmlFiles).length === 0) {
-                vscode.window.showWarningMessage('No Mule XML files found in the selected JAR file.');
-                return;
-            }
-
-            const graph = buildMuleFlowGraph(xmlFiles);
-            if (graph.nodes.length === 0) {
-                vscode.window.showWarningMessage('No Mule flows detected in the selected JAR file.');
-                return;
-            }
-
-            const mermaid = buildMermaidDefinition(graph);
-            renderDiagramWebview(context, `${deploymentChoice.label} (Local JAR)`, graph, mermaid, {
-                artifactName: 'Local JAR File',
-                fileCount: Object.keys(xmlFiles).length,
-            });
+            await openProjectDiagram(
+                context,
+                `${deploymentChoice.label} (Local JAR)`,
+                deploymentChoice.artifactName || 'Local JAR File',
+                localJarZip,
+                outputChannel,
+                progress
+            );
             return;
         }
 
-        progress.report({ message: 'Parsing Mule configuration...' });
-        const xmlFiles = await collectXmlFiles(artifactZip);
-        if (Object.keys(xmlFiles).length === 0) {
-            vscode.window.showWarningMessage('No Mule XML files found in the application artifact.');
-            return;
-        }
+        await openProjectDiagram(
+            context,
+            deploymentChoice.label,
+            deploymentChoice.artifactName || deploymentChoice.label,
+            artifactZip,
+            outputChannel,
+            progress
+        );
+    });
+}
 
-        const graph = buildMuleFlowGraph(xmlFiles);
-        if (graph.nodes.length === 0) {
+/**
+ * New pipeline: parse the JAR with the namespace-aware parser, extract the JAR
+ * to globalStorage so click-to-open works, and render the multi-tab panel.
+ *
+ * If parsing detects no flows, we fall back to the legacy regex parser as a
+ * defensive measure (e.g. for very old Mule 3 apps still flowing through the
+ * artifact pipeline).
+ */
+async function openProjectDiagram(
+    context: vscode.ExtensionContext,
+    appLabel: string,
+    artifactName: string | undefined,
+    zip: JSZip,
+    outputChannel: vscode.OutputChannel,
+    progress?: vscode.Progress<{ message?: string; increment?: number }>
+): Promise<void> {
+    const t0 = Date.now();
+    progress?.report({ message: 'Extracting application archive…' });
+    let extracted: ExtractedJar | undefined;
+    try {
+        extracted = await extractJarToWorkspace(context, zip, {
+            artifactId: artifactName || appLabel || 'unknown',
+        });
+        outputChannel.appendLine(`💾 Extracted JAR to: ${extracted.rootUri.fsPath} (${Object.keys(extracted.textFiles).length} text files, ${Date.now() - t0} ms)`);
+    } catch (err) {
+        outputChannel.appendLine(`⚠️ Failed to extract JAR for click-to-open: ${err instanceof Error ? err.message : String(err)}`);
+        // Continue without click-to-open
+    }
+
+    // Source files we feed the parser: prefer the on-disk extracted text files
+    // (already filtered to text extensions, max 5 MB each); fall back to
+    // re-reading the zip directly when extraction failed.
+    let allFiles: Record<string, string> = extracted?.textFiles || {};
+    if (Object.keys(allFiles).length === 0) {
+        const tFallback = Date.now();
+        outputChannel.appendLine('📦 Reading JAR contents in-memory (extraction unavailable)...');
+        const fallback: Record<string, string> = {};
+        const promises: Promise<void>[] = [];
+        zip.forEach((relPath, file) => {
+            if (file.dir) return;
+            const lower = relPath.toLowerCase();
+            // Skip class files and other binary noise
+            if (!/\.(xml|properties|ya?ml|json|raml|dwl|txt|md)$/i.test(lower)) {
+                return;
+            }
+            promises.push(file.async('string').then(text => { fallback[relPath] = text; }));
+        });
+        await Promise.all(promises);
+        allFiles = fallback;
+        outputChannel.appendLine(`📦 In-memory read: ${Object.keys(fallback).length} files in ${Date.now() - tFallback} ms`);
+    }
+
+    progress?.report({ message: 'Parsing flows, connectors and properties…' });
+    const tParse = Date.now();
+    let project: MuleProject;
+    try {
+        project = parseMuleProject({ files: allFiles });
+        outputChannel.appendLine(`🧠 Parsed project: ${project.flows.length} flows, ${project.subFlows.length} sub-flows, ${project.connectorOperations.length} ops, ${project.summary.externalSystems.length} external systems (${Date.now() - tParse} ms)`);
+    } catch (err) {
+        outputChannel.appendLine(`❌ Project parse failed: ${err instanceof Error ? err.message : String(err)}`);
+        vscode.window.showErrorMessage('Failed to parse Mule project. See output for details.');
+        return;
+    }
+
+    if (project.flows.length === 0 && project.subFlows.length === 0) {
+        // Defensive: try the legacy regex parser to confirm this is truly empty
+        const xmlFiles = await collectXmlFiles(zip);
+        const legacy = buildMuleFlowGraph(xmlFiles);
+        if (legacy.nodes.length === 0) {
             vscode.window.showWarningMessage('No Mule flows detected in the application artifact.');
             return;
         }
+        outputChannel.appendLine(`⚠️ New parser found 0 flows but legacy parser found ${legacy.nodes.length}. Continuing with legacy graph in summary tab.`);
+        // Promote the legacy nodes into the project shape for display
+        project.flows = legacy.nodes.filter(n => n.type === 'flow');
+        project.subFlows = legacy.nodes.filter(n => n.type === 'sub-flow');
+        project.edges = legacy.edges;
+    }
 
-        const mermaid = buildMermaidDefinition(graph);
-        renderDiagramWebview(context, deploymentChoice.label, graph, mermaid, {
-            artifactName: deploymentChoice.artifactName,
-            fileCount: Object.keys(xmlFiles).length,
-        });
+    progress?.report({ message: 'Rendering diagram…' });
+    await showProjectDiagramPanel(context, project, extracted, {
+        appLabel,
     });
+    outputChannel.appendLine(`✅ Diagram ready (total: ${Date.now() - t0} ms)`);
 }
 
 async function pickDeployment(

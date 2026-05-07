@@ -386,6 +386,16 @@
           "type": "string",
           "default": "",
           "description": "Azure Application Insights connection string for extension telemetry."
+        },
+        "anypointMonitor.diagram.aiSummary.enabled": {
+          "type": "boolean",
+          "default": false,
+          "description": "When enabled, the Application Diagram's Summary tab uses VS Code's Language Model API to generate a 2-3 sentence narrative description. Only the structured project summary (entry points, external systems, composition counts, flow names) is sent to the model — never raw XML, DataWeave, properties, or secrets."
+        },
+        "anypointMonitor.diagram.aiSummary.modelFamily": {
+          "type": "string",
+          "default": "",
+          "description": "Optional model family preference for the AI summary (e.g. 'gpt-4o', 'claude-3-5-sonnet'). Leave blank to use the default model offered by your VS Code chat provider."
         }
       }
     }
@@ -415,8 +425,10 @@
     "typescript": "^5.7.2"
   },
   "dependencies": {
+    "@antv/g6": "^5.1.0",
     "applicationinsights": "^3.13.0",
     "axios": "^1.7.9",
+    "fast-xml-parser": "^4.5.6",
     "jszip": "^3.10.1",
     "open": "^10.1.0"
   },
