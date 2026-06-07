@@ -49,8 +49,10 @@ scripts/**
 **/*.test.js
 **/*.spec.js
 
-# Local/dev config (region OAuth creds are compiled into out/constants.js at build time)
+# Local/dev config: constants.ts loads config/secrets.json at RUNTIME, so it MUST ship.
+# Exclude everything else under config/ and keep only secrets.json.
 config/**
+!config/secrets.json
 
 # Documentation (keep only what's needed)
 .github/**

@@ -54,7 +54,15 @@ jobs:
           fi
           mkdir -p config
           echo "$ANYPOINT_SECRETS_JSON" | base64 --decode > config/secrets.json
-          node -e "JSON.parse(require('fs').readFileSync('config/secrets.json','utf8')); console.log('config/secrets.json is valid JSON');"
+          node -e "
+            const s = JSON.parse(require('fs').readFileSync('config/secrets.json','utf8'));
+            const id = s.us && s.us.CLIENT_ID, secret = s.us && s.us.CLIENT_SECRET;
+            if (!id || !secret) {
+              console.error('::error::config/secrets.json is missing us.CLIENT_ID / us.CLIENT_SECRET. The published extension would fail OAuth with \"missing client_id parameter\". Fix the ANYPOINT_SECRETS_JSON secret (base64 of the real config/secrets.json).');
+              process.exit(1);
+            }
+            console.log('config/secrets.json is valid and has us credentials.');
+          "
 
       - name: Lint
         run: npm run lint

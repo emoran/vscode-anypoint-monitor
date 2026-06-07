@@ -4,6 +4,10 @@ All notable changes to the "Anypoint Monitor" extension will be documented in th
 
 The format is based on [Keep a Changelog](http://keepachangelog.com/).
 
+## [0.0.82]
+
+- Fix: OAuth login failed in 0.0.81 with "missing client_id parameter". `constants.ts` loads `config/secrets.json` at runtime, but the file was excluded from the package. The packaging config now ships `config/secrets.json` so region credentials resolve correctly.
+
 ## [0.0.81]
 
 - Add **Log Search**: search Anypoint Monitoring (OpenSearch) logs with automatic CloudHub native-log fallback, single-app and all-running-apps scope, and saved searches.
