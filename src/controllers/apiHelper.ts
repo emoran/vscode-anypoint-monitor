@@ -1,7 +1,7 @@
 import * as vscode from 'vscode';
 import axios, { AxiosRequestConfig, AxiosResponse } from 'axios';
 import { AccountService } from './accountService.js';
-import { refreshAccessToken } from './oauthService.js';
+import { refreshAccessToken, ensureValidAccessToken } from './oauthService.js';
 
 export class ApiHelper {
     private context: vscode.ExtensionContext;
@@ -17,6 +17,13 @@ export class ApiHelper {
         context: vscode.ExtensionContext,
         requestFn: () => Promise<AxiosResponse>
     ): Promise<AxiosResponse> {
+        try {
+            const accountService = new AccountService(context);
+            const activeAccount = await accountService.getActiveAccount();
+            await ensureValidAccessToken(context, activeAccount?.id);
+        } catch (e: any) {
+            console.warn('ApiHelper Static: proactive token validation failed:', e?.message || e);
+        }
         try {
             return await requestFn();
         } catch (error: any) {
@@ -51,8 +58,9 @@ export class ApiHelper {
 
     async makeRequest(config: AxiosRequestConfig, useActiveAccount: boolean = true): Promise<AxiosResponse> {
         let accessToken: string | undefined;
-        
+
         if (useActiveAccount) {
+            // getActiveAccountAccessToken() proactively refreshes an expired token.
             accessToken = await this.accountService.getActiveAccountAccessToken();
             if (!accessToken) {
                 accessToken = await this.context.secrets.get('anypoint.accessToken');

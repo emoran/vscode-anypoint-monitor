@@ -793,11 +793,13 @@ export function activate(context: vscode.ExtensionContext) {
 				const legacyKeys = [
 					'anypoint.accessToken',
 					'anypoint.refreshToken', 
+					'anypoint.accessTokenExpiry',
 					'anypoint.userInfo',
 					'anypoint.environments',
 					'anypoint.selectedEnvironment',
 					'anypoint.tempAccessToken',
 					'anypoint.tempRefreshToken',
+					'anypoint.tempAccessTokenExpiry',
 					'anypoint.tempUserInfo',
 					'anypoint.tempEnvironments'
 				];

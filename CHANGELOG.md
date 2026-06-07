@@ -4,6 +4,11 @@ All notable changes to the "Anypoint Monitor" extension will be documented in th
 
 The format is based on [Keep a Changelog](http://keepachangelog.com/).
 
+## [0.0.83]
+
+- Add **Live Tail** to Log Search: live-tail a single app (OpenSearch + CloudHub fallback) with interval selector (3s/5s/10s/30s), pause/resume, auto-scroll, and ERROR row flash. New lines are deduped and prepended; buffer capped at 5,000 lines.
+- Improve token handling: record access-token expiry and proactively refresh expired/expiring tokens before requests (so panels refresh on open), with silent background refresh. Reactive 401 refresh still applies.
+
 ## [0.0.82]
 
 - Fix: OAuth login failed in 0.0.81 with "missing client_id parameter". `constants.ts` loads `config/secrets.json` at runtime, but the file was excluded from the package. The packaging config now ships `config/secrets.json` so region credentials resolve correctly.

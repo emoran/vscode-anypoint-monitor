@@ -241,12 +241,14 @@ async function exchangeAuthorizationCodeForTokens(context: vscode.ExtensionConte
             throw new Error(`Token endpoint returned status ${response.status}`);
         }
 
-        const result = response.data as { access_token?: string; refresh_token?: string; };
+        const result = response.data as { access_token?: string; refresh_token?: string; expires_in?: number; };
         console.log('Token response keys:', Object.keys(result));
         
         if (!result.access_token) {
             throw new Error(`No access_token found in response: ${JSON.stringify(result)}`);
         }
+
+        const expiryEpochMs = computeExpiryEpochMs(result.expires_in);
 
         console.log('Storing tokens in VSCode secrets...');
 
@@ -264,6 +266,9 @@ async function exchangeAuthorizationCodeForTokens(context: vscode.ExtensionConte
             await context.secrets.store('anypoint.tempAccessToken', result.access_token);
             if (result.refresh_token) {
                 await context.secrets.store('anypoint.tempRefreshToken', result.refresh_token);
+            }
+            if (expiryEpochMs) {
+                await context.secrets.store('anypoint.tempAccessTokenExpiry', String(expiryEpochMs));
             }
 
             // Store temporary region (will be saved to account later)
@@ -289,6 +294,12 @@ async function exchangeAuthorizationCodeForTokens(context: vscode.ExtensionConte
             if (activeAccount) {
                 await accountService.setAccountRegion(activeAccount.id, regionId);
                 console.log(`Region ${regionId} stored for account ${activeAccount.id}`);
+                if (expiryEpochMs) {
+                    await accountService.setAccountData(activeAccount.id, 'accessTokenExpiry', String(expiryEpochMs));
+                }
+            }
+            if (expiryEpochMs) {
+                await context.secrets.store('anypoint.accessTokenExpiry', String(expiryEpochMs));
             }
 
             console.log('Main tokens stored successfully');
@@ -339,7 +350,7 @@ async function exchangeAuthorizationCodeForTokens(context: vscode.ExtensionConte
     }
 }
 
-export async function refreshAccessToken(context: vscode.ExtensionContext, accountId?: string): Promise<boolean> {
+export async function refreshAccessToken(context: vscode.ExtensionContext, accountId?: string, silent: boolean = false): Promise<boolean> {
     const { AccountService } = await import('./accountService.js');
     const accountService = new AccountService(context);
 
@@ -392,7 +403,7 @@ export async function refreshAccessToken(context: vscode.ExtensionContext, accou
             throw new Error(`Refresh token request failed with status ${response.status}`);
         }
 
-        const tokenData = response.data as { access_token?: string; refresh_token?: string; };
+        const tokenData = response.data as { access_token?: string; refresh_token?: string; expires_in?: number; };
 
         console.log('=== TOKEN REFRESH RESPONSE ===');
         console.log('Full response data:', JSON.stringify(tokenData, null, 2));
@@ -405,6 +416,8 @@ export async function refreshAccessToken(context: vscode.ExtensionContext, accou
             throw new Error(`No new access_token in refresh response: ${JSON.stringify(tokenData)}`);
         }
 
+        const expiryEpochMs = computeExpiryEpochMs(tokenData.expires_in);
+
         if (accountId) {
             await accountService.setAccountData(accountId, 'accessToken', tokenData.access_token);
             console.log(`Token refresh: Saved new access token for account ${accountId} (length: ${tokenData.access_token.length})`);
@@ -412,6 +425,7 @@ export async function refreshAccessToken(context: vscode.ExtensionContext, accou
                 await accountService.setAccountData(accountId, 'refreshToken', tokenData.refresh_token);
                 console.log(`Token refresh: Saved new refresh token for account ${accountId}`);
             }
+            await persistExpiry(context, accountService, accountId, expiryEpochMs);
         } else {
             const activeAccount = await accountService.getActiveAccount();
             if (activeAccount) {
@@ -421,6 +435,7 @@ export async function refreshAccessToken(context: vscode.ExtensionContext, accou
                     await accountService.setAccountData(activeAccount.id, 'refreshToken', tokenData.refresh_token);
                     console.log(`Token refresh: Saved new refresh token for active account ${activeAccount.id}`);
                 }
+                await persistExpiry(context, accountService, activeAccount.id, expiryEpochMs);
             } else {
                 await context.secrets.store('anypoint.accessToken', tokenData.access_token);
                 console.log(`Token refresh: Saved new access token to legacy storage (length: ${tokenData.access_token.length})`);
@@ -428,16 +443,103 @@ export async function refreshAccessToken(context: vscode.ExtensionContext, accou
                     await context.secrets.store('anypoint.refreshToken', tokenData.refresh_token);
                     console.log(`Token refresh: Saved new refresh token to legacy storage`);
                 }
+                await persistExpiry(context, accountService, undefined, expiryEpochMs);
             }
         }
 
         console.log('Token refresh: All tokens saved successfully');
-        vscode.window.showInformationMessage('Access token refreshed successfully!');
+        if (!silent) {
+            vscode.window.showInformationMessage('Access token refreshed successfully!');
+        }
         return true;
     } catch (err: any) {
-        vscode.window.showErrorMessage(`Failed to refresh token: ${err.message}`);
+        if (!silent) {
+            vscode.window.showErrorMessage(`Failed to refresh token: ${err.message}`);
+        } else {
+            console.warn(`Proactive token refresh failed: ${err?.message || err}`);
+        }
         return false;
     }
+}
+
+/**
+ * Convert an OAuth `expires_in` (seconds) into an absolute epoch-ms timestamp.
+ * Returns undefined when the value is missing/invalid so callers can skip storage.
+ */
+function computeExpiryEpochMs(expiresInSeconds?: number): number | undefined {
+    if (typeof expiresInSeconds !== 'number' || !isFinite(expiresInSeconds) || expiresInSeconds <= 0) {
+        return undefined;
+    }
+    return Date.now() + Math.floor(expiresInSeconds * 1000);
+}
+
+async function persistExpiry(
+    context: vscode.ExtensionContext,
+    accountService: { setAccountData: (id: string, type: 'accessTokenExpiry', data: string) => Promise<void>; deleteAccountData: (id: string, type: 'accessTokenExpiry') => Promise<void>; },
+    accountId: string | undefined,
+    expiryEpochMs: number | undefined
+): Promise<void> {
+    if (accountId) {
+        if (expiryEpochMs) {
+            await accountService.setAccountData(accountId, 'accessTokenExpiry', String(expiryEpochMs));
+        } else {
+            await accountService.deleteAccountData(accountId, 'accessTokenExpiry');
+        }
+    }
+    if (expiryEpochMs) {
+        await context.secrets.store('anypoint.accessTokenExpiry', String(expiryEpochMs));
+    } else {
+        await context.secrets.delete('anypoint.accessTokenExpiry');
+    }
+}
+
+/**
+ * Proactively ensure the active (or specified) account has a non-expired access token.
+ * If we recorded an `expires_in` and the token is at/near expiry, refresh it silently
+ * before any API call is made. No-op when expiry is unknown (legacy tokens) — the
+ * reactive 401 handling in ApiHelper still covers that case.
+ *
+ * Returns true if a usable token should now be present, false if a refresh was needed
+ * but failed (caller may still attempt the request and rely on 401 handling).
+ */
+export async function ensureValidAccessToken(context: vscode.ExtensionContext, accountId?: string): Promise<boolean> {
+    const REFRESH_BUFFER_MS = 60 * 1000; // refresh if expiring within 60s
+
+    const { AccountService } = await import('./accountService.js');
+    const accountService = new AccountService(context);
+
+    let targetAccountId = accountId;
+    let expiryRaw: string | undefined;
+
+    if (targetAccountId) {
+        expiryRaw = await accountService.getAccountData(targetAccountId, 'accessTokenExpiry');
+    } else {
+        const activeAccount = await accountService.getActiveAccount();
+        if (activeAccount) {
+            targetAccountId = activeAccount.id;
+            expiryRaw = await accountService.getAccountData(activeAccount.id, 'accessTokenExpiry');
+        } else {
+            expiryRaw = await context.secrets.get('anypoint.accessTokenExpiry');
+        }
+    }
+
+    if (!expiryRaw) {
+        // Unknown expiry: don't refresh blindly, let reactive 401 handling take over.
+        return true;
+    }
+
+    const expiryMs = Number(expiryRaw);
+    if (!isFinite(expiryMs)) {
+        return true;
+    }
+
+    if (Date.now() < expiryMs - REFRESH_BUFFER_MS) {
+        // Token still valid.
+        return true;
+    }
+
+    console.log('ensureValidAccessToken: access token expired or expiring soon, refreshing proactively...');
+    return await refreshAccessToken(context, targetAccountId, true);
 }
 
 export async function revokeAnypointToken(context: vscode.ExtensionContext, tokenType: 'access' | 'refresh'): Promise<void> {

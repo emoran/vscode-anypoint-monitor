@@ -705,6 +705,7 @@ export async function getUserInfo(context: vscode.ExtensionContext, isNewAccount
             const tempAccessToken = await context.secrets.get('anypoint.tempAccessToken');
             const tempRefreshToken = await context.secrets.get('anypoint.tempRefreshToken');
             const tempRegionId = await context.secrets.get('anypoint.tempRegionId');
+            const tempAccessTokenExpiry = await context.secrets.get('anypoint.tempAccessTokenExpiry');
 
             if (tempAccessToken) {
                 await accountService.setAccountData(accountId, 'accessToken', tempAccessToken);
@@ -713,6 +714,10 @@ export async function getUserInfo(context: vscode.ExtensionContext, isNewAccount
             if (tempRefreshToken) {
                 await accountService.setAccountData(accountId, 'refreshToken', tempRefreshToken);
                 await context.secrets.delete('anypoint.tempRefreshToken');
+            }
+            if (tempAccessTokenExpiry) {
+                await accountService.setAccountData(accountId, 'accessTokenExpiry', tempAccessTokenExpiry);
+                await context.secrets.delete('anypoint.tempAccessTokenExpiry');
             }
 
             await accountService.setAccountData(accountId, 'userInfo', JSON.stringify(userInfo));

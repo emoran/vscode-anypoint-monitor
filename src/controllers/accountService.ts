@@ -97,6 +97,7 @@ export class AccountService {
         const keysToDelete = [
             `anypoint.account.${accountId}.accessToken`,
             `anypoint.account.${accountId}.refreshToken`,
+            `anypoint.account.${accountId}.accessTokenExpiry`,
             `anypoint.account.${accountId}.userInfo`,
             `anypoint.account.${accountId}.environments`,
             `anypoint.account.${accountId}.selectedEnvironment`
@@ -162,15 +163,15 @@ export class AccountService {
         }
     }
 
-    async getAccountData(accountId: string, dataType: 'accessToken' | 'refreshToken' | 'userInfo' | 'environments' | 'selectedEnvironment' | 'region'): Promise<string | undefined> {
+    async getAccountData(accountId: string, dataType: 'accessToken' | 'refreshToken' | 'accessTokenExpiry' | 'userInfo' | 'environments' | 'selectedEnvironment' | 'region'): Promise<string | undefined> {
         return await this.context.secrets.get(`anypoint.account.${accountId}.${dataType}`);
     }
 
-    async setAccountData(accountId: string, dataType: 'accessToken' | 'refreshToken' | 'userInfo' | 'environments' | 'selectedEnvironment' | 'region', data: string): Promise<void> {
+    async setAccountData(accountId: string, dataType: 'accessToken' | 'refreshToken' | 'accessTokenExpiry' | 'userInfo' | 'environments' | 'selectedEnvironment' | 'region', data: string): Promise<void> {
         await this.context.secrets.store(`anypoint.account.${accountId}.${dataType}`, data);
     }
 
-    async deleteAccountData(accountId: string, dataType: 'accessToken' | 'refreshToken' | 'userInfo' | 'environments' | 'selectedEnvironment' | 'region'): Promise<void> {
+    async deleteAccountData(accountId: string, dataType: 'accessToken' | 'refreshToken' | 'accessTokenExpiry' | 'userInfo' | 'environments' | 'selectedEnvironment' | 'region'): Promise<void> {
         await this.context.secrets.delete(`anypoint.account.${accountId}.${dataType}`);
     }
 
@@ -211,6 +212,15 @@ export class AccountService {
         const activeAccount = await this.getActiveAccount();
         if (!activeAccount) {
             return undefined;
+        }
+
+        // Proactively refresh the token if we recorded it as expired/expiring. Best-effort:
+        // if the refresh fails, return whatever token we have and let reactive 401 handling run.
+        try {
+            const { ensureValidAccessToken } = await import('./oauthService.js');
+            await ensureValidAccessToken(this.context, activeAccount.id);
+        } catch (e: any) {
+            console.warn('getActiveAccountAccessToken: proactive token validation failed:', e?.message || e);
         }
 
         return await this.getAccountData(activeAccount.id, 'accessToken');

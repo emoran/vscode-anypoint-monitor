@@ -86,6 +86,7 @@ export async function showAccountManagerWebview(context: vscode.ExtensionContext
                         // Clean up temp data on error
                         await context.secrets.delete('anypoint.tempAccessToken');
                         await context.secrets.delete('anypoint.tempRefreshToken');
+                        await context.secrets.delete('anypoint.tempAccessTokenExpiry');
                         await context.secrets.delete('anypoint.tempUserInfo');
                         await context.secrets.delete('anypoint.tempEnvironments');
                         await context.secrets.delete('anypoint.tempRegionId');

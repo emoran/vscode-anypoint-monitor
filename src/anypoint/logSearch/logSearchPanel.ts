@@ -6,7 +6,7 @@ import * as vscode from 'vscode';
 import { discoverApps } from './cloudhubLogs.js';
 import { getOrgId, searchLogs } from './logSearchService.js';
 import { getSavedSearches, saveSearch, deleteSavedSearch } from './savedSearches.js';
-import { LogSearchCriteria, LogSearchResult, SavedSearch, SearchableApp } from './types.js';
+import { LogSearchCriteria, LogSearchResult, NormalizedLog, SavedSearch, SearchableApp } from './types.js';
 import { telemetryService } from '../../services/telemetryService.js';
 
 let currentPanel: vscode.WebviewPanel | undefined;
@@ -109,6 +109,26 @@ function setupPanel(context: vscode.ExtensionContext, panel: vscode.WebviewPanel
           });
           lastResult = result;
           panel.webview.postMessage({ command: 'results', result });
+          break;
+        }
+        case 'tailPoll': {
+          // Incremental single-app fetch for Live Tail: only logs newer than the
+          // client's last seen timestamp. Reuses searchLogs with an explicit window.
+          const criteria = buildCriteria(message);
+          criteria.scope = 'single';
+          criteria.app = message.app;
+          const sinceMs = Number(message.sinceMs);
+          if (sinceMs && isFinite(sinceMs)) {
+            criteria.startTime = sinceMs + 1;
+            criteria.endTime = Date.now();
+          }
+          criteria.limit = 300;
+          const result = await searchLogs(context, criteria);
+          // Keep lastResult in sync so Copy/Export include tailed lines.
+          if (result.logs.length) {
+            lastResult = mergeTail(lastResult, result);
+          }
+          panel.webview.postMessage({ command: 'tailResults', result });
           break;
         }
         case 'saveSearch': {
@@ -217,6 +237,34 @@ function buildCriteria(message: any): LogSearchCriteria {
     limit: message.limit || 500,
     scope: message.scope === 'all' ? 'all' : 'single',
     app
+  };
+}
+
+/** Dedup key for tail merging (NormalizedLog has no stable id). */
+function tailKey(l: NormalizedLog): string {
+  return (l.timestampMs || 0) + '|' + l.appName + '|' + (l.message || '');
+}
+
+/**
+ * Merge freshly-tailed logs into the accumulated result, newest first, deduped,
+ * and capped so a long-running tail does not grow memory without bound.
+ */
+function mergeTail(prev: LogSearchResult | undefined, next: LogSearchResult): LogSearchResult {
+  const MAX_TAIL_LOGS = 5000;
+  const base = prev ? prev.logs : [];
+  const seen = new Set(base.map(tailKey));
+  const fresh = next.logs.filter((l) => !seen.has(tailKey(l)));
+  let logs = fresh.concat(base).sort((a, b) => (b.timestampMs || 0) - (a.timestampMs || 0));
+  if (logs.length > MAX_TAIL_LOGS) { logs = logs.slice(0, MAX_TAIL_LOGS); }
+  return {
+    logs,
+    perApp: next.perApp,
+    appsSearched: next.appsSearched,
+    totalHits: logs.length,
+    usedOpenSearch: Boolean(prev?.usedOpenSearch) || next.usedOpenSearch,
+    usedFallback: Boolean(prev?.usedFallback) || next.usedFallback,
+    errors: next.errors,
+    truncated: next.truncated
   };
 }
 
@@ -463,6 +511,37 @@ function getHtml(webview: vscode.Webview): string {
   .skel-row td { padding: 0; border-bottom: 1px solid var(--border); }
   .skel-bar { height: 12px; margin: 9px 10px; border-radius: 4px; background: linear-gradient(90deg, var(--panel) 25%, var(--panel-2) 37%, var(--panel) 63%); background-size: 400% 100%; animation: lsShimmer 1.2s ease-in-out infinite; }
   @keyframes lsShimmer { 0% { background-position: 100% 0; } 100% { background-position: -100% 0; } }
+
+  /* ---- Live Tail ---- */
+  .tail-row { margin-top: -6px; }
+  .tail-btn { display: inline-flex; align-items: center; gap: 8px; }
+  .tail-btn.on { border-color: var(--accent); background-color: var(--panel); }
+  .tail-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--text-2); flex: none; }
+  .tail-btn.on .tail-dot { background: #36d399; box-shadow: 0 0 0 0 rgba(54,211,153,.6); animation: tailPulse 1.4s infinite; }
+  .tail-btn.paused .tail-dot { background: #f5c451; animation: none; box-shadow: none; }
+  @keyframes tailPulse {
+    0% { box-shadow: 0 0 0 0 rgba(54,211,153,.55); }
+    70% { box-shadow: 0 0 0 6px rgba(54,211,153,0); }
+    100% { box-shadow: 0 0 0 0 rgba(54,211,153,0); }
+  }
+  .tail-opts { display: inline-flex; align-items: center; gap: 14px; flex-wrap: wrap; }
+  .tail-opts.hidden { display: none; }
+  .tail-int, .tail-check { display: inline-flex; align-items: center; gap: 6px; font-size: 12.5px; color: var(--text-2); }
+  .tail-int select { height: 30px; width: auto; padding: 0 26px 0 9px; }
+  .tail-check input { width: 14px; height: 14px; accent-color: var(--accent); cursor: pointer; }
+  .tail-status { font-size: 12px; color: var(--text-2); min-height: 16px; }
+  .tail-status .new { color: #36d399; font-weight: 600; }
+  button.small { height: 30px; padding: 0 11px; font-size: 12.5px; }
+  tr.log-row.flash > td { animation: rowFlash 1.4s ease-out; }
+  tr.log-row.flash-error > td { animation: rowFlashError 1.6s ease-out; }
+  @keyframes rowFlash {
+    0% { background-color: rgba(99,179,237,.22); }
+    100% { background-color: transparent; }
+  }
+  @keyframes rowFlashError {
+    0% { background-color: rgba(255,92,92,.28); }
+    100% { background-color: transparent; }
+  }
 </style>
 </head>
 <body>
@@ -534,6 +613,24 @@ function getHtml(webview: vscode.Webview): string {
         <button class="ghost" id="exportCsv">Export CSV</button>
         <button class="ghost" id="exportJson">Export JSON</button>
       </div>
+      <div class="row tail-row" id="tailRow">
+        <button class="ghost tail-btn" id="tailBtn" title="Live-tail this app's logs (single app only)">
+          <span class="tail-dot" id="tailDot"></span><span id="tailBtnLabel">Live Tail</span>
+        </button>
+        <div class="tail-opts hidden" id="tailOpts">
+          <label class="tail-int">Every
+            <select id="tailInterval">
+              <option value="3000">3s</option>
+              <option value="5000" selected>5s</option>
+              <option value="10000">10s</option>
+              <option value="30000">30s</option>
+            </select>
+          </label>
+          <button class="ghost small" id="tailPause">Pause</button>
+          <label class="tail-check"><input type="checkbox" id="tailAutoScrollCb" checked /> Auto-scroll</label>
+          <span class="tail-status" id="tailStatus"></span>
+        </div>
+      </div>
       <div class="progress hidden" id="progress"><div id="progressBar"></div></div>
       <div id="errBox"></div>
       <div class="summary" id="summary"></div>
@@ -580,7 +677,22 @@ function getHtml(webview: vscode.Webview): string {
   let textFilter = '';
   let levelFilter = new Set();
 
+  // ---- Live Tail state ----
+  let tailing = false;
+  let tailPaused = false;
+  let tailTimer = null;
+  let tailIntervalMs = 5000;
+  let tailAutoScroll = true;
+  let lastTailMs = 0;
+  let tailSeen = new Set();
+  let flashKeys = new Set();
+  const TAIL_MAX_LOGS = 5000;
+
   const $ = (id) => document.getElementById(id);
+
+  function clientTailKey(l) {
+    return (l.timestampMs || 0) + '|' + l.appName + '|' + (l.message || '');
+  }
 
   function setLoadingText(t) {
     const o = $('loadingOverlay');
@@ -593,6 +705,15 @@ function getHtml(webview: vscode.Webview): string {
       b.classList.toggle('active', b.dataset.scope === next);
     });
     $('appField').classList.toggle('hidden', next === 'all');
+    // Live Tail is single-app only.
+    if (next === 'all') {
+      if (tailing) { stopTail(); }
+      $('tailBtn').disabled = true;
+      $('tailBtn').title = 'Live Tail works on a single app. Switch scope to Single app.';
+    } else {
+      $('tailBtn').disabled = false;
+      $('tailBtn').title = "Live-tail this app's logs (single app only)";
+    }
   }
 
   document.querySelectorAll('#scopeToggle button').forEach(b => {
@@ -630,8 +751,126 @@ function getHtml(webview: vscode.Webview): string {
     if (!$('env').value) { showError('Select an environment.'); return; }
     if (scope === 'single' && !selectedApp()) { showError('Select an application.'); return; }
     showError('');
+    if (tailing) { stopTail(); }
     vscode.postMessage(Object.assign({ command: 'search' }, currentCriteriaMsg()));
   });
+
+  // ---- Live Tail controls ----
+  $('tailBtn').addEventListener('click', () => { tailing ? stopTail() : startTail(); });
+  $('tailPause').addEventListener('click', () => {
+    if (!tailing) { return; }
+    tailPaused = !tailPaused;
+    $('tailPause').textContent = tailPaused ? 'Resume' : 'Pause';
+    $('tailBtn').classList.toggle('paused', tailPaused);
+    setTailStatus(tailPaused ? 'Paused' : 'Live');
+  });
+  $('tailInterval').addEventListener('change', () => {
+    tailIntervalMs = Number($('tailInterval').value) || 5000;
+  });
+  $('tailAutoScrollCb').addEventListener('change', () => {
+    tailAutoScroll = $('tailAutoScrollCb').checked;
+  });
+
+  function setTailStatus(text, newCount) {
+    const el = $('tailStatus');
+    if (!el) { return; }
+    el.innerHTML = '';
+    if (newCount && newCount > 0) {
+      const s = document.createElement('span');
+      s.className = 'new';
+      s.textContent = '+' + newCount + ' new';
+      el.appendChild(s);
+      el.appendChild(document.createTextNode(' \u00b7 ' + text));
+    } else {
+      el.appendChild(document.createTextNode(text));
+    }
+  }
+
+  function startTail() {
+    if (scope !== 'single') { showError('Live Tail works on a single app. Switch scope to Single app.'); return; }
+    if (!$('env').value || !selectedApp()) { showError('Select an environment and application first.'); return; }
+    showError('');
+    tailing = true;
+    tailPaused = false;
+    tailIntervalMs = Number($('tailInterval').value) || 5000;
+    tailAutoScroll = $('tailAutoScrollCb').checked;
+    // Seed dedup + cursor from whatever is already on screen.
+    tailSeen = new Set(allLogs.map(clientTailKey));
+    lastTailMs = allLogs.reduce((m, l) => Math.max(m, l.timestampMs || 0), 0) || (Date.now() - 60000);
+    $('tailBtn').classList.add('on');
+    $('tailBtn').classList.remove('paused');
+    $('tailBtnLabel').textContent = 'Stop Tail';
+    $('tailOpts').classList.remove('hidden');
+    $('tailPause').textContent = 'Pause';
+    setTailStatus('Starting\u2026');
+    doTailPoll();
+  }
+
+  function stopTail() {
+    tailing = false;
+    tailPaused = false;
+    if (tailTimer) { clearTimeout(tailTimer); tailTimer = null; }
+    $('tailBtn').classList.remove('on', 'paused');
+    $('tailBtnLabel').textContent = 'Live Tail';
+    $('tailOpts').classList.add('hidden');
+    setTailStatus('');
+  }
+
+  function scheduleTail() {
+    if (!tailing) { return; }
+    if (tailTimer) { clearTimeout(tailTimer); }
+    tailTimer = setTimeout(() => {
+      if (!tailing) { return; }
+      if (tailPaused) { scheduleTail(); return; }
+      doTailPoll();
+    }, tailIntervalMs);
+  }
+
+  function doTailPoll() {
+    const c = currentCriteriaMsg();
+    if (!c.app) { stopTail(); showError('Application is no longer selected; tail stopped.'); return; }
+    vscode.postMessage(Object.assign({ command: 'tailPoll', sinceMs: lastTailMs }, c));
+  }
+
+  function handleTailResults(result) {
+    const incoming = (result && result.logs) || [];
+    const fresh = [];
+    for (const l of incoming) {
+      const k = clientTailKey(l);
+      if (tailSeen.has(k)) { continue; }
+      tailSeen.add(k);
+      fresh.push(l);
+    }
+    const now = new Date();
+    const clock = now.toLocaleTimeString();
+    if (!fresh.length) {
+      setTailStatus((tailPaused ? 'Paused' : 'Live') + ' \u00b7 ' + clock);
+      scheduleTail();
+      return;
+    }
+    for (const l of fresh) {
+      if ((l.timestampMs || 0) > lastTailMs) { lastTailMs = l.timestampMs; }
+    }
+    allLogs = fresh.concat(allLogs);
+    if (allLogs.length > TAIL_MAX_LOGS) { allLogs = allLogs.slice(0, TAIL_MAX_LOGS); }
+    tailSeen = new Set(allLogs.map(clientTailKey));
+    flashKeys = new Set(fresh.map(clientTailKey));
+    $('resultsToolbar').classList.remove('hidden');
+    renderChart(allLogs);
+    applyFilter();
+    setTailStatus((tailPaused ? 'Paused' : 'Live') + ' \u00b7 ' + clock, fresh.length);
+    if (tailAutoScroll) {
+      const w = $('resultsWrap');
+      if (w) { w.scrollTop = 0; }
+    }
+    setTimeout(() => {
+      flashKeys.clear();
+      document.querySelectorAll('.log-row.flash, .log-row.flash-error').forEach((r) => {
+        r.classList.remove('flash', 'flash-error');
+      });
+    }, 1600);
+    scheduleTail();
+  }
 
   $('saveBtn').addEventListener('click', () => {
     if (!$('env').value) { showError('Select an environment before saving.'); return; }
@@ -934,6 +1173,10 @@ function getHtml(webview: vscode.Webview): string {
     activeBarIndex = -1;
     textFilter = '';
     levelFilter.clear();
+    flashKeys.clear();
+    // Reset tail cursor/dedup to the freshly searched set.
+    tailSeen = new Set(allLogs.map(clientTailKey));
+    lastTailMs = allLogs.reduce((m, l) => Math.max(m, l.timestampMs || 0), 0) || lastTailMs;
     if ($('filterInput')) { $('filterInput').value = ''; }
     $('resultsToolbar').classList.toggle('hidden', allLogs.length === 0);
     renderChart(allLogs);
@@ -946,6 +1189,11 @@ function getHtml(webview: vscode.Webview): string {
     for (const log of logs) {
       const tr = document.createElement('tr');
       tr.className = 'log-row';
+      const fk = clientTailKey(log);
+      if (flashKeys.has(fk)) {
+        tr.classList.add('flash');
+        if ((log.level || '') === 'ERROR') { tr.classList.add('flash-error'); }
+      }
       const tdTime = document.createElement('td');
       tdTime.className = 'ts';
       const caret = document.createElement('span');
@@ -1354,6 +1602,7 @@ function getHtml(webview: vscode.Webview): string {
         $('progressBar').style.width = Math.max(8, Math.round((m.done / Math.max(1, m.total)) * 100)) + '%';
         break;
       case 'results': renderResults(m.result); break;
+      case 'tailResults': handleTailResults(m.result); break;
       case 'savedSearches': renderSaved(m.savedSearches); break;
       case 'error': {
         finishInit();
@@ -1362,6 +1611,8 @@ function getHtml(webview: vscode.Webview): string {
         if ($('app').innerHTML.indexOf('Loading') !== -1) {
           $('app').innerHTML = '<option value="">Unavailable</option>';
         }
+        // Keep the tail alive across transient poll errors.
+        if (tailing) { setTailStatus('Retrying after error\u2026'); scheduleTail(); }
         break;
       }
     }
