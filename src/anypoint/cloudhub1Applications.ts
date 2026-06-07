@@ -99,6 +99,43 @@ export async function showApplicationsWebview1(
   });
 }
 
+// CloudHub 1.0 worker sizing: vCores and heap memory (MB) per single worker.
+const CH1_WORKER_SPECS: Record<string, { vcores: number; memoryMb: number }> = {
+  micro: { vcores: 0.1, memoryMb: 500 },
+  small: { vcores: 0.2, memoryMb: 1024 },
+  medium: { vcores: 1, memoryMb: 1536 },
+  large: { vcores: 2, memoryMb: 3584 },
+  xlarge: { vcores: 4, memoryMb: 7680 },
+  '2xlarge': { vcores: 8, memoryMb: 15360 },
+  '4xlarge': { vcores: 16, memoryMb: 32768 }
+};
+
+function getCh1WorkerSpec(workerType: any): { vcores: number; memoryMb: number } {
+  const key = String(workerType || '').toLowerCase().replace(/\s+/g, '');
+  return CH1_WORKER_SPECS[key] || { vcores: 0, memoryMb: 0 };
+}
+
+function getCh1AppVCores(app: any): number {
+  return getCh1WorkerSpec(app?.workerType).vcores * (Number(app?.workers) || 0);
+}
+
+function getCh1AppMemoryMb(app: any): number {
+  return getCh1WorkerSpec(app?.workerType).memoryMb * (Number(app?.workers) || 0);
+}
+
+function formatVCores(vcores: number): string {
+  if (!vcores) { return '0'; }
+  return Number(vcores.toFixed(2)).toString();
+}
+
+function formatMemory(memoryMb: number): string {
+  if (!memoryMb) { return '0 MB'; }
+  if (memoryMb >= 1024) {
+    return `${Number((memoryMb / 1024).toFixed(2))} GB`;
+  }
+  return `${memoryMb} MB`;
+}
+
 function getApplicationsHtml(
   apps: any[],
   webview: vscode.Webview,
@@ -110,11 +147,20 @@ function getApplicationsHtml(
   const logoPath = vscode.Uri.joinPath(extensionUri, 'logo.png');
   const logoSrc = webview.asWebviewUri(logoPath);
 
+  // Enrich each app with computed vCores/memory for the table and totals.
+  apps = apps.map(app => ({
+    ...app,
+    _vcores: getCh1AppVCores(app),
+    _memoryMb: getCh1AppMemoryMb(app)
+  }));
+
   // Calculate statistics
   const totalApps = apps.length;
   const runningApps = apps.filter(app => app.status === 'STARTED' || app.status === 'RUNNING').length;
   const stoppedApps = apps.filter(app => app.status === 'STOPPED' || app.status === 'UNDEPLOYED').length;
   const totalWorkers = apps.reduce((sum, app) => sum + (app.workers || 0), 0);
+  const totalVCores = apps.reduce((sum, app) => sum + (app._vcores || 0), 0);
+  const totalMemoryMb = apps.reduce((sum, app) => sum + (app._memoryMb || 0), 0);
 
   return /* html */ `
     <!DOCTYPE html>
@@ -133,13 +179,13 @@ function getApplicationsHtml(
             --text-primary: #f0f6fc;
             --text-secondary: #7d8590;
             --text-muted: #656d76;
-            --accent-blue: #58a6ff;
-            --accent-light: #79c0ff;
+            --accent-blue: #8a9099;
+            --accent-light: #c4ccd4;
             --border-primary: #30363d;
             --border-muted: #21262d;
-            --success: #3fb950;
+            --success: #4caf6e;
             --warning: #d29922;
-            --error: #f85149;
+            --error: #e06c6c;
           }
 
           * {
@@ -158,9 +204,8 @@ function getApplicationsHtml(
 
           /* Header Section */
           .header {
-            background-color: var(--background-secondary);
-            border-bottom: 1px solid var(--border-primary);
-            padding: 24px 32px;
+            background-color: transparent;
+            padding: 36px 32px 8px;
           }
 
           .header-content {
@@ -168,27 +213,37 @@ function getApplicationsHtml(
             margin: 0 auto;
           }
 
-          .header h1 {
-            font-size: 28px;
+          .header-eyebrow {
+            font-size: 11px;
             font-weight: 600;
-            margin: 0 0 8px 0;
+            letter-spacing: 2px;
+            text-transform: uppercase;
+            color: var(--text-secondary);
+            margin: 0 0 10px 0;
+          }
+
+          .header h1 {
+            font-size: 32px;
+            font-weight: 600;
+            letter-spacing: -0.4px;
+            margin: 0 0 6px 0;
             color: var(--text-primary);
           }
 
           .header p {
-            font-size: 16px;
+            font-size: 15px;
             color: var(--text-secondary);
             margin: 0;
           }
 
           .environment-badge {
             display: inline-block;
-            padding: 6px 12px;
-            background: var(--surface-primary);
+            padding: 6px 14px;
+            background: transparent;
             border: 1px solid var(--border-primary);
-            border-radius: 4px;
-            font-size: 13px;
-            color: var(--text-primary);
+            border-radius: 6px;
+            font-size: 12px;
+            color: var(--text-secondary);
             font-weight: 500;
           }
 
@@ -201,49 +256,47 @@ function getApplicationsHtml(
 
           /* Statistics Grid */
           .stats-grid {
-            display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
-            gap: 20px;
-            margin-bottom: 32px;
+            display: flex;
+            flex-wrap: wrap;
+            gap: 40px;
+            padding: 4px 0 22px;
+            margin-bottom: 28px;
+            border-bottom: 1px solid var(--border-primary);
           }
 
           .stat-card {
-            background-color: var(--surface-primary);
-            border: 1px solid var(--border-primary);
-            border-radius: 12px;
-            padding: 24px;
-            transition: all 0.2s;
-          }
-
-          .stat-card:hover {
-            border-color: var(--border-muted);
-            transform: translateY(-1px);
+            background-color: transparent;
+            border: none;
+            border-radius: 0;
+            padding: 0;
           }
 
           .stat-header {
             display: flex;
             align-items: center;
             justify-content: space-between;
-            margin-bottom: 16px;
+            margin-bottom: 6px;
           }
 
           .stat-title {
-            font-size: 14px;
-            font-weight: 500;
+            font-size: 11px;
+            font-weight: 600;
+            letter-spacing: 1px;
+            text-transform: uppercase;
             color: var(--text-secondary);
             margin: 0;
           }
 
           .stat-value {
-            font-size: 32px;
+            font-size: 26px;
             font-weight: 600;
             color: var(--text-primary);
-            margin: 0 0 8px 0;
-            line-height: 1.2;
+            margin: 0 0 2px 0;
+            line-height: 1.1;
           }
 
           .stat-subtitle {
-            font-size: 13px;
+            font-size: 11px;
             color: var(--text-muted);
             margin: 0;
           }
@@ -420,32 +473,42 @@ function getApplicationsHtml(
             display: inline-flex;
             align-items: center;
             gap: 6px;
-            padding: 4px 8px;
+            padding: 4px 10px;
             border-radius: 6px;
-            font-size: 12px;
-            font-weight: 500;
+            border: 1px solid var(--border-primary);
+            background-color: transparent;
+            font-size: 11px;
+            font-weight: 600;
+            letter-spacing: 0.5px;
+            text-transform: uppercase;
+            color: var(--text-secondary);
           }
 
           .status-running {
-            background-color: rgba(63, 185, 80, 0.15);
-            color: var(--success);
+            color: var(--text-primary);
+          }
+
+          .status-running .status-dot {
+            background-color: var(--success);
           }
 
           .status-stopped {
-            background-color: rgba(248, 81, 73, 0.15);
-            color: var(--error);
+            color: var(--text-secondary);
           }
 
-          .status-default {
-            background-color: rgba(125, 133, 144, 0.15);
-            color: var(--text-secondary);
+          .status-stopped .status-dot {
+            background-color: var(--error);
+          }
+
+          .status-default .status-dot {
+            background-color: var(--text-muted);
           }
 
           .status-dot {
             width: 6px;
             height: 6px;
             border-radius: 50%;
-            background-color: currentColor;
+            background-color: var(--text-muted);
           }
 
           /* Pagination */
@@ -529,11 +592,12 @@ function getApplicationsHtml(
         <!-- Header -->
         <div class="header">
           <div class="header-content">
+            <p class="header-eyebrow">Anypoint Monitor &middot; CloudHub 1.0</p>
             <h1>CloudHub 1.0 Applications</h1>
             <p>Application monitoring and management</p>
             <div style="display: flex; gap: 12px; margin-top: 12px; flex-wrap: wrap;">
-              ${environmentName ? `<div class="environment-badge">🌍 Environment: ${environmentName}</div>` : ''}
-              ${businessGroup ? `<div class="environment-badge" style="background: var(--surface-secondary); border-color: var(--accent-blue);">🏢 Business Group: ${businessGroup.name}</div>` : ''}
+              ${environmentName ? `<div class="environment-badge">Environment: ${environmentName}</div>` : ''}
+              ${businessGroup ? `<div class="environment-badge">Business Group: ${businessGroup.name}</div>` : ''}
             </div>
           </div>
         </div>
@@ -572,6 +636,22 @@ function getApplicationsHtml(
               </div>
               <div class="stat-value">${totalWorkers}</div>
               <p class="stat-subtitle">Allocated workers</p>
+            </div>
+
+            <div class="stat-card">
+              <div class="stat-header">
+                <h3 class="stat-title">Total vCores</h3>
+              </div>
+              <div class="stat-value">${formatVCores(totalVCores)}</div>
+              <p class="stat-subtitle">Reserved capacity</p>
+            </div>
+
+            <div class="stat-card">
+              <div class="stat-header">
+                <h3 class="stat-title">Total Memory</h3>
+              </div>
+              <div class="stat-value">${formatMemory(totalMemoryMb)}</div>
+              <p class="stat-subtitle">Allocated memory</p>
             </div>
           </div>
 
@@ -621,6 +701,8 @@ function getApplicationsHtml(
                     <th>Status</th>
                     <th>Workers</th>
                     <th>Worker Type</th>
+                    <th>vCores</th>
+                    <th>Memory</th>
                     <th>Region</th>
                     <th>Last Update</th>
                   </tr>
@@ -724,6 +806,19 @@ function getApplicationsHtml(
             </span>\`;
           }
 
+          function formatVCoresJs(vcores) {
+            const n = Number(vcores) || 0;
+            if (!n) { return '—'; }
+            return String(Number(n.toFixed(2)));
+          }
+
+          function formatMemoryJs(memoryMb) {
+            const n = Number(memoryMb) || 0;
+            if (!n) { return '—'; }
+            if (n >= 1024) { return String(Number((n / 1024).toFixed(2))) + ' GB'; }
+            return n + ' MB';
+          }
+
           // Render table
           function renderTable() {
             const { startIndex, endIndex } = getPaginationBounds();
@@ -745,6 +840,8 @@ function getApplicationsHtml(
                 <td>\${renderStatus(app.status)}</td>
                 <td>\${app.workers || 'N/A'}</td>
                 <td>\${app.workerType || 'N/A'}</td>
+                <td>\${formatVCoresJs(app._vcores)}</td>
+                <td>\${formatMemoryJs(app._memoryMb)}</td>
                 <td>\${app.region || 'N/A'}</td>
                 <td>\${app.lastUpdateTime ? new Date(app.lastUpdateTime).toLocaleString() : 'N/A'}</td>
               </tr>
@@ -1008,6 +1105,8 @@ function generateAllApplicationsCsv(apps: any[]): string {
     'Status',
     'Workers',
     'Worker Type',
+    'vCores',
+    'Memory',
     'Last Update',
     'Mule Version',
     'Region',
@@ -1019,6 +1118,8 @@ function generateAllApplicationsCsv(apps: any[]): string {
     app.status ?? '',
     app.workers ?? '',
     app.workerType ?? '',
+    formatVCores(getCh1AppVCores(app)),
+    formatMemory(getCh1AppMemoryMb(app)),
     app.lastUpdateTime ? new Date(app.lastUpdateTime).toLocaleString() : '',
     app.muleVersion ?? '',
     app.region ?? '',

@@ -25,6 +25,9 @@ eslint.config.*
 
 # IDE and environment files
 .claude/**
+.cursor/**
+.sfdx/**
+.sf/**
 .expo/**
 .venv/**
 .env*
@@ -35,9 +38,29 @@ eslint.config.*
 **/*.test.js
 **/*.spec.js
 
+# Local/dev config (region OAuth creds are compiled into out/constants.js at build time)
+config/**
+
 # Documentation (keep only what's needed)
 .github/**
 docs/**
+AGENTS.md
+CLAUDE.md
+CONTRIBUTING.md
+COMMAND_CENTER_ISSUES.md
+DATAWEAVE_PLAYGROUND.md
+DATAWEAVE_QUICKSTART.md
+DEPLOYMENT.md
+TESTING_CHECKLIST.md
+TESTING_IMPLEMENTATION.md
+TESTING_SUMMARY.md
+
+# Stray dev artifacts
+tmp-metrics.html
+vss-extension.json
+vsc-extension-quickstart.md
+mulelogo.png
+.expo/**
 
 # Exclude ALL node_modules, then selectively include only runtime deps
 node_modules/**
@@ -76,6 +99,11 @@ node_modules/**
 **/package-lock.json
 **/yarn.lock
 **/.yarn/**
+
+# Trim bundled runtime dependency docs/tests
+node_modules/**/*.md
+node_modules/**/test/**
+node_modules/**/tests/**
 
 # Miscellaneous
 *.vsix

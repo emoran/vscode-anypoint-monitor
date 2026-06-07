@@ -28,6 +28,21 @@ jobs:
       - name: Install dependencies
         run: npm install
 
+      # config/secrets.json is gitignored, but src/constants.ts imports it at compile time.
+      # Use real region creds when the secret is available (maintainer builds), otherwise
+      # fall back to an empty template so contributor PRs can still compile and test.
+      - name: Prepare config/secrets.json
+        shell: bash
+        env:
+          ANYPOINT_SECRETS_JSON: ${{ secrets.ANYPOINT_SECRETS_JSON }}
+        run: |
+          mkdir -p config
+          if [ -n "$ANYPOINT_SECRETS_JSON" ]; then
+            echo "$ANYPOINT_SECRETS_JSON" | base64 --decode > config/secrets.json
+          else
+            echo '{"us":{"CLIENT_ID":"","CLIENT_SECRET":""},"eu":{"CLIENT_ID":"","CLIENT_SECRET":""},"gov":{"CLIENT_ID":"","CLIENT_SECRET":""}}' > config/secrets.json
+          fi
+
       - name: Run linter
         run: npm run lint
 
@@ -69,6 +84,18 @@ jobs:
       - name: Install dependencies
         run: npm install
 
+      - name: Prepare config/secrets.json
+        shell: bash
+        env:
+          ANYPOINT_SECRETS_JSON: ${{ secrets.ANYPOINT_SECRETS_JSON }}
+        run: |
+          mkdir -p config
+          if [ -n "$ANYPOINT_SECRETS_JSON" ]; then
+            echo "$ANYPOINT_SECRETS_JSON" | base64 --decode > config/secrets.json
+          else
+            echo '{"us":{"CLIENT_ID":"","CLIENT_SECRET":""},"eu":{"CLIENT_ID":"","CLIENT_SECRET":""},"gov":{"CLIENT_ID":"","CLIENT_SECRET":""}}' > config/secrets.json
+          fi
+
       - name: Run ESLint
         run: npm run lint
 
@@ -89,11 +116,23 @@ jobs:
       - name: Install dependencies
         run: npm install
 
+      - name: Prepare config/secrets.json
+        shell: bash
+        env:
+          ANYPOINT_SECRETS_JSON: ${{ secrets.ANYPOINT_SECRETS_JSON }}
+        run: |
+          mkdir -p config
+          if [ -n "$ANYPOINT_SECRETS_JSON" ]; then
+            echo "$ANYPOINT_SECRETS_JSON" | base64 --decode > config/secrets.json
+          else
+            echo '{"us":{"CLIENT_ID":"","CLIENT_SECRET":""},"eu":{"CLIENT_ID":"","CLIENT_SECRET":""},"gov":{"CLIENT_ID":"","CLIENT_SECRET":""}}' > config/secrets.json
+          fi
+
       - name: Build extension
         run: npm run compile
 
       - name: Package extension
-        run: npx vsce package
+        run: npx --yes @vscode/vsce package
 
       - name: Upload VSIX artifact
         uses: actions/upload-artifact@v4

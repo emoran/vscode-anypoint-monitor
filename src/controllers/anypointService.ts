@@ -1043,6 +1043,16 @@ export async function getCH2Applications(context: vscode.ExtensionContext, envir
                 deploymentId: app.id,  // Ensure deploymentId is set
                 domain: app.name,      // Ensure domain is set for consistency
             }));
+
+            // The deployments list omits CPU/memory allocation; enrich from the
+            // per-deployment detail endpoint so vCores/memory render correctly.
+            try {
+                const { enrichCh2AppsWithResources } = await import('../anypoint/cloudhub2Applications.js');
+                await enrichCh2AppsWithResources(context, organizationID, environmentId, normalizedItems);
+            } catch (enrichErr: any) {
+                console.warn('CloudHub 2.0: resource enrichment failed:', enrichErr?.message || enrichErr);
+            }
+
             transformedData = {
                 items: normalizedItems,
                 total: normalizedItems.length

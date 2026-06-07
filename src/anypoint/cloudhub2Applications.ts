@@ -256,6 +256,131 @@ panel.webview.onDidReceiveMessage(async (message) => {
 /**
  * Updated HTML generation function to include environment info
  */
+// Parse a CloudHub 2.0 memory value (number assumed MB, or strings like "1500Mi"/"1.5Gi") into MB.
+function parseMemoryToMb(raw: any): number {
+  if (raw === null || raw === undefined) { return 0; }
+  if (typeof raw === 'number') { return raw; }
+  const str = String(raw).trim();
+  const match = str.match(/^([\d.]+)\s*(Gi|G|Mi|M)?$/i);
+  if (!match) { return Number(str) || 0; }
+  const value = parseFloat(match[1]);
+  const unit = (match[2] || 'M').toLowerCase();
+  return (unit === 'gi' || unit === 'g') ? value * 1024 : value;
+}
+
+function getCh2Replicas(app: any): number {
+  return Number(
+    app?.target?.replicas ??
+    app?.application?.replicas ??
+    app?.replicas ??
+    app?.target?.deploymentSettings?.replicas ??
+    1
+  ) || 1;
+}
+
+// Parse a CloudHub 2.0 CPU value into vCores. Handles millicores ("500m" => 0.5),
+// plain vCore numbers/strings ("1", 0.5), and ignores junk.
+function parseCpuToVCores(raw: any): number {
+  if (raw === null || raw === undefined || raw === '') { return 0; }
+  if (typeof raw === 'number') { return raw; }
+  const str = String(raw).trim();
+  const milli = str.match(/^([\d.]+)\s*m$/i);
+  if (milli) { return parseFloat(milli[1]) / 1000; }
+  return parseFloat(str) || 0;
+}
+
+// A flat `memoryReserved` field from the amc API is expressed in GB (e.g. "1", "1.5"),
+// while structured `resources.memory.reserved` uses suffixed strings ("700Mi", "1Gi").
+function parseFlatMemoryReservedToMb(raw: any): number {
+  if (raw === null || raw === undefined || raw === '') { return 0; }
+  if (typeof raw === 'string' && /[a-zA-Z]/.test(raw)) {
+    return parseMemoryToMb(raw);
+  }
+  const num = parseFloat(String(raw));
+  if (isNaN(num)) { return 0; }
+  // Heuristic: small numbers are GB, large numbers are already in MB.
+  return num <= 64 ? num * 1024 : num;
+}
+
+// The amc deployments list nests CPU/memory differently across regions and API
+// versions (target.deploymentSettings.resources, application.vCores, flat
+// cpuReserved/memoryReserved, etc.). Deep-search the deployment object once and
+// return per-replica vCores and memory (MB), whichever shape is present.
+function findCh2Resources(app: any): { vcores: number; memoryMb: number } {
+  let vcores = 0;
+  let memoryMb = 0;
+  const visited = new Set<any>();
+
+  const visit = (node: any, depth: number): void => {
+    if (!node || typeof node !== 'object' || depth > 6 || visited.has(node)) { return; }
+    visited.add(node);
+
+    if (Array.isArray(node)) {
+      for (const item of node) {
+        if (vcores && memoryMb) { return; }
+        visit(item, depth + 1);
+      }
+      return;
+    }
+
+    // Structured resources block: { cpu: { reserved }, memory: { reserved } }
+    const res = node.resources;
+    if (res && typeof res === 'object') {
+      if (!vcores && res.cpu && res.cpu.reserved !== undefined) {
+        vcores = parseCpuToVCores(res.cpu.reserved);
+      }
+      if (!memoryMb && res.memory && res.memory.reserved !== undefined) {
+        memoryMb = parseMemoryToMb(res.memory.reserved);
+      }
+    }
+
+    // Flat reserved fields.
+    if (!vcores && node.cpuReserved !== undefined) { vcores = parseCpuToVCores(node.cpuReserved); }
+    if (!memoryMb && node.memoryReserved !== undefined) { memoryMb = parseFlatMemoryReservedToMb(node.memoryReserved); }
+
+    // Some payloads expose vCores directly on the application block.
+    if (!vcores && typeof node.vCores === 'number') { vcores = node.vCores; }
+
+    if (vcores && memoryMb) { return; }
+    for (const key of Object.keys(node)) {
+      if (vcores && memoryMb) { return; }
+      visit(node[key], depth + 1);
+    }
+  };
+
+  visit(app, 0);
+  return { vcores, memoryMb };
+}
+
+function getCh2VCoresPerReplica(app: any): number {
+  return findCh2Resources(app).vcores;
+}
+
+function getCh2MemoryMbPerReplica(app: any): number {
+  return findCh2Resources(app).memoryMb;
+}
+
+function getCh2AppVCores(app: any): number {
+  return getCh2VCoresPerReplica(app) * getCh2Replicas(app);
+}
+
+function getCh2AppMemoryMb(app: any): number {
+  return getCh2MemoryMbPerReplica(app) * getCh2Replicas(app);
+}
+
+function formatVCoresCh2(vcores: number): string {
+  if (!vcores) { return '0'; }
+  return Number(vcores.toFixed(2)).toString();
+}
+
+function formatMemoryCh2(memoryMb: number): string {
+  if (!memoryMb) { return '0 MB'; }
+  if (memoryMb >= 1024) {
+    return `${Number((memoryMb / 1024).toFixed(2))} GB`;
+  }
+  return `${memoryMb} MB`;
+}
+
 function getCloudHub2ApplicationsHtml(
   applications: any[],
   webview: vscode.Webview,
@@ -266,11 +391,31 @@ function getCloudHub2ApplicationsHtml(
   const logoPath = vscode.Uri.joinPath(extensionUri, 'logo.png');
   const logoSrc = webview.asWebviewUri(logoPath);
 
+  // Enrich each app with computed replicas/vCores/memory for the table and totals.
+  applications = applications.map(app => ({
+    ...app,
+    _replicas: getCh2Replicas(app),
+    _vcores: getCh2AppVCores(app),
+    _memoryMb: getCh2AppMemoryMb(app)
+  }));
+
+  // One-time diagnostic: if resources couldn't be resolved, dump the first app's
+  // structure so the exact field names can be confirmed from the dev console.
+  if (applications.length > 0 && !applications[0]._vcores && !applications[0]._memoryMb) {
+    const sample = applications[0];
+    console.warn('⚠️ CH2 resources unresolved for first app. Inspect structure below to find the cpu/memory fields.');
+    console.warn('   top-level keys:', Object.keys(sample));
+    console.warn('   target:', JSON.stringify(sample.target, null, 2));
+    console.warn('   application:', JSON.stringify(sample.application, null, 2));
+  }
+
   // Calculate statistics
   const totalApps = applications.length;
   const runningApps = applications.filter(app => (app.application?.status || app.status) === 'RUNNING' || (app.application?.status || app.status) === 'STARTED').length;
   const stoppedApps = applications.filter(app => ['STOPPED', 'UNDEPLOYED', 'FAILED'].includes(app.application?.status || app.status)).length;
-  const totalVCores = applications.reduce((sum, app) => sum + (app.target?.resources?.cpu?.reserved || 0), 0);
+  const totalReplicas = applications.reduce((sum, app) => sum + (app._replicas || 0), 0);
+  const totalVCores = applications.reduce((sum, app) => sum + (app._vcores || 0), 0);
+  const totalMemoryMb = applications.reduce((sum, app) => sum + (app._memoryMb || 0), 0);
 
   return /* html */ `
     <!DOCTYPE html>
@@ -289,13 +434,13 @@ function getCloudHub2ApplicationsHtml(
             --text-primary: #f0f6fc;
             --text-secondary: #7d8590;
             --text-muted: #656d76;
-            --accent-blue: #58a6ff;
-            --accent-light: #79c0ff;
+            --accent-blue: #8a9099;
+            --accent-light: #c4ccd4;
             --border-primary: #30363d;
             --border-muted: #21262d;
-            --success: #3fb950;
+            --success: #4caf6e;
             --warning: #d29922;
-            --error: #f85149;
+            --error: #e06c6c;
           }
 
           * {
@@ -314,9 +459,8 @@ function getCloudHub2ApplicationsHtml(
 
           /* Header Section */
           .header {
-            background-color: var(--background-secondary);
-            border-bottom: 1px solid var(--border-primary);
-            padding: 24px 32px;
+            background-color: transparent;
+            padding: 36px 32px 8px;
           }
 
           .header-content {
@@ -324,15 +468,25 @@ function getCloudHub2ApplicationsHtml(
             margin: 0 auto;
           }
 
-          .header h1 {
-            font-size: 28px;
+          .header-eyebrow {
+            font-size: 11px;
             font-weight: 600;
-            margin: 0 0 8px 0;
+            letter-spacing: 2px;
+            text-transform: uppercase;
+            color: var(--text-secondary);
+            margin: 0 0 10px 0;
+          }
+
+          .header h1 {
+            font-size: 32px;
+            font-weight: 600;
+            letter-spacing: -0.4px;
+            margin: 0 0 6px 0;
             color: var(--text-primary);
           }
 
           .header p {
-            font-size: 16px;
+            font-size: 15px;
             color: var(--text-secondary);
             margin: 0;
           }
@@ -341,12 +495,13 @@ function getCloudHub2ApplicationsHtml(
           .environment-badge {
             display: inline-flex;
             align-items: center;
-            background-color: var(--surface-primary);
+            background-color: transparent;
             border: 1px solid var(--border-primary);
-            border-radius: 8px;
-            padding: 8px 12px;
+            border-radius: 6px;
+            padding: 6px 14px;
             margin-top: 12px;
-            color: var(--accent-blue);
+            font-size: 12px;
+            color: var(--text-secondary);
             font-weight: 500;
           }
 
@@ -359,49 +514,47 @@ function getCloudHub2ApplicationsHtml(
 
           /* Statistics Grid */
           .stats-grid {
-            display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
-            gap: 20px;
-            margin-bottom: 32px;
+            display: flex;
+            flex-wrap: wrap;
+            gap: 40px;
+            padding: 4px 0 22px;
+            margin-bottom: 28px;
+            border-bottom: 1px solid var(--border-primary);
           }
 
           .stat-card {
-            background-color: var(--surface-primary);
-            border: 1px solid var(--border-primary);
-            border-radius: 12px;
-            padding: 24px;
-            transition: all 0.2s;
-          }
-
-          .stat-card:hover {
-            border-color: var(--border-muted);
-            transform: translateY(-1px);
+            background-color: transparent;
+            border: none;
+            border-radius: 0;
+            padding: 0;
           }
 
           .stat-header {
             display: flex;
             align-items: center;
             justify-content: space-between;
-            margin-bottom: 16px;
+            margin-bottom: 6px;
           }
 
           .stat-title {
-            font-size: 14px;
-            font-weight: 500;
+            font-size: 11px;
+            font-weight: 600;
+            letter-spacing: 1px;
+            text-transform: uppercase;
             color: var(--text-secondary);
             margin: 0;
           }
 
           .stat-value {
-            font-size: 32px;
+            font-size: 26px;
             font-weight: 600;
             color: var(--text-primary);
-            margin: 0 0 8px 0;
-            line-height: 1.2;
+            margin: 0 0 2px 0;
+            line-height: 1.1;
           }
 
           .stat-subtitle {
-            font-size: 13px;
+            font-size: 11px;
             color: var(--text-muted);
             margin: 0;
           }
@@ -596,32 +749,42 @@ function getCloudHub2ApplicationsHtml(
             display: inline-flex;
             align-items: center;
             gap: 6px;
-            padding: 4px 8px;
+            padding: 4px 10px;
             border-radius: 6px;
-            font-size: 12px;
-            font-weight: 500;
+            border: 1px solid var(--border-primary);
+            background-color: transparent;
+            font-size: 11px;
+            font-weight: 600;
+            letter-spacing: 0.5px;
+            text-transform: uppercase;
+            color: var(--text-secondary);
           }
 
           .status-running {
-            background-color: rgba(63, 185, 80, 0.15);
-            color: var(--success);
+            color: var(--text-primary);
+          }
+
+          .status-running .status-dot {
+            background-color: var(--success);
           }
 
           .status-stopped {
-            background-color: rgba(248, 81, 73, 0.15);
-            color: var(--error);
+            color: var(--text-secondary);
           }
 
-          .status-default {
-            background-color: rgba(125, 133, 144, 0.15);
-            color: var(--text-secondary);
+          .status-stopped .status-dot {
+            background-color: var(--error);
+          }
+
+          .status-default .status-dot {
+            background-color: var(--text-muted);
           }
 
           .status-dot {
             width: 6px;
             height: 6px;
             border-radius: 50%;
-            background-color: currentColor;
+            background-color: var(--text-muted);
           }
 
           /* Pagination */
@@ -691,11 +854,12 @@ function getCloudHub2ApplicationsHtml(
         <!-- Header -->
         <div class="header">
           <div class="header-content">
+            <p class="header-eyebrow">Anypoint Monitor &middot; CloudHub 2.0</p>
             <h1>CloudHub 2.0 Applications</h1>
             <p>Next-generation application monitoring and management</p>
             <div style="display: flex; gap: 12px; margin-top: 12px; flex-wrap: wrap;">
-              ${environment ? `<div class="environment-badge">🌍 Environment: ${environment}</div>` : ''}
-              ${businessGroup ? `<div class="environment-badge" style="background: var(--surface-secondary); border-color: var(--accent-blue);">🏢 Business Group: ${businessGroup.name}</div>` : ''}
+              ${environment ? `<div class="environment-badge">Environment: ${environment}</div>` : ''}
+              ${businessGroup ? `<div class="environment-badge">Business Group: ${businessGroup.name}</div>` : ''}
             </div>
           </div>
         </div>
@@ -730,10 +894,26 @@ function getCloudHub2ApplicationsHtml(
 
             <div class="stat-card">
               <div class="stat-header">
+                <h3 class="stat-title">Total Replicas</h3>
+              </div>
+              <div class="stat-value">${totalReplicas}</div>
+              <p class="stat-subtitle">Allocated replicas</p>
+            </div>
+
+            <div class="stat-card">
+              <div class="stat-header">
                 <h3 class="stat-title">Total vCores</h3>
               </div>
-              <div class="stat-value">${totalVCores}</div>
+              <div class="stat-value">${formatVCoresCh2(totalVCores)}</div>
               <p class="stat-subtitle">Allocated vCores</p>
+            </div>
+
+            <div class="stat-card">
+              <div class="stat-header">
+                <h3 class="stat-title">Total Memory</h3>
+              </div>
+              <div class="stat-value">${formatMemoryCh2(totalMemoryMb)}</div>
+              <p class="stat-subtitle">Allocated memory</p>
             </div>
           </div>
 
@@ -779,6 +959,9 @@ function getCloudHub2ApplicationsHtml(
                     <th class="checkbox-cell"><input type="checkbox" id="ch2SelectAll"></th>
                     <th>Status</th>
                     <th>Name</th>
+                    <th>Replicas</th>
+                    <th>vCores</th>
+                    <th>Memory</th>
                     <th>Creation Date</th>
                     <th>Current Runtime Version</th>
                     <th>Last Modified Date</th>
@@ -833,6 +1016,19 @@ function getCloudHub2ApplicationsHtml(
               <span class="status-dot"></span>
               \${status || 'Unknown'}
             </span>\`;
+          }
+
+          function formatVCoresJs(vcores) {
+            const n = Number(vcores) || 0;
+            if (!n) { return '—'; }
+            return String(Number(n.toFixed(2)));
+          }
+
+          function formatMemoryJs(memoryMb) {
+            const n = Number(memoryMb) || 0;
+            if (!n) { return '—'; }
+            if (n >= 1024) { return String(Number((n / 1024).toFixed(2))) + ' GB'; }
+            return n + ' MB';
           }
 
           // Format date safely
@@ -938,6 +1134,9 @@ function getCloudHub2ApplicationsHtml(
                   </td>
                   <td>\${renderStatus(status)}</td>
                   <td><a href="#" class="app-name-link" data-app-name="\${app.name || ''}" data-app-index="\${actualIndex}">\${app.name || 'Unknown'}</a></td>
+                  <td>\${app._replicas ?? 'N/A'}</td>
+                  <td>\${formatVCoresJs(app._vcores)}</td>
+                  <td>\${formatMemoryJs(app._memoryMb)}</td>
                   <td>\${formatDateSafe(app.creationDate)}</td>
                   <td>\${app.currentRuntimeVersion || 'N/A'}</td>
                   <td>\${formatDateSafe(app.lastModifiedDate)}</td>
@@ -1103,9 +1302,9 @@ export async function getCH2Applications(context: vscode.ExtensionContext): Prom
   try {
     const { orgId, envId } = await getStoredOrgAndEnvInfo(context);
     const deployments = await getCH2Deployments(context, orgId, envId);
-    
+
     // Transform deployments to match expected application structure
-    return deployments.map(deployment => ({
+    const apps = deployments.map(deployment => ({
       ...deployment,
       // Ensure consistent naming
       name: deployment.name || deployment.applicationName || deployment.application?.name || 'Unknown',
@@ -1114,10 +1313,69 @@ export async function getCH2Applications(context: vscode.ExtensionContext): Prom
       isCloudHub2: true
     }));
 
+    // The deployments list often omits CPU/memory allocation. Enrich from the
+    // per-deployment detail endpoint (which carries target.deploymentSettings.resources).
+    await enrichCh2AppsWithResources(context, orgId, envId, apps);
+
+    return apps;
+
   } catch (error: any) {
     console.error('Error fetching CloudHub 2.0 applications:', error);
     vscode.window.showErrorMessage(`Failed to fetch applications: ${error.message}`);
     return [];
+  }
+}
+
+/**
+ * For each CH2 app missing resource allocation in the list payload, fetch the
+ * deployment detail and merge its target/application blocks so vCores/memory can
+ * be resolved. Runs in small batches and degrades gracefully on per-app failures.
+ */
+export async function enrichCh2AppsWithResources(
+  context: vscode.ExtensionContext,
+  orgId: string,
+  envId: string,
+  apps: any[]
+): Promise<void> {
+  // Only the US Application Manager API exposes a per-deployment detail endpoint
+  // with deploymentId. EU/GOV ARM payloads already carry full data in the list.
+  const needsDetail = apps.filter(app => {
+    const { vcores, memoryMb } = findCh2Resources(app);
+    return app.deploymentId && !vcores && !memoryMb;
+  });
+
+  if (needsDetail.length === 0) { return; }
+
+  try {
+    const { getBaseUrl } = await import('../constants.js');
+    const { AccountService } = await import('../controllers/accountService.js');
+    const accountService = new AccountService(context);
+    const activeAccount = await accountService.getActiveAccount();
+    const regionId = activeAccount?.region || 'us';
+
+    if (regionId !== 'us') { return; }
+
+    const baseUrl = await getBaseUrl(context);
+    const apiHelper = new ApiHelper(context);
+    const detailBase = `${baseUrl}/amc/application-manager/api/v2/organizations/${orgId}/environments/${envId}/deployments`;
+
+    const batchSize = 5;
+    for (let i = 0; i < needsDetail.length; i += batchSize) {
+      const batch = needsDetail.slice(i, i + batchSize);
+      await Promise.all(batch.map(async (app) => {
+        try {
+          const resp = await apiHelper.get(`${detailBase}/${app.deploymentId}`);
+          const detail = resp?.data;
+          if (!detail) { return; }
+          if (detail.target) { app.target = { ...(app.target || {}), ...detail.target }; }
+          if (detail.application) { app.application = { ...(app.application || {}), ...detail.application }; }
+        } catch (err: any) {
+          console.warn(`⚠️ CH2 detail fetch failed for ${app.name || app.deploymentId}:`, err?.message || err);
+        }
+      }));
+    }
+  } catch (err: any) {
+    console.warn('⚠️ CH2 resource enrichment skipped:', err?.message || err);
   }
 }
 
@@ -1545,10 +1803,13 @@ function generateCH2ApplicationsCsv(applications: any[]): string {
     return '';
   }
   
-  const headers = ['Status', 'Name', 'Creation Date', 'Current Runtime Version', 'Last Modified Date', 'Last Successful Runtime Version'];
+  const headers = ['Status', 'Name', 'Replicas', 'vCores', 'Memory', 'Creation Date', 'Current Runtime Version', 'Last Modified Date', 'Last Successful Runtime Version'];
   const rows = applications.map(app => [
     getNestedValue(app, 'application.status') || '',
     app.name || '',
+    getCh2Replicas(app),
+    formatVCoresCh2(getCh2AppVCores(app)),
+    formatMemoryCh2(getCh2AppMemoryMb(app)),
     formatDate(app.creationDate) || '',
     app.currentRuntimeVersion || '',
     formatDate(app.lastModifiedDate) || '',

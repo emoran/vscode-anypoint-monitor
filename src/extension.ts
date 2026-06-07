@@ -37,6 +37,7 @@ import { showAlertingHub } from "./premium/alerting/alertPanel";
 import { AlertEngine } from "./premium/alerting/alertEngine";
 import { showDependencyVisualizer } from "./premium/dependencyViz/dependencyVizCommand";
 import { showCostOptimizer } from "./premium/costOptimizer/costOptimizerCommand";
+import { showLogSearchPanel, registerLogSearchSerializer } from "./anypoint/logSearch/logSearchPanel";
 
 interface EnvironmentOption {
 	label: string;
@@ -881,6 +882,15 @@ export function activate(context: vscode.ExtensionContext) {
 		}
 	});
 
+	const logSearchCmd = registerCommandWithTelemetry('anypoint-monitor.logSearch', async () => {
+		try {
+			await showLogSearchPanel(context);
+			await starPromptManager.trackCommandExecution();
+		} catch (error: any) {
+			vscode.window.showErrorMessage(`Error opening Log Search: ${error.message}`);
+		}
+	});
+
 	// Initialize AlertEngine status bar (does not start polling until user configures it)
 	AlertEngine.getInstance(context);
 
@@ -977,6 +987,9 @@ export function activate(context: vscode.ExtensionContext) {
 	context.subscriptions.push(alertingHubCmd);
 	context.subscriptions.push(dependencyVisualizerCmd);
 	context.subscriptions.push(costOptimizerCmd);
+	context.subscriptions.push(logSearchCmd);
+
+	registerLogSearchSerializer(context);
 }
 
 // This method is called when your extension is deactivated
