@@ -1,9 +1,33 @@
-import * as secrets from '../config/secrets.json';
+import * as fs from 'fs';
+import * as path from 'path';
 import * as vscode from 'vscode';
 
+interface RegionCredentials {
+    CLIENT_ID?: string;
+    CLIENT_SECRET?: string;
+}
+
+type SecretsConfig = Record<string, RegionCredentials> & RegionCredentials;
+
+function loadSecrets(): SecretsConfig {
+    try {
+        const secretsPath = path.resolve(__dirname, '../config/secrets.json');
+        if (!fs.existsSync(secretsPath)) {
+            return {};
+        }
+
+        return JSON.parse(fs.readFileSync(secretsPath, 'utf8')) as SecretsConfig;
+    } catch (error) {
+        console.warn('Failed to load config/secrets.json, falling back to empty credentials.', error);
+        return {};
+    }
+}
+
+const secrets = loadSecrets();
+
 // Legacy exports for backward compatibility (uses US credentials)
-export const CLIENT_ID = (secrets as any).us?.CLIENT_ID || (secrets as any).CLIENT_ID || '';
-export const CLIENT_SECRET = (secrets as any).us?.CLIENT_SECRET || (secrets as any).CLIENT_SECRET || '';
+export const CLIENT_ID = secrets.us?.CLIENT_ID || secrets.CLIENT_ID || '';
+export const CLIENT_SECRET = secrets.us?.CLIENT_SECRET || secrets.CLIENT_SECRET || '';
 
 /**
  * Get OAuth credentials for a specific region
@@ -23,7 +47,7 @@ export function getCredentialsForRegion(regionId: string): { clientId: string; c
     }
 
     // Use credentials from secrets.json based on region
-    const regionSecrets = (secrets as any)[regionId];
+    const regionSecrets = secrets[regionId];
     if (regionSecrets && regionSecrets.CLIENT_ID && regionSecrets.CLIENT_SECRET) {
         return {
             clientId: regionSecrets.CLIENT_ID,

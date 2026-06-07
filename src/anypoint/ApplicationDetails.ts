@@ -2,6 +2,7 @@ import * as vscode from 'vscode';
 import * as fs from 'fs';
 import { ApiHelper } from '../controllers/apiHelper.js';
 import { telemetryService } from '../services/telemetryService';
+import { wrapWebviewHtml, badge, button as uiButton } from '../webview/ui-kit';
 
 /** Flatten objects into dot-notation */
 function flattenObject(obj: any, parentKey = '', res: any = {}): any {
@@ -448,424 +449,158 @@ function getDashboardHtml(
     </div>
   `;
 
-  // Build the tabbed layout (each tab is one section)
-  return /* html */ `
-    <!DOCTYPE html>
-    <html lang="en">
-      <head>
-        <meta charset="UTF-8" />
-        <title>Anypoint Monitor Dashboard</title>
-
-        <!-- Fira Code for tech vibe -->
-        <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Fira+Code:wght@400;600&display=swap" />
-
-        <style>
-          /* Code Time inspired theme */
-          :root {
-            --background-primary: #1e2328;
-            --background-secondary: #161b22;
-            --surface-primary: #21262d;
-            --surface-secondary: #30363d;
-            --surface-accent: #0d1117;
-            --text-primary: #f0f6fc;
-            --text-secondary: #7d8590;
-            --text-muted: #656d76;
-            --accent-blue: #58a6ff;
-            --accent-light: #79c0ff;
-            --border-primary: #30363d;
-            --border-muted: #21262d;
-            --success: #3fb950;
-            --warning: #d29922;
-            --error: #f85149;
-          }
-
-          * {
-            box-sizing: border-box;
-          }
-
-          body {
-            margin: 0;
-            padding: 0;
-            background-color: var(--background-primary);
-            color: var(--text-primary);
-            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Noto Sans', Helvetica, Arial, sans-serif;
-            font-size: 14px;
-            line-height: 1.5;
-          }
-
-          /* Header Section */
-          .header {
-            background-color: var(--background-secondary);
-            border-bottom: 1px solid var(--border-primary);
-            padding: 24px 32px;
-          }
-
-          .header-content {
-            max-width: 1200px;
-            margin: 0 auto;
-          }
-
-          .header h1 {
-            font-size: 28px;
-            font-weight: 600;
-            margin: 0 0 8px 0;
-            color: var(--text-primary);
-          }
-
-          .header p {
-            font-size: 16px;
-            color: var(--text-secondary);
-            margin: 0;
-          }
-
-          /* Main Content */
-          .container {
-            max-width: 1200px;
-            margin: 0 auto;
-            padding: 32px;
-          }
-
-          /* TABS */
-          .tabs {
-            margin-top: 16px;
-          }
-          .tab-header {
-            display: flex;
-            gap: 8px;
-            margin-bottom: 24px;
-            border-bottom: 1px solid var(--border-primary);
-            padding-bottom: 12px;
-          }
-          .tab-btn {
-            background-color: transparent;
-            color: var(--text-secondary);
-            border: 1px solid var(--border-primary);
-            border-radius: 6px;
-            padding: 8px 16px;
-            cursor: pointer;
-            font-size: 14px;
-            font-weight: 500;
-            transition: all 0.2s;
-          }
-          .tab-btn.active {
-            background-color: var(--accent-blue);
-            color: white;
-            border-color: var(--accent-blue);
-          }
-          .tab-btn:hover:not(.active) {
-            background-color: var(--surface-secondary);
-            color: var(--text-primary);
-          }
-          .tab-content {
-            display: none;
-          }
-          .tab-content.active {
-            display: block;
-          }
-
-          /* CARD */
-          .card {
-            background-color: var(--surface-primary);
-            border: 1px solid var(--border-primary);
-            border-radius: 12px;
-            padding: 24px;
-            margin-bottom: 24px;
-            transition: all 0.2s;
-          }
-          .card:hover {
-            border-color: var(--border-muted);
-            transform: translateY(-1px);
-          }
-          .card-header {
-            display: flex;
-            align-items: center;
-            justify-content: space-between;
-            margin-bottom: 20px;
-          }
-          .card-header h2 {
-            margin: 0;
-            font-size: 18px;
-            font-weight: 600;
-            color: var(--text-primary);
-          }
-
-          /* BUTTONS */
-          .button-group {
-            display: flex;
-            gap: 8px;
-          }
-          .button {
-            padding: 8px 16px;
-            font-size: 14px;
-            font-weight: 500;
-            color: white;
-            background-color: var(--accent-blue);
-            border: none;
-            border-radius: 6px;
-            cursor: pointer;
-            transition: all 0.2s;
-          }
-          .button:hover {
-            background-color: var(--accent-light);
-            transform: translateY(-1px);
-          }
-
-          /* TABLES */
-          .table-container {
-            width: 100%;
-            overflow-x: auto;
-            border-radius: 8px;
-            border: 1px solid var(--border-primary);
-          }
-          table {
-            border-collapse: collapse;
-            width: 100%;
-          }
-          th, td {
-            padding: 12px 16px;
-            text-align: left;
-            vertical-align: top;
-            border-bottom: 1px solid var(--border-muted);
-          }
-          th {
-            background-color: var(--surface-secondary);
-            color: var(--text-secondary);
-            font-weight: 500;
-            font-size: 13px;
-            white-space: nowrap;
-          }
-          td {
-            color: var(--text-primary);
-            font-size: 14px;
-          }
-          tr:hover {
-            background-color: var(--surface-secondary);
-          }
-          .app-table {
-            font-size: 14px;
-          }
-          .logs-table {
-            font-family: 'Fira Code', 'Courier New', monospace;
-            font-size: 13px;
-          }
-
-          /* Status Badges */
-          .status-badge {
-            display: inline-flex;
-            align-items: center;
-            gap: 6px;
-            padding: 4px 8px;
-            border-radius: 6px;
-            font-size: 12px;
-            font-weight: 500;
-          }
-
-          .status-running {
-            background-color: rgba(63, 185, 80, 0.15);
-            color: var(--success);
-          }
-
-          .status-stopped {
-            background-color: rgba(248, 81, 73, 0.15);
-            color: var(--error);
-          }
-
-          .status-dot {
-            width: 6px;
-            height: 6px;
-            border-radius: 50%;
-            background-color: currentColor;
-          }
-
-          /* Form Controls */
-          input[type="text"] {
-            background-color: var(--surface-secondary);
-            border: 1px solid var(--border-primary);
-            border-radius: 6px;
-            padding: 8px 12px;
-            color: var(--text-primary);
-            font-size: 14px;
-          }
-
-          input[type="text"]:focus {
-            outline: none;
-            border-color: var(--accent-blue);
-            box-shadow: 0 0 0 2px rgba(88, 166, 255, 0.1);
-          }
-
-          /* Details/Summary */
-          details {
-            margin-top: 12px;
-          }
-
-          summary {
-            cursor: pointer;
-            font-weight: 500;
-            color: var(--accent-blue);
-            padding: 8px 0;
-          }
-
-          summary:hover {
-            color: var(--accent-light);
-          }
-
-          /* Responsive Design */
-          @media (max-width: 768px) {
-            .container {
-              padding: 16px;
-            }
-            
-            .header {
-              padding: 16px;
-            }
-            
-            .card {
-              padding: 16px;
-            }
-            
-            .card-header {
-              flex-direction: column;
-              align-items: flex-start;
-              gap: 12px;
-            }
-            
-            .button-group {
-              width: 100%;
-            }
-            
-            .button {
-              flex: 1;
-            }
-          }
-        </style>
-      </head>
-      <body>
-        <!-- Header -->
-        <div class="header">
-          <div class="header-content">
-            <h1>${data.application?.domain || 'Application Details'}</h1>
-            <p>CloudHub 1.0 Application Dashboard</p>
+  const body = `
+    <div class="am-container">
+      <div class="am-page-header">
+        <div>
+          <h1>${data.application?.domain || 'Application Details'}</h1>
+          <div class="am-page-header-meta">
+            ${badge('CloudHub 1.0', 'info', true)}
           </div>
         </div>
+      </div>
 
-        <!-- Main Content -->
-        <div class="container">
-          <div class="tabs">
-            <nav class="tab-header">
-              <button data-tab="app-info" class="tab-btn active">Application Info</button>
-              <button data-tab="schedulers" class="tab-btn">Schedulers</button>
-              <button data-tab="alerts" class="tab-btn">Alerts</button>
-              <button data-tab="logs" class="tab-btn">Logs</button>
-            </nav>
-            <div class="tab-content active" id="tab-app-info">
-              ${applicationHtml}
-            </div>
-            <div class="tab-content" id="tab-schedulers">
-              ${schedulersHtml}
-            </div>
-            <div class="tab-content" id="tab-alerts">
-              ${alertsHtml}
-            </div>
-            <div class="tab-content" id="tab-logs">
-              ${logsHtml}
-            </div>
-          </div>
+      <div class="ch1d-tabs">
+        <nav class="ch1d-tab-header">
+          <button data-tab="app-info" class="ch1d-tab-btn active">Application Info</button>
+          <button data-tab="schedulers" class="ch1d-tab-btn">Schedulers</button>
+          <button data-tab="alerts" class="ch1d-tab-btn">Alerts</button>
+          <button data-tab="logs" class="ch1d-tab-btn">Logs</button>
+        </nav>
+        <div class="tab-content active" id="tab-app-info">
+          ${applicationHtml}
         </div>
+        <div class="tab-content" id="tab-schedulers">
+          ${schedulersHtml}
+        </div>
+        <div class="tab-content" id="tab-alerts">
+          ${alertsHtml}
+        </div>
+        <div class="tab-content" id="tab-logs">
+          ${logsHtml}
+        </div>
+      </div>
+    </div>`;
 
-        <script>
-          const vscode = acquireVsCodeApi();
+  const scripts = `
+    const vscode = acquireVsCodeApi();
 
-          // Tab switching logic
-          const tabBtns = document.querySelectorAll('.tab-btn');
-          const tabContents = document.querySelectorAll('.tab-content');
-          tabBtns.forEach((btn) => {
-            btn.addEventListener('click', () => {
-              tabBtns.forEach(b => b.classList.remove('active'));
-              tabContents.forEach(tc => tc.classList.remove('active'));
-              btn.classList.add('active');
-              const tabId = 'tab-' + btn.dataset.tab;
-              document.getElementById(tabId)?.classList.add('active');
-            });
-          });
+    document.querySelectorAll('.ch1d-tab-btn').forEach(btn => {
+      btn.addEventListener('click', () => {
+        document.querySelectorAll('.ch1d-tab-btn').forEach(b => b.classList.remove('active'));
+        document.querySelectorAll('.tab-content').forEach(tc => tc.classList.remove('active'));
+        btn.classList.add('active');
+        document.getElementById('tab-' + btn.dataset.tab)?.classList.add('active');
+      });
+    });
 
-          // Logs filtering & paging
-          const logsRaw = ${JSON.stringify(data.logs?.data ?? data.logs ?? [])};
-          let logsData = Array.isArray(logsRaw) ? logsRaw : [];
-          let filteredLogs = [...logsData];
-          let currentPage = 1;
-          const pageSize = 10;
+    const logsRaw = ${JSON.stringify(data.logs?.data ?? data.logs ?? [])};
+    let logsData = Array.isArray(logsRaw) ? logsRaw : [];
+    let filteredLogs = [...logsData];
+    let currentPage = 1;
+    const pageSize = 10;
 
-          const logFilter = document.getElementById('logFilter');
-          const logsTbody = document.getElementById('logsTbody');
-          const logsPrev = document.getElementById('logsPrev');
-          const logsNext = document.getElementById('logsNext');
-          const logsPageInfo = document.getElementById('logsPageInfo');
+    const logFilter = document.getElementById('logFilter');
+    const logsTbody = document.getElementById('logsTbody');
+    const logsPrev = document.getElementById('logsPrev');
+    const logsNext = document.getElementById('logsNext');
+    const logsPageInfo = document.getElementById('logsPageInfo');
 
-          function renderLogsTable() {
-            const startIndex = (currentPage - 1) * pageSize;
-            const endIndex = startIndex + pageSize;
-            const pageLogs = filteredLogs.slice(startIndex, endIndex);
-            const rowsHtml = pageLogs.map(log => {
-              const dateStr = new Date(log.timestamp).toISOString();
-              const msg = (log.message || '').replace(/\\n/g, '<br/>');
-              return \`
-                <tr>
-                  <td>\${dateStr}</td>
-                  <td>\${log.priority || ''}</td>
-                  <td>\${msg}</td>
-                </tr>
-              \`;
-            }).join('');
-            logsTbody.innerHTML = rowsHtml;
-            const totalPages = Math.ceil(filteredLogs.length / pageSize);
-            logsPageInfo.textContent = \`Page \${currentPage} of \${totalPages}\`;
-            logsPrev.disabled = (currentPage <= 1);
-            logsNext.disabled = (currentPage >= totalPages);
-          }
+    function renderLogsTable() {
+      const si = (currentPage - 1) * pageSize;
+      const pageLogs = filteredLogs.slice(si, si + pageSize);
+      logsTbody.innerHTML = pageLogs.map(log => {
+        const dateStr = new Date(log.timestamp).toISOString();
+        const msg = (log.message || '').replace(/\\n/g, '<br/>');
+        return \`<tr><td>\${dateStr}</td><td>\${log.priority || ''}</td><td>\${msg}</td></tr>\`;
+      }).join('');
+      const totalPages = Math.ceil(filteredLogs.length / pageSize);
+      logsPageInfo.textContent = \`Page \${currentPage} of \${totalPages}\`;
+      logsPrev.disabled = (currentPage <= 1);
+      logsNext.disabled = (currentPage >= totalPages);
+    }
 
-          function applyLogFilter() {
-            const term = (logFilter.value || '').toLowerCase();
-            filteredLogs = logsData.filter(log => {
-              const combined = [log.threadName, log.priority, log.message].join(' ').toLowerCase();
-              return combined.includes(term);
-            });
-            currentPage = 1;
-            renderLogsTable();
-          }
+    function applyLogFilter() {
+      const term = (logFilter.value || '').toLowerCase();
+      filteredLogs = logsData.filter(log => {
+        return [log.threadName, log.priority, log.message].join(' ').toLowerCase().includes(term);
+      });
+      currentPage = 1;
+      renderLogsTable();
+    }
 
-          logsPrev?.addEventListener('click', () => {
-            if (currentPage > 1) {
-              currentPage--;
-              renderLogsTable();
-            }
-          });
-          logsNext?.addEventListener('click', () => {
-            const totalPages = Math.ceil(filteredLogs.length / pageSize);
-            if (currentPage < totalPages) {
-              currentPage++;
-              renderLogsTable();
-            }
-          });
-          logFilter?.addEventListener('input', applyLogFilter);
-          renderLogsTable();
+    logsPrev?.addEventListener('click', () => { if (currentPage > 1) { currentPage--; renderLogsTable(); } });
+    logsNext?.addEventListener('click', () => {
+      if (currentPage < Math.ceil(filteredLogs.length / pageSize)) { currentPage++; renderLogsTable(); }
+    });
+    logFilter?.addEventListener('input', applyLogFilter);
+    renderLogsTable();
 
-          // Stop / Start / Restart Buttons
-          document.getElementById('btnStopApp')?.addEventListener('click', () => {
-            vscode.postMessage({ command: 'stopApp' });
-          });
-          document.getElementById('btnStartApp')?.addEventListener('click', () => {
-            vscode.postMessage({ command: 'startApp' });
-          });
-          document.getElementById('btnRestartApp')?.addEventListener('click', () => {
-            vscode.postMessage({ command: 'restartApp' });
-          });
-
-          // Download Logs Button
-          document.getElementById('btnDownloadLogs')?.addEventListener('click', () => {
-            vscode.postMessage({ command: 'downloadLogs' });
-          });
-        </script>
-      </body>
-    </html>
+    document.getElementById('btnStopApp')?.addEventListener('click', () => vscode.postMessage({ command: 'stopApp' }));
+    document.getElementById('btnStartApp')?.addEventListener('click', () => vscode.postMessage({ command: 'startApp' }));
+    document.getElementById('btnRestartApp')?.addEventListener('click', () => vscode.postMessage({ command: 'restartApp' }));
+    document.getElementById('btnDownloadLogs')?.addEventListener('click', () => vscode.postMessage({ command: 'downloadLogs' }));
   `;
+
+  return wrapWebviewHtml({
+    title: 'Anypoint Monitor Dashboard',
+    body,
+    scripts,
+    extraStyles: `
+      .ch1d-tabs { margin-top: 16px; }
+      .ch1d-tab-header {
+        display: flex; gap: 8px; margin-bottom: 24px;
+        border-bottom: 1px solid var(--am-border); padding-bottom: 12px;
+      }
+      .ch1d-tab-btn {
+        background: transparent; color: var(--am-text-muted);
+        border: 1px solid var(--am-border); border-radius: var(--am-radius-sm);
+        padding: 8px 16px; cursor: pointer; font-size: 13px; font-weight: 500;
+        transition: all 0.2s; font-family: inherit;
+      }
+      .ch1d-tab-btn.active {
+        background: var(--am-btn-bg); color: var(--am-btn-fg);
+        border-color: var(--am-btn-bg);
+      }
+      .ch1d-tab-btn:hover:not(.active) {
+        background: var(--am-bg-surface-hover); color: var(--am-text-primary);
+      }
+      .tab-content { display: none; }
+      .tab-content.active { display: block; }
+      .card {
+        background: var(--am-bg-surface); border: 1px solid var(--am-border);
+        border-radius: var(--am-radius-md); padding: 24px; margin-bottom: 24px;
+      }
+      .card-header {
+        display: flex; align-items: center; justify-content: space-between; margin-bottom: 20px;
+      }
+      .card-header h2 { margin: 0; font-size: 16px; font-weight: 600; }
+      .button-group { display: flex; gap: 8px; }
+      .button {
+        padding: 8px 16px; font-size: 13px; font-weight: 500;
+        color: var(--am-btn-fg); background: var(--am-btn-bg);
+        border: none; border-radius: var(--am-radius-sm); cursor: pointer;
+      }
+      .button:hover { background: var(--am-btn-hover); }
+      .table-container {
+        width: 100%; overflow-x: auto; border-radius: var(--am-radius-md);
+        border: 1px solid var(--am-border);
+      }
+      table { border-collapse: collapse; width: 100%; }
+      th, td { padding: 10px 14px; text-align: left; border-bottom: 1px solid var(--am-border); }
+      th { background: var(--am-bg-secondary); color: var(--am-text-muted); font-size: 12px; font-weight: 600; }
+      td { font-size: 13px; }
+      tr:hover { background: var(--am-bg-surface-hover); }
+      .logs-table { font-family: var(--vscode-editor-font-family, monospace); font-size: 12px; }
+      input[type="text"] {
+        background: var(--am-bg-secondary); border: 1px solid var(--am-border);
+        border-radius: var(--am-radius-sm); padding: 6px 12px;
+        color: var(--am-text-primary); font-size: 13px;
+      }
+      input[type="text"]:focus { outline: none; border-color: var(--am-accent); }
+      details { margin-top: 12px; }
+      summary { cursor: pointer; font-weight: 500; color: var(--am-accent); padding: 8px 0; }
+      summary:hover { filter: brightness(1.15); }
+    `
+  });
 }

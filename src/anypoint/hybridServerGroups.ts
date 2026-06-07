@@ -1,9 +1,12 @@
 import * as vscode from 'vscode';
 import { telemetryService } from '../services/telemetryService';
+import {
+    wrapWebviewHtml,
+    summaryCard,
+    emptyState,
+    escapeHtml as uiEscapeHtml
+} from '../webview/ui-kit';
 
-/**
- * Creates a webview panel and displays Hybrid server groups
- */
 export function showHybridServerGroupsWebview(
   context: vscode.ExtensionContext,
   data: any,
@@ -23,67 +26,39 @@ export function showHybridServerGroupsWebview(
 }
 
 function getHybridServerGroupsHtml(groups: any[]): string {
-  return /* html */ `
-    <!DOCTYPE html>
-    <html lang="en">
-      <head>
-        <meta charset="UTF-8" />
-        <title>Hybrid Server Groups</title>
-        <style>
-          :root {
-            --background-primary: #1e2328;
-            --surface-primary: #21262d;
-            --text-primary: #f0f6fc;
-            --text-secondary: #7d8590;
-            --border-primary: #30363d;
-          }
-          * { box-sizing: border-box; }
-          body {
-            margin: 0;
-            padding: 0;
-            background-color: var(--background-primary);
-            color: var(--text-primary);
-            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
-            font-size: 14px;
-          }
-          .container {
-            max-width: 1200px;
-            margin: 0 auto;
-            padding: 32px;
-          }
-          h1 { font-size: 28px; margin-bottom: 24px; }
-          .card {
-            background-color: var(--surface-primary);
-            border: 1px solid var(--border-primary);
-            border-radius: 12px;
-            padding: 24px;
-            margin-bottom: 20px;
-          }
-          .group-name {
-            font-size: 18px;
-            font-weight: 600;
-            margin-bottom: 12px;
-          }
-          .server-list {
-            color: var(--text-secondary);
-            margin-top: 8px;
-          }
-        </style>
-      </head>
-      <body>
-        <div class="container">
-          <h1>Hybrid Server Groups</h1>
-          ${groups.length > 0 ? groups.map(g => `
-            <div class="card">
-              <div class="group-name">${g.name || 'Unnamed Group'}</div>
-              <div>Servers: ${g.serverCount || g.servers?.length || 0}</div>
-              <div class="server-list">
-                ${g.servers?.map((s: any) => s.name).join(', ') || 'No servers'}
-              </div>
-            </div>
-          `).join('') : '<p style="color: var(--text-secondary);">No server groups found</p>'}
+  const totalServers = groups.reduce((sum: number, g: any) => sum + (g.serverCount || g.servers?.length || 0), 0);
+
+  const tableRows = groups.map(g => {
+    const serverNames = g.servers?.map((s: any) => uiEscapeHtml(s.name)).join(', ') || 'No servers';
+    const serverCount = g.serverCount || g.servers?.length || 0;
+    return `
+      <tr class="am-row">
+        <td style="font-weight:500">${uiEscapeHtml(g.name || 'Unnamed Group')}</td>
+        <td>${serverCount}</td>
+        <td style="color:var(--am-text-muted);font-size:12px">${serverNames}</td>
+      </tr>`;
+  }).join('');
+
+  const body = `
+    <div class="am-container">
+      <div class="am-page-header">
+        <div><h1>Hybrid Server Groups</h1></div>
+      </div>
+
+      <div class="am-summary-cards">
+        ${summaryCard({ icon: '📦', value: groups.length, label: 'Server Groups', animationDelay: '0.1s' })}
+        ${summaryCard({ icon: '🖥️', value: totalServers, label: 'Total Servers', animationDelay: '0.15s' })}
+      </div>
+
+      ${groups.length > 0 ? `
+        <div class="am-table-container">
+          <table class="am-table">
+            <thead><tr><th>Group Name</th><th>Servers</th><th>Server List</th></tr></thead>
+            <tbody>${tableRows}</tbody>
+          </table>
         </div>
-      </body>
-    </html>
-  `;
+      ` : emptyState({ icon: '📦', title: 'No Server Groups', description: 'No hybrid server groups found in this environment.' })}
+    </div>`;
+
+  return wrapWebviewHtml({ title: 'Hybrid Server Groups', body });
 }

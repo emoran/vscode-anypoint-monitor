@@ -178,6 +178,12 @@ export class CommandPaletteProvider implements vscode.TreeDataProvider<CommandTr
                     icon: 'output'
                 },
                 {
+                    label: 'Alerting Hub',
+                    command: 'anypoint-monitor.alertingHub',
+                    description: 'Configure and manage platform alerts',
+                    icon: 'bell'
+                },
+                {
                     label: 'AnypointMQ Statistics',
                     command: 'anypoint-monitor.mqStats',
                     description: 'View queue statistics and message metrics',
@@ -194,6 +200,30 @@ export class CommandPaletteProvider implements vscode.TreeDataProvider<CommandTr
                     command: 'anypoint-monitor.applicationDiagram',
                     description: 'Visualize application architecture',
                     icon: 'type-hierarchy'
+                },
+                {
+                    label: 'Live Connection Tracer',
+                    command: 'anypoint-monitor.dependencyVisualizer',
+                    description: 'Trace and visualize application dependencies',
+                    icon: 'references'
+                }
+            ]
+        },
+        {
+            label: 'Operations',
+            icon: 'shield',
+            commands: [
+                {
+                    label: 'Start War Room',
+                    command: 'anypoint-monitor.startWarRoom',
+                    description: 'Automated incident triage and blast radius analysis',
+                    icon: 'flame'
+                },
+                {
+                    label: 'Cost Optimizer',
+                    command: 'anypoint-monitor.costOptimizer',
+                    description: 'Analyze and optimize platform resource costs',
+                    icon: 'graph-line'
                 }
             ]
         },

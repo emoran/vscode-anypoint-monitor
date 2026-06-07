@@ -15,8 +15,9 @@ const STAR_PROMPT_STATE_KEYS = {
  */
 const STAR_PROMPT_CONFIG = {
   GITHUB_URL: 'https://github.com/emoran/vscode-anypoint-monitor',
-  FIRST_PROMPT_THRESHOLD: 3,
-  SUBSEQUENT_PROMPT_INTERVAL: 15,
+  MARKETPLACE_URL: 'https://marketplace.visualstudio.com/items?itemName=EdgarMoran.anypoint-monitor&ssr=false#review-details',
+  FIRST_PROMPT_THRESHOLD: 5,
+  SUBSEQUENT_PROMPT_INTERVAL: 25,
 } as const;
 
 /**
@@ -97,13 +98,12 @@ export class StarPromptManager {
       );
 
       const action = await vscode.window.showInformationMessage(
-        '⭐ Enjoying Anypoint Monitor? Star us on GitHub to show your support!',
-        '⭐ Star on GitHub',
-        'Maybe Later',
+        'Enjoying Anypoint Monitor? Help others discover it!',
+        'Rate on Marketplace',
+        'Star on GitHub',
         "Don't Ask Again"
       );
 
-      // Update prompt shown flag and last prompt count
       await this.context.globalState.update(
         STAR_PROMPT_STATE_KEYS.PROMPT_SHOWN,
         true
@@ -113,8 +113,9 @@ export class StarPromptManager {
         currentCount
       );
 
-      // Handle user actions
-      if (action === '⭐ Star on GitHub') {
+      if (action === 'Rate on Marketplace') {
+        await this.openMarketplace();
+      } else if (action === 'Star on GitHub') {
         await this.openGitHubRepo();
       } else if (action === "Don't Ask Again") {
         await this.context.globalState.update(
@@ -128,9 +129,16 @@ export class StarPromptManager {
     }
   }
 
-  /**
-   * Opens the GitHub repository in the user's default browser
-   */
+  private async openMarketplace(): Promise<void> {
+    try {
+      const uri = vscode.Uri.parse(STAR_PROMPT_CONFIG.MARKETPLACE_URL);
+      await vscode.env.openExternal(uri);
+      console.log('StarPromptManager: Opened Marketplace review page');
+    } catch (error: any) {
+      console.error('StarPromptManager: Error opening Marketplace URL:', error);
+    }
+  }
+
   private async openGitHubRepo(): Promise<void> {
     try {
       const uri = vscode.Uri.parse(STAR_PROMPT_CONFIG.GITHUB_URL);

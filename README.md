@@ -1,4 +1,8 @@
-# Anypoint Monitor - Anypoint Management in VSCode
+# Anypoint Monitor
+
+### The Anypoint Platform control plane — inside your IDE.
+
+Monitor CloudHub 1.0/2.0 applications, stream real-time logs, manage APIs, run incident war rooms, and optimize costs — all without leaving VS Code.
 
 [![VS Marketplace Version](https://img.shields.io/visual-studio-marketplace/v/EdgarMoran.anypoint-monitor?style=for-the-badge&logo=visual-studio-code)](https://marketplace.visualstudio.com/items?itemName=EdgarMoran.anypoint-monitor)
 [![VS Marketplace Downloads](https://img.shields.io/visual-studio-marketplace/d/EdgarMoran.anypoint-monitor?style=for-the-badge)](https://marketplace.visualstudio.com/items?itemName=EdgarMoran.anypoint-monitor)
@@ -8,219 +12,204 @@
 [![Buy Me A Coffee](https://img.shields.io/badge/Buy%20Me%20a%20Coffee-ffdd00?style=for-the-badge&logo=buy-me-a-coffee&logoColor=black)](https://buymeacoffee.com/yucelmoran)
 [![PayPal](https://img.shields.io/badge/PayPal-00457C?style=for-the-badge&logo=paypal&logoColor=white)](https://paypal.me/yucelmoran)
 
-A comprehensive Visual Studio Code extension for MuleSoft Anypoint Platform management. Monitor CloudHub applications, manage APIs, track subscriptions, and seamlessly work with multiple Anypoint organizations directly within your development environment.
+---
 
-## Key Benefits
+## Why Anypoint Monitor?
 
-- **Enhanced Productivity**: Access comprehensive Anypoint Platform information directly from Visual Studio Code
-- **Multi-Account Management**: Seamlessly switch between multiple Anypoint organizations and accounts
-- **Real-time Monitoring**: Monitor CloudHub 1.0 and 2.0 application status with instant updates
-- **Unified Dashboard**: Centralized view of organization details, subscriptions, and API management
-- **Secure Authentication**: Enterprise-grade OAuth 2.0 authentication with automatic token refresh
-- **Multi-Environment Support**: Complete environment management across Sandbox, Staging, and Production
-- **Intelligent Error Handling**: Automatic permission detection and helpful error messages
+| Capability | Anypoint Monitor | Anypoint Studio | Web Console |
+|------------|:---:|:---:|:---:|
+| Multi-account management | **Yes** | No | No |
+| Real-time log streaming | **Yes** | No | Limited |
+| War Room incident triage | **Yes** | No | No |
+| Application flow diagrams | **Yes** | Yes | No |
+| DataWeave playground | **Yes** | Yes | No |
+| Cost optimization analysis | **Yes** | No | No |
+| Dependency visualization | **Yes** | No | Limited |
+| API security audit | **Yes** | No | No |
+| Works in VS Code / Cursor | **Yes** | No | N/A |
+| Lightweight (no JDK) | **Yes** | No | N/A |
 
-## Features
+**Perfect for:** MuleSoft Developers, Solution Architects, DevOps teams, and API Managers who want a unified, lightweight Anypoint Platform experience where they code.
 
-### 🏢 Multi-Account Management
+---
 
-- **Account Manager**: Centralized dashboard to manage multiple Anypoint Platform accounts
-- **Seamless Account Switching**: Switch between different organizations without re-authentication
-- **Account Status Monitoring**: Real-time account health with automatic token refresh
-- **Individual Account Configuration**: Each account maintains its own environments, permissions, and settings
-- **Account Refresh**: One-click refresh of account permissions and environments
-- **Bulk Account Operations**: Add, remove, or migrate multiple accounts efficiently
+## Feature Highlights
 
-### 🏢 Organization & User Management
+### Multi-Account Management
+Manage multiple Anypoint Platform organizations from a single interface. Switch accounts, refresh tokens, and view status — all with seamless OAuth 2.0 authentication and automatic token refresh.
 
-- **Organization Details**: Comprehensive view of organization name, ID, type, and ownership
-- **User Profile**: View current user details including username, email, roles, and permissions
-- **Subscription Tracking**: Monitor subscription expiration dates and renewal status
-- **Multi-Environment Access**: Work seamlessly across Sandbox, Development, Staging, and Production environments
-- **Developer Utilities**: Access to advanced developer-specific tools and entitlements
+### CloudHub 1.0 & 2.0 Monitoring
+View all applications in one interface with deep-dive into configuration, workers, replicas, and runtime versions. Start, stop, restart apps directly from VS Code with real-time status indicators.
 
-### ☁️ CloudHub Application Monitoring
+### Application Command Center
+A unified control room per application: health scoring based on logs and metrics, AI-powered insights and recommendations, one-click access to logs/restart/diagrams, and real-time CPU/memory/network visualization with interactive charts.
 
-#### CloudHub 1.0 & 2.0 Applications
-- **Unified Application List**: View all CloudHub 1.0 and 2.0 applications in one interface
-- **Application Details**: Deep dive into application configuration, workers, replicas, and runtime versions
-- **Lifecycle Management**: Start, stop, restart applications directly from VSCode
-- **Status Monitoring**: Real-time application status with health indicators
-- **Cross-Account Access**: View and manage applications from multiple organizations
+### Multi-App Overview Dashboard
+Environment-wide health at a glance with summary cards (Total, Healthy, Warning, Critical), a sortable/filterable application table, progress-driven metrics loading, and CSV export.
 
-#### Application Command Center (Premium Feature)
-- **Health Scoring**: Intelligent health score calculation based on logs, replicas, and deployment status
-- **AI Insights**: Automated insights and recommendations based on application performance
-- **Quick Actions**: One-click access to logs, restart, application details, and diagrams
-- **Performance Metrics**: Real-time CPU, memory, and network metrics visualization
-- **Recent Logs**: Quick access to the last 50 application logs with filtering
-- **Application Overview**: Comprehensive dashboard showing runtime, workers, replicas, and environment info
-- **Metrics Visualization**: Interactive charts for application performance over time
+### Real-Time Log Streaming
+Live log tailing for CH1 and CH2 applications with advanced filtering (message, level, thread), color-coded priority highlighting, and multi-format export (JSON, CSV, TXT).
 
-### 📊 Real-Time Monitoring & Logs
+### War Room — Incident Triage
+Automated production incident analysis: select seed applications and a time window, auto-expand the blast radius, collect logs/metrics/deployments across all affected apps, correlate events on a timeline, and render an interactive incident report with probable root cause.
 
-- **Live Log Streaming**: Real-time log tailing for CloudHub 1.0 and 2.0 applications with auto-refresh
-- **Advanced Filtering**: Search and filter logs by message content, log level (INFO, WARN, ERROR), or thread
-- **Priority Highlighting**: Color-coded log levels for quick issue identification
-- **Multi-Format Export**: Export logs to JSON, CSV, or TXT formats with customizable pagination
-- **Log Timestamp Display**: Precise timestamps for all log entries
-- **Cross-Environment Monitoring**: Monitor applications across different environments seamlessly
-- **Error Detection**: Automatic error rate calculation and health impact analysis
+### Application Flow Diagrams
+Generate interactive Mermaid flow diagrams from CloudHub 2.0 deployments or local JAR files. Visualize flow/sub-flow relationships, cross-file dependencies, and export for architecture documentation.
 
-### 🎨 Application Flow Diagrams
+### API Management & Security Audit
+View and manage APIs across accounts and environments. Run comprehensive security audits with policy compliance checks, SLA tier analysis, and actionable recommendations.
 
-- **Visualize Mule Flows**: Generate interactive flow diagrams from CloudHub 2.0 deployments or local JAR files
-- **Local & Remote Support**: Browse local Mule application JAR files or select from CloudHub deployments
-- **Mermaid Diagrams**: Inspect generated Mermaid diagrams directly inside VSCode webview
-- **Flow/Sub-Flow Mapping**: Visual representation of flow relationships and dependencies
-- **In-Memory JAR Parsing**: Downloads deployment JARs, scans Mule XML configuration files
-- **Export Capability**: Copy diagram code for use in architecture documentation
-- **Cross-File Dependencies**: Highlights flow references across multiple configuration files
+### Alerting Hub
+Configure and manage platform alerts with customizable thresholds. Get notified about app health changes, deployment events, and resource anomalies.
 
-### 🔌 API Management & Security
+### Cost Optimizer
+Analyze platform resource usage and identify optimization opportunities across environments. Reduce vCore costs with data-driven recommendations.
 
-- **API Manager Integration**: View and manage all APIs across multiple accounts and environments
-- **API Details**: Access API names, versions, endpoints, asset versions, and instance labels
-- **API Security Audit**: Comprehensive security analysis with policy compliance checks
-- **Policy Enforcement**: View applied policies including SLA tiers, rate limiting, and authentication
-- **API Discovery**: Browse available APIs in your organization with detailed metadata
-- **Cross-Account API Management**: Unified API view from multiple organizations
-- **Detailed API Information**: Click through to detailed API configuration and analytics
+### Live Connection Tracer
+Trace and visualize runtime dependencies between applications. Map upstream/downstream connections across your integration landscape.
 
-### 🛠️ Developer Tools
+### Hybrid / On-Premises Support
+Monitor hybrid applications, servers, server groups, and clusters running in on-premises environments.
 
-- **DataWeave Playground**: Interactive DataWeave 2.0 testing and transformation environment
-  - Syntax highlighting and code completion
-  - Input/Output preview panels
-  - Sample data templates
-  - Error validation and debugging
-- **Environment Comparison**: Side-by-side comparison of environment configurations and applications
-- **Developer Utilities Panel**: Comprehensive developer tools dashboard with system information
-- **Access Token Management**: Secure token viewing, copying, and debugging with expiration tracking
+### DataWeave Playground
+Interactive DataWeave 2.0 testing environment with input/output preview panels, sample data templates, and error validation.
 
-### 🌐 Community & Support
+### Developer Tools
+Environment comparison tables, developer utilities panel, access token management with expiration tracking, and AnypointMQ queue statistics.
 
-- **MuleSoft Community Events**: Access upcoming MuleSoft meetups, webinars, and community events
-- **Event Calendar**: Browse events with dates, locations, and registration links
-- **Feedback System**: Direct feedback channel to extension developers with GitHub integration
-- **Issue Tracking**: Quick access to report bugs and request features
+---
 
 ## Available Commands
 
-Access all commands through the Command Palette (`Ctrl+Shift+P` / `Cmd+Shift+P`) by typing "AM":
+Access all commands through the Command Palette (`Ctrl+Shift+P` / `Cmd+Shift+P`) by typing **"AM"**:
 
-### 🔐 Authentication & Account Management
+### Authentication & Accounts
 
-| Command                            | Description                                          | Usage                                  |
-| ---------------------------------- | ---------------------------------------------------- | -------------------------------------- |
-| `AM: Login into Anypoint Platform` | Authenticate with your Anypoint Platform credentials | Use this first to establish connection |
-| `AM: Account Manager`              | **NEW** Manage multiple Anypoint accounts           | Switch accounts, refresh tokens, view status |
-| `AM: Logout`                       | Securely logout from Anypoint Platform               | Clear stored credentials and tokens    |
-| `AM: Retrieve Access Token`        | Get current authentication token for debugging       | View token details and expiration      |
+| Command | Description |
+|---------|-------------|
+| `AM: Login into Anypoint Platform` | Authenticate with OAuth 2.0 |
+| `AM: Account Manager` | Manage multiple Anypoint accounts |
+| `AM: Logout` | Securely logout from current account |
+| `AM: Retrieve Access Token` | Get current token for debugging |
+| `AM: Select Business Group` | Switch between business groups |
 
-### 👤 User & Organization Commands
+### CloudHub & Applications
 
-| Command                     | Description                                  | Details                                                      |
-| --------------------------- | -------------------------------------------- | ------------------------------------------------------------ |
-| `AM: My Information`        | Display current user profile and permissions | Shows username, email, roles, and organization membership    |
-| `AM: Organization Details`  | View comprehensive organization information  | Organization name, ID, usage statistics, and resource limits |
-| `AM: Developer Information` | Access developer-specific data               | Developer roles, entitlements, and access permissions        |
-| `AM: Developer Utilities`   | Comprehensive developer tools panel         | Advanced developer utilities and debugging tools             |
+| Command | Description |
+|---------|-------------|
+| `AM: Show CloudHub 1.0 Applications` | List and manage CH1 applications |
+| `AM: Show CloudHub 2.0 Applications` | List and manage CH2 applications |
+| `AM: Application Command Center` | Unified app control room with KPIs and AI insights |
+| `AM: Multi-App Overview Dashboard` | Environment-wide health dashboard |
+| `AM: Real-Time Logs` | Live log streaming with filtering and export |
+| `AM: Application Diagram` | Visualize Mule flow architecture |
+| `AM: Environment Comparison Table` | Side-by-side environment comparison |
 
-### ☁️ CloudHub Management Commands
+### Hybrid / On-Premises
 
-| Command                              | Description                                   | What You'll See                                                       |
-| ------------------------------------ | --------------------------------------------- | --------------------------------------------------------------------- |
-| `AM: Show CloudHub 1.0 Applications` | List all CloudHub 1.0 applications            | Application names, status, environment, workers, and runtime versions |
-| `AM: Show CloudHub 2.0 Applications` | Display CloudHub 2.0 applications             | Modern CH2 apps with scaling info, replicas, and deployment status    |
-| `AM: Application Diagram`            | Visualize CloudHub 2.0 or local JAR flows     | Interactive Mermaid diagram outlining flow and sub-flow connections   |
-| `AM: Application Command Center` | Unified control room for CH1 & CH2 apps | Environment-aware KPIs, AI insights, and lifecycle tooling in one view |
-| `AM: Real-Time Logs`                 | **Premium** Live log streaming for CH1 & CH2  | Real-time log tailing with filtering, search, and multi-format export |
-| `AM: Environment Comparison Table`   | Compare environments side-by-side             | Environment details, configurations, and application status comparison |
+| Command | Description |
+|---------|-------------|
+| `AM: Show Hybrid Applications` | View on-premises/hybrid applications |
+| `AM: Show Hybrid Servers` | View on-premises Mule servers |
+| `AM: Show Hybrid Server Groups` | View server groups |
+| `AM: Show Hybrid Clusters` | View server clusters |
 
-### 🔌 API Management & Developer Tools
+### API & Security
 
-| Command                         | Description                                    | Information Displayed                                   |
-| ------------------------------- | ---------------------------------------------- | ------------------------------------------------------- |
-| `AM: Retrieve API Manager APIs` | View all APIs in API Manager                   | API names, versions, endpoints, policies, and SLA tiers |
-| `AM: Audit APIs`                | Perform comprehensive API security audit      | Security analysis, compliance checks, and recommendations |
-| `AM: Subscription Expiration`   | Check subscription status and expiration dates | Renewal dates, subscription types, and usage limits     |
-| `AM: DataWeave Playground`      | Interactive DataWeave testing environment     | DataWeave transformation testing and validation         |
+| Command | Description |
+|---------|-------------|
+| `AM: Retrieve API Manager APIs` | View all APIs in API Manager |
+| `AM: Audit APIs` | Comprehensive API security audit |
+| `AM: AnypointMQ Statistics` | Queue statistics and message metrics |
 
-### 🌐 Community & Support Commands
+### Operations
 
-| Command                         | Description                                    | Information Displayed                                   |
-| ------------------------------- | ---------------------------------------------- | ------------------------------------------------------- |
-| `AM: MuleSoft Community Events` | Access MuleSoft community events and resources | Event listings, webinars, and community announcements  |
-| `AM: Provide Feedback`          | Submit feedback and feature requests          | Direct feedback channel to extension developers        |
+| Command | Description |
+|---------|-------------|
+| `AM: Start War Room` | Automated incident triage (`Ctrl+Shift+W`) |
+| `AM: Alerting Hub` | Configure and manage alerts (`Ctrl+Shift+A`) |
+| `AM: Cost Optimizer` | Analyze and optimize resource costs |
+| `AM: Live Connection Tracer` | Trace application dependencies |
 
-## Installation
+### Developer Tools
 
-### From VSCode Marketplace
+| Command | Description |
+|---------|-------------|
+| `AM: DataWeave Playground` | Interactive DataWeave 2.0 testing |
+| `AM: Developer Utilities` | Developer tools and system info |
+| `AM: My Information` | View your user profile and permissions |
+| `AM: Organization Details` | View organization information |
+| `AM: Subscription Expiration` | Check subscription status |
 
-1. Open VSCode
-2. Go to Extensions view (`Ctrl+Shift+X`)
-3. Search for "Anypoint Monitor"
-4. Click "Install"
+### Community
 
-### From Command Line
+| Command | Description |
+|---------|-------------|
+| `AM: MuleSoft Community Events` | Upcoming meetups, webinars, and events |
+| `AM: Provide Feedback` | Share feedback and feature requests |
 
+---
+
+## Getting Started
+
+### 1. Install
+
+**Marketplace:** Search for "Anypoint Monitor" in VS Code Extensions (`Ctrl+Shift+X`)
+
+**CLI:**
 ```bash
 code --install-extension EdgarMoran.anypoint-monitor
 ```
 
-## Getting Started
+### 2. Connect Your Account
 
-### Step 1: Install the Extension
-
-Install Anypoint Monitor from the VSCode Marketplace.
-
-### Step 2: Login to Your First Anypoint Account
-
-1. Open Command Palette (`Ctrl+Shift+P` / `Cmd+Shift+P`)
+1. Open Command Palette (`Ctrl+Shift+P`)
 2. Type `AM: Login into Anypoint Platform`
-3. Complete the OAuth authentication flow in your browser
-4. The extension will automatically fetch your environments and permissions
+3. Complete the OAuth flow in your browser
+4. Your environments and permissions are fetched automatically
 
-### Step 3: (Optional) Add Additional Accounts
+### 3. (Optional) Add More Accounts
 
-For multi-organization management:
+1. `AM: Account Manager` > "Add New Account"
+2. Complete OAuth for the additional organization
+3. Switch between accounts seamlessly
 
-1. Open Command Palette and type `AM: Account Manager`
-2. Click "Add New Account" in the Account Manager webview
-3. Complete OAuth authentication for the additional account
-4. Switch between accounts seamlessly using the Account Manager
+### 4. Explore
 
-### Step 4: Explore Your Applications
+- **View apps:** `AM: Multi-App Overview Dashboard` for environment-wide health
+- **Deep dive:** `AM: Application Command Center` for per-app KPIs and logs
+- **Stream logs:** `AM: Real-Time Logs` for live tailing with filters
+- **Incident response:** `AM: Start War Room` for automated triage
+- **Manage APIs:** `AM: Retrieve API Manager APIs` for your API portfolio
 
-Use the available commands to monitor and manage your Anypoint Platform resources:
-
-- **Switch Accounts**: Use `AM: Account Manager` to switch between different organizations
-- **View Applications**: Use `AM: Show CloudHub 1.0 Applications` or `AM: Show CloudHub 2.0 Applications`
-- **Monitor Organization**: Check `AM: Organization Details` for comprehensive organization information
-- **Manage APIs**: Access `AM: Retrieve API Manager APIs` to view your API portfolio
-- **Real-time Monitoring**: Use `AM: Real-Time Logs` for live application log streaming
-- **Visualize Applications**: Use `AM: Application Diagram` to create flow diagrams
+---
 
 ## System Requirements
 
-- Visual Studio Code version 1.96.0 or higher
+- Visual Studio Code **1.96.0** or higher (also works in Cursor)
 - Active Anypoint Platform account with appropriate permissions
 - Internet connection for Anypoint Platform API access
+
+## Keyboard Shortcuts
+
+| Shortcut | Command |
+|----------|---------|
+| `Ctrl+Shift+W` / `Cmd+Shift+W` | Start War Room |
+| `Ctrl+Shift+A` / `Cmd+Shift+A` | Alerting Hub |
 
 ## Troubleshooting
 
 ### Authentication Issues
 - Ensure your Anypoint Platform credentials are correct
-- Verify your account has the necessary permissions for the resources you're trying to access
+- Verify your account has the necessary permissions
 - Try refreshing the account using the Account Manager "Refresh" button
 - If issues persist, remove and re-add the account in Account Manager
 
 ### Multi-Account Issues
-- **Missing Environments**: If you don't see all environments after switching accounts, refresh the account in Account Manager
-- **403 Permission Errors**: These indicate your account lacks specific permissions (not an authentication issue)
-- **Cross-Account Data**: If you see data from the wrong account, switch to the correct account in Account Manager
-- **Stale Tokens**: Use the Account Manager refresh feature to update tokens and permissions
+- **Missing Environments**: Refresh the account in Account Manager after switching
+- **403 Permission Errors**: Your account lacks specific permissions (not an authentication issue)
+- **Cross-Account Data**: Switch to the correct account in Account Manager
+- **Stale Tokens**: Use the Account Manager refresh feature
 
 ### Connection Problems
 - Check your internet connection
@@ -230,46 +219,21 @@ Use the available commands to monitor and manage your Anypoint Platform resource
 
 ### CloudHub 2.0 Access Issues
 - Verify your account has CloudHub 2.0 licensing for the selected environment
-- Check that you have the necessary role permissions for CloudHub 2.0
-- Try different environments as CloudHub 2.0 may be available in some but not others
-- Use Account Manager to refresh account permissions
+- Check that you have the necessary role permissions
+- Try different environments as CH2 may not be available in all
 
-## What's New in Latest Version
-
-### 🆕 Multi-Account Management
-- **Account Manager Dashboard**: Centralized management of multiple Anypoint Platform accounts
-- **Seamless Account Switching**: Switch between organizations without re-authentication
-- **Account-Aware Operations**: All extension features now work correctly across multiple accounts
-- **Automatic Token Refresh**: Enhanced token management with automatic refresh per account
-- **Intelligent Error Handling**: Better error messages with account-specific context
-
-### 🛠️ Enhanced Reliability
-- **Improved API Handling**: Centralized API request management with automatic retry logic
-- **Better Permission Management**: Clear distinction between authentication (401) and permission (403) errors
-- **Enhanced Environment Support**: More reliable environment detection and switching
-- **Debugging Improvements**: Comprehensive logging for troubleshooting
+---
 
 ## Support
 
-For issues, feature requests, or general questions:
-
-- **GitHub Issues**: Report bugs and request features at the project repository
-- **Feedback**: Use `AM: Provide Feedback` command within VS Code
+- **GitHub Issues**: [Report bugs and request features](https://github.com/emoran/vscode-anypoint-monitor/issues)
+- **Feedback**: Use `AM: Provide Feedback` within VS Code
 - **Community**: Join MuleSoft community events via `AM: MuleSoft Community Events`
 
 ## License
 
-MIT License - see LICENSE file for details
+MIT License — see [LICENSE](LICENSE) for details.
 
 ---
 
-## About
-
-Developed for the MuleSoft developer community to enhance productivity and streamline Anypoint Platform management directly within Visual Studio Code. Whether you're working with a single organization or managing multiple Anypoint accounts, this extension provides the tools you need to efficiently monitor, manage, and develop with the Anypoint Platform.
-
-**Perfect for:**
-- MuleSoft Developers working across multiple organizations
-- Solution Architects managing different client environments  
-- DevOps teams monitoring CloudHub applications
-- API Managers overseeing multiple API portfolios
-- Anyone seeking unified Anypoint Platform management in VSCode
+Developed for the MuleSoft developer community to enhance productivity and streamline Anypoint Platform management directly within Visual Studio Code.

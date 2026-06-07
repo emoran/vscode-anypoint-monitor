@@ -26,7 +26,6 @@ import { auditAPIs } from "./anypoint/apiAudit";
 import { showCommunityEvents } from "./anypoint/communityEvents";
 import { showRealTimeLogs } from "./anypoint/realTimeLogs";
 import { BASE_URL, getBaseUrl } from "./constants";
-import { showApplicationDiagram } from "./anypoint/applicationDiagram";
 import { showDataWeavePlayground } from "./anypoint/dataweavePlayground";
 import { showApplicationCommandCenter } from "./anypoint/applicationCommandCenter";
 import { showMultiAppDashboard } from "./anypoint/multiAppDashboard";
@@ -145,10 +144,34 @@ async function getRefreshedToken(context: vscode.ExtensionContext): Promise<stri
 	return accessToken;
 }
 
-// This method is called when your extension is activated
-// Your extension is activated the very first time the command is executed
-// Global status bar item for active account
 let accountStatusBarItem: vscode.StatusBarItem;
+
+const WHATS_NEW_STATE_KEY = 'anypointMonitor.lastSeenVersion';
+
+function showWhatsNewNotification(context: vscode.ExtensionContext): void {
+	const extension = vscode.extensions.getExtension('EdgarMoran.anypoint-monitor');
+	if (!extension) { return; }
+	const currentVersion: string = extension.packageJSON.version;
+	const lastSeen = context.globalState.get<string>(WHATS_NEW_STATE_KEY);
+
+	if (lastSeen === currentVersion) { return; }
+
+	context.globalState.update(WHATS_NEW_STATE_KEY, currentVersion);
+
+	if (!lastSeen) { return; }
+
+	vscode.window.showInformationMessage(
+		`Anypoint Monitor updated to v${currentVersion}. Check out what's new!`,
+		'View Changelog',
+		'Dismiss'
+	).then(action => {
+		if (action === 'View Changelog') {
+			vscode.env.openExternal(
+				vscode.Uri.parse('https://marketplace.visualstudio.com/items/EdgarMoran.anypoint-monitor/changelog')
+			);
+		}
+	});
+}
 
 // Function to update the account status bar
 export async function updateAccountStatusBar(context: vscode.ExtensionContext) {
@@ -157,35 +180,32 @@ export async function updateAccountStatusBar(context: vscode.ExtensionContext) {
 		const activeAccount = await accountService.getActiveAccount();
 
 		if (activeAccount) {
-			// Show active account with organization name and business group
 			const displayName = activeAccount.userName || 'Unknown User';
 			const orgName = activeAccount.organizationName || 'Unknown Org';
-
-			// Get selected business group
 			const businessGroup = await accountService.getActiveAccountBusinessGroup();
 
-			// Build status bar text
 			let statusText = `$(organization) ${displayName} • ${orgName}`;
-
-			// Add business group if different from root org
 			if (businessGroup && businessGroup.id !== activeAccount.organizationId) {
 				statusText += ` > $(folder) ${businessGroup.name}`;
 			}
 
 			accountStatusBarItem.text = statusText;
-			accountStatusBarItem.backgroundColor = undefined; // Default color for active
+			accountStatusBarItem.backgroundColor = undefined;
 			accountStatusBarItem.show();
+
+			vscode.commands.executeCommand('setContext', 'anypoint-monitor.hasAccount', true);
 		} else {
-			// No active account
 			accountStatusBarItem.text = `$(alert) No Anypoint Account`;
 			accountStatusBarItem.backgroundColor = new vscode.ThemeColor('statusBarItem.warningBackground');
 			accountStatusBarItem.show();
+
+			vscode.commands.executeCommand('setContext', 'anypoint-monitor.hasAccount', false);
 		}
 	} catch (error) {
-		// Error getting account info
 		accountStatusBarItem.text = `$(error) Anypoint Account Error`;
 		accountStatusBarItem.backgroundColor = new vscode.ThemeColor('statusBarItem.errorBackground');
 		accountStatusBarItem.show();
+		vscode.commands.executeCommand('setContext', 'anypoint-monitor.hasAccount', false);
 		console.error('Failed to update account status bar:', error);
 	}
 }
@@ -203,6 +223,9 @@ export function activate(context: vscode.ExtensionContext) {
 
 	// Initialize GitHub star prompt manager
 	const starPromptManager = new StarPromptManager(context);
+
+	// Show "What's New" notification after extension update
+	showWhatsNewNotification(context);
 
 	// Run automatic migration for existing users
 	accountService.checkAndPromptMigration().then(migrated => {
@@ -309,6 +332,7 @@ export function activate(context: vscode.ExtensionContext) {
 			if (!selectedEnvironmentId) {
 				return;
 			}
+			const { showApplicationDiagram } = await import('./anypoint/applicationDiagram.js');
 			await showApplicationDiagram(context, selectedEnvironmentId);
 		}
 		catch (error: any) {
@@ -955,10 +979,18 @@ export function activate(context: vscode.ExtensionContext) {
 		}
 	});
 
+	const startWarRoomCmd = registerCommandWithTelemetry('anypoint-monitor.startWarRoom', async () => {
+		try {
+			const { startWarRoom } = await import('./warroom/warRoomCommand.js');
+			await startWarRoom(context);
+		} catch (error: any) {
+			vscode.window.showErrorMessage(`Error: ${error.message || error}`);
+		}
+	});
+
 	context.subscriptions.push(userInfo);
 	context.subscriptions.push(getApplications);
 	context.subscriptions.push(revokeAccessCommand);
-	context.subscriptions.push(loginCommand);
 	context.subscriptions.push(loginCommand);
 	context.subscriptions.push(getCH1Apps);
 	context.subscriptions.push(organizationInformation);
@@ -988,6 +1020,8 @@ export function activate(context: vscode.ExtensionContext) {
 	context.subscriptions.push(dependencyVisualizerCmd);
 	context.subscriptions.push(costOptimizerCmd);
 	context.subscriptions.push(logSearchCmd);
+	context.subscriptions.push(devInfo);
+	context.subscriptions.push(startWarRoomCmd);
 
 	registerLogSearchSerializer(context);
 }

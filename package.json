@@ -25,6 +25,18 @@
     "color": "#214866",
     "theme": "dark"
   },
+  "badges": [
+    {
+      "url": "https://img.shields.io/github/stars/emoran/vscode-anypoint-monitor?style=social",
+      "href": "https://github.com/emoran/vscode-anypoint-monitor",
+      "description": "Star on GitHub"
+    },
+    {
+      "url": "https://img.shields.io/github/actions/workflow/status/emoran/vscode-anypoint-monitor/test.yml?label=CI",
+      "href": "https://github.com/emoran/vscode-anypoint-monitor/actions",
+      "description": "CI Status"
+    }
+  ],
   "screenshots": [
     {
       "path": "screenshots/Screenshot1.png"
@@ -42,43 +54,35 @@
       "path": "screenshots/Screenshot5.png"
     }
   ],
-  "activitybar": [
-    {
-      "id": "chatAI",
-      "title": "Chat AI",
-      "icon": "resources/logo.svg"
-    }
-  ],
   "keywords": [
-    "anypoint",
     "mulesoft",
+    "anypoint",
     "cloudhub",
-    "cloudhub-monitoring",
+    "api-monitoring",
+    "dataweave",
     "anypoint-platform",
     "cloudhub-2.0",
     "api-management",
     "mule-runtime",
     "monitoring",
     "observability",
-    "logs",
     "real-time-logs",
     "integration",
     "devops",
-    "api",
-    "rest-api",
-    "mulesoft-ambassador",
+    "mulesoft-monitoring",
     "enterprise-integration",
     "ipaas",
-    "multi-account",
     "deployment",
-    "dataweave"
+    "api-governance",
+    "mulesoft-devops"
   ],
   "categories": [
-    "Programming Languages",
-    "Other",
-    "Testing"
+    "Debuggers",
+    "Visualization",
+    "Other"
   ],
   "activationEvents": [
+    "onView:anypointCommandPalette",
     "onCommand:anypoint-monitor.userInfo",
     "onCommand:anypoint-monitor.organizationInfo",
     "onCommand:anypoint-monitor.login",
@@ -110,6 +114,7 @@
     "onCommand:anypoint-monitor.alertingHub",
     "onCommand:anypoint-monitor.dependencyVisualizer",
     "onCommand:anypoint-monitor.costOptimizer",
+    "onCommand:anypoint-monitor.startWarRoom",
     "onCommand:anypoint-monitor.logSearch",
     "onWebviewPanel:anypointLogSearch"
   ],
@@ -248,6 +253,10 @@
         "command": "anypoint-monitor.refreshCommandPalette",
         "title": "AM: Refresh Command Palette",
         "icon": "$(refresh)"
+      },
+      {
+        "command": "anypoint-monitor.startWarRoom",
+        "title": "AM: Start War Room"
       }
     ],
     "viewsContainers": {
@@ -263,12 +272,83 @@
       "anypoint-monitor": [
         {
           "id": "anypointCommandPalette",
-          "name": "Command Palette",
+          "name": "Commands",
           "icon": "logo-mono.svg",
-          "contextualTitle": "Anypoint Monitor Commands"
+          "contextualTitle": "Anypoint Monitor"
         }
       ]
     },
+    "viewsWelcome": [
+      {
+        "view": "anypointCommandPalette",
+        "contents": "Welcome to Anypoint Monitor.\n\nConnect to your Anypoint Platform to monitor applications, manage APIs, stream logs, and more.\n[Connect Account](command:anypoint-monitor.login)\nManage multiple organizations from one place.\n[Account Manager](command:anypoint-monitor.accountManager)\n[Learn More](https://github.com/emoran/vscode-anypoint-monitor)",
+        "when": "!anypoint-monitor.hasAccount"
+      }
+    ],
+    "walkthroughs": [
+      {
+        "id": "anypoint-monitor.gettingStarted",
+        "title": "Get Started with Anypoint Monitor",
+        "description": "Connect to your Anypoint Platform and start monitoring your applications directly from VS Code.",
+        "steps": [
+          {
+            "id": "connect",
+            "title": "Connect Your Anypoint Account",
+            "description": "Authenticate with OAuth 2.0 to securely connect your Anypoint Platform account.\n[Connect Account](command:anypoint-monitor.login)",
+            "media": {
+              "markdown": "walkthroughs/connect.md"
+            },
+            "completionEvents": [
+              "onCommand:anypoint-monitor.login"
+            ]
+          },
+          {
+            "id": "viewApps",
+            "title": "View Your Applications",
+            "description": "See all CloudHub 1.0/2.0 and Hybrid apps with health scores and metrics at a glance.\n[Open Multi-App Dashboard](command:anypoint-monitor.multiAppDashboard)",
+            "media": {
+              "markdown": "walkthroughs/view-apps.md"
+            },
+            "completionEvents": [
+              "onCommand:anypoint-monitor.multiAppDashboard"
+            ]
+          },
+          {
+            "id": "streamLogs",
+            "title": "Stream Real-Time Logs",
+            "description": "Tail application logs live with filtering by level, content, and thread. Export in JSON, CSV, or TXT.\n[Open Real-Time Logs](command:anypoint-monitor.realTimeLogs)",
+            "media": {
+              "markdown": "walkthroughs/stream-logs.md"
+            },
+            "completionEvents": [
+              "onCommand:anypoint-monitor.realTimeLogs"
+            ]
+          },
+          {
+            "id": "commandCenter",
+            "title": "Explore the Command Center",
+            "description": "Deep dive into a single application with KPIs, AI insights, performance metrics, and lifecycle management.\n[Open Command Center](command:anypoint-monitor.applicationCommandCenter)",
+            "media": {
+              "markdown": "walkthroughs/command-center.md"
+            },
+            "completionEvents": [
+              "onCommand:anypoint-monitor.applicationCommandCenter"
+            ]
+          },
+          {
+            "id": "warRoom",
+            "title": "Run an Incident War Room",
+            "description": "Automated production incident triage: select seed apps, auto-expand blast radius, correlate events, and get a probable root cause.\n[Start War Room](command:anypoint-monitor.startWarRoom)",
+            "media": {
+              "markdown": "walkthroughs/war-room.md"
+            },
+            "completionEvents": [
+              "onCommand:anypoint-monitor.startWarRoom"
+            ]
+          }
+        ]
+      }
+    ],
     "menus": {
       "view/title": [
         {
@@ -312,6 +392,16 @@
           "type": "string",
           "default": "",
           "description": "Azure Application Insights connection string for extension telemetry."
+        },
+        "anypointMonitor.diagram.aiSummary.enabled": {
+          "type": "boolean",
+          "default": false,
+          "description": "When enabled, the Application Diagram's Summary tab uses VS Code's Language Model API to generate a 2-3 sentence narrative description. Only the structured project summary (entry points, external systems, composition counts, flow names) is sent to the model — never raw XML, DataWeave, properties, or secrets."
+        },
+        "anypointMonitor.diagram.aiSummary.modelFamily": {
+          "type": "string",
+          "default": "",
+          "description": "Optional model family preference for the AI summary (e.g. 'gpt-4o', 'claude-3-5-sonnet'). Leave blank to use the default model offered by your VS Code chat provider."
         }
       }
     }
@@ -341,8 +431,10 @@
     "typescript": "^5.7.2"
   },
   "dependencies": {
+    "@antv/g6": "^5.1.0",
     "applicationinsights": "^3.13.0",
     "axios": "^1.7.9",
+    "fast-xml-parser": "^4.5.6",
     "jszip": "^3.10.1",
     "open": "^10.1.0"
   },

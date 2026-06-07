@@ -2,6 +2,82 @@ import * as vscode from 'vscode';
 import * as fs from 'fs';
 import { showQueueDetailsWebview } from './mqQueueDetails.js';
 import { telemetryService } from '../services/telemetryService';
+import {
+    wrapWebviewHtml,
+    badge,
+    summaryCard,
+    button,
+    emptyState,
+    escapeHtml
+} from '../webview/ui-kit';
+
+/** Escape for single-quoted JavaScript string literals inside inline handlers / script. */
+function escapeJsString(str: string): string {
+    return str
+        .replace(/\\/g, '\\\\')
+        .replace(/'/g, '\\\'')
+        .replace(/\r/g, '\\r')
+        .replace(/\n/g, '\\n')
+        .replace(/\u2028/g, '\\u2028')
+        .replace(/\u2029/g, '\\u2029');
+}
+
+function mqStatsExtraStyles(): string {
+    return `
+        .mq-header-meta {
+            display: flex;
+            gap: 20px;
+            flex-wrap: wrap;
+            margin-top: 8px;
+        }
+        .mq-header-meta > div {
+            display: flex;
+            flex-direction: column;
+            gap: 2px;
+        }
+        .mq-meta-label {
+            font-size: 11px;
+            color: var(--am-text-muted);
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+        .mq-meta-value {
+            font-size: 14px;
+            font-weight: 600;
+            color: var(--am-text-primary);
+        }
+        .mq-actions {
+            align-items: center;
+        }
+        .mq-actions .am-input {
+            flex: 1;
+            min-width: 200px;
+        }
+        .mq-queue-name {
+            font-weight: 600;
+            color: var(--am-text-link);
+        }
+        .mq-metric { font-weight: 600; font-size: 14px; }
+        .mq-metric-high { color: var(--am-error); }
+        .mq-metric-medium { color: var(--am-warning); }
+        .mq-metric-low { color: var(--am-success); }
+        .mq-stats-table-wrap.am-table-container {
+            margin-top: 16px;
+            overflow-x: auto;
+        }
+        .mq-table-actions .am-btn {
+            padding: 6px 12px;
+            font-size: 12px;
+        }
+        .mq-no-results {
+            text-align: center;
+            padding: 40px;
+            color: var(--am-text-muted);
+            font-style: italic;
+            display: none;
+        }
+    `;
+}
 
 /**
  * Creates a webview panel and displays AnypointMQ Statistics
@@ -97,8 +173,8 @@ function getAnypointMQStatsHtml(
   region: string,
   regionName: string,
   environmentName?: string,
-  webview?: vscode.Webview,
-  extensionUri?: vscode.Uri,
+  _webview?: vscode.Webview,
+  _extensionUri?: vscode.Uri,
   organizationID?: string,
   environmentId?: string
 ): string {
@@ -127,371 +203,127 @@ function getAnypointMQStatsHtml(
   const totalInflight = enrichedQueues.reduce((sum, q) => sum + (q.stats.inflightMessages || 0), 0);
   const activeQueues = enrichedQueues.filter(q => (q.stats.messages || 0) > 0).length;
 
-  return `
-<!DOCTYPE html>
-<html lang="en">
-<head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>AnypointMQ Statistics</title>
-  <style>
-    body {
-      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, 'Open Sans', 'Helvetica Neue', sans-serif;
-      padding: 20px;
-      background: var(--vscode-editor-background);
-      color: var(--vscode-editor-foreground);
-    }
-    .header {
-      margin-bottom: 30px;
-      padding-bottom: 20px;
-      border-bottom: 2px solid var(--vscode-panel-border);
-    }
-    .header h1 {
-      margin: 0 0 10px 0;
-      color: var(--vscode-foreground);
-      display: flex;
-      align-items: center;
-      gap: 10px;
-    }
-    .header-info {
-      display: flex;
-      gap: 20px;
-      margin-top: 10px;
-      flex-wrap: wrap;
-    }
-    .info-item {
-      display: flex;
-      flex-direction: column;
-    }
-    .info-label {
-      font-size: 11px;
-      color: var(--vscode-descriptionForeground);
-      text-transform: uppercase;
-      letter-spacing: 0.5px;
-    }
-    .info-value {
-      font-size: 14px;
-      font-weight: 600;
-      color: var(--vscode-foreground);
-      margin-top: 2px;
-    }
-    .stats-summary {
-      display: grid;
-      grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
-      gap: 15px;
-      margin-bottom: 30px;
-    }
-    .stat-card {
-      background: var(--vscode-editor-background);
-      border: 1px solid var(--vscode-panel-border);
-      border-radius: 8px;
-      padding: 20px;
-      text-align: center;
-    }
-    .stat-label {
-      font-size: 12px;
-      color: var(--vscode-descriptionForeground);
-      text-transform: uppercase;
-      letter-spacing: 0.5px;
-      margin-bottom: 8px;
-    }
-    .stat-value {
-      font-size: 32px;
-      font-weight: 700;
-      color: var(--vscode-charts-blue);
-    }
-    .stat-card.messages .stat-value {
-      color: var(--vscode-charts-green);
-    }
-    .stat-card.inflight .stat-value {
-      color: var(--vscode-charts-orange);
-    }
-    .stat-card.active .stat-value {
-      color: var(--vscode-charts-purple);
-    }
-    .actions {
-      display: flex;
-      gap: 10px;
-      margin-bottom: 20px;
-      flex-wrap: wrap;
-    }
-    button {
-      padding: 10px 20px;
-      background: var(--vscode-button-background);
-      color: var(--vscode-button-foreground);
-      border: none;
-      border-radius: 4px;
-      cursor: pointer;
-      font-size: 13px;
-      font-weight: 500;
-      transition: background 0.2s;
-    }
-    button:hover {
-      background: var(--vscode-button-hoverBackground);
-    }
-    button.secondary {
-      background: var(--vscode-button-secondaryBackground);
-      color: var(--vscode-button-secondaryForeground);
-    }
-    button.secondary:hover {
-      background: var(--vscode-button-secondaryHoverBackground);
-    }
-    .search-box {
-      margin-bottom: 20px;
-    }
-    .search-box input {
-      width: 100%;
-      padding: 10px;
-      background: var(--vscode-input-background);
-      color: var(--vscode-input-foreground);
-      border: 1px solid var(--vscode-input-border);
-      border-radius: 4px;
-      font-size: 14px;
-    }
-    .search-box input:focus {
-      outline: 1px solid var(--vscode-focusBorder);
-    }
-    table {
-      width: 100%;
-      border-collapse: collapse;
-      margin-top: 20px;
-      background: var(--vscode-editor-background);
-      box-shadow: 0 1px 3px rgba(0,0,0,0.12), 0 1px 2px rgba(0,0,0,0.24);
-    }
-    thead {
-      background: var(--vscode-editor-background);
-      position: sticky;
-      top: 0;
-      z-index: 10;
-    }
-    th {
-      padding: 15px;
-      text-align: left;
-      font-weight: 600;
-      color: var(--vscode-foreground);
-      border-bottom: 2px solid var(--vscode-panel-border);
-      font-size: 13px;
-      text-transform: uppercase;
-      letter-spacing: 0.5px;
-      cursor: pointer;
-      user-select: none;
-    }
-    th:hover {
-      background: var(--vscode-list-hoverBackground);
-    }
-    th .sort-indicator {
-      margin-left: 5px;
-      font-size: 10px;
-      opacity: 0.5;
-    }
-    td {
-      padding: 15px;
-      border-bottom: 1px solid var(--vscode-panel-border);
-      font-size: 13px;
-    }
-    tr:hover {
-      background: var(--vscode-list-hoverBackground);
-    }
-    .queue-name {
-      font-weight: 600;
-      color: var(--vscode-textLink-foreground);
-    }
-    .badge {
-      display: inline-block;
-      padding: 4px 10px;
-      border-radius: 12px;
-      font-size: 11px;
-      font-weight: 600;
-      text-transform: uppercase;
-      letter-spacing: 0.5px;
-    }
-    .badge.fifo {
-      background: var(--vscode-charts-blue);
-      color: white;
-    }
-    .badge.standard {
-      background: var(--vscode-charts-gray);
-      color: white;
-    }
-    .badge.queue {
-      background: var(--vscode-charts-blue);
-      color: white;
-    }
-    .badge.exchange {
-      background: var(--vscode-charts-purple);
-      color: white;
-    }
-    .metric-value {
-      font-weight: 600;
-      font-size: 14px;
-    }
-    .metric-value.high {
-      color: var(--vscode-charts-red);
-    }
-    .metric-value.medium {
-      color: var(--vscode-charts-orange);
-    }
-    .metric-value.low {
-      color: var(--vscode-charts-green);
-    }
-    .action-btn {
-      padding: 6px 12px;
-      background: var(--vscode-button-background);
-      color: var(--vscode-button-foreground);
-      border: none;
-      border-radius: 4px;
-      cursor: pointer;
-      font-size: 12px;
-      font-weight: 500;
-      transition: background 0.2s;
-      white-space: nowrap;
-    }
-    .action-btn:hover {
-      background: var(--vscode-button-hoverBackground);
-    }
-    .empty-state {
-      text-align: center;
-      padding: 60px 20px;
-      color: var(--vscode-descriptionForeground);
-    }
-    .empty-state-icon {
-      font-size: 48px;
-      margin-bottom: 20px;
-      opacity: 0.5;
-    }
-    .empty-state-title {
-      font-size: 18px;
-      font-weight: 600;
-      margin-bottom: 10px;
-    }
-    .no-results {
-      text-align: center;
-      padding: 40px;
-      color: var(--vscode-descriptionForeground);
-      font-style: italic;
-    }
-  </style>
-</head>
-<body>
-  <div class="header">
-    <h1>
-      <span>📊</span>
-      AnypointMQ Statistics
-    </h1>
-    <div class="header-info">
-      <div class="info-item">
-        <span class="info-label">Environment</span>
-        <span class="info-value">${environmentName || 'Unknown'}</span>
-      </div>
-      <div class="info-item">
-        <span class="info-label">Region</span>
-        <span class="info-value">${regionName}</span>
-      </div>
-      <div class="info-item">
-        <span class="info-label">Last Updated</span>
-        <span class="info-value">${new Date().toLocaleTimeString()}</span>
-      </div>
-    </div>
-  </div>
+  const updatedAt = new Date().toLocaleTimeString();
 
-  <div class="stats-summary">
-    <div class="stat-card">
-      <div class="stat-label">Total Queues</div>
-      <div class="stat-value">${totalQueues}</div>
-    </div>
-    <div class="stat-card messages">
-      <div class="stat-label">Total Messages</div>
-      <div class="stat-value">${totalMessages.toLocaleString()}</div>
-    </div>
-    <div class="stat-card inflight">
-      <div class="stat-label">In-Flight Messages</div>
-      <div class="stat-value">${totalInflight.toLocaleString()}</div>
-    </div>
-    <div class="stat-card active">
-      <div class="stat-label">Active Queues</div>
-      <div class="stat-value">${activeQueues}</div>
-    </div>
-  </div>
-
-  <div class="actions">
-    <button onclick="refreshStats()">🔄 Refresh Statistics</button>
-    <button class="secondary" onclick="downloadCsv()">💾 Download CSV</button>
-  </div>
-
-  <div class="search-box">
-    <input type="text" id="searchInput" placeholder="🔍 Search queues by name..." onkeyup="filterQueues()">
-  </div>
-
-  ${enrichedQueues.length > 0 ? `
-  <table id="queuesTable">
+  const tableBody = enrichedQueues.length > 0 ? `
+  <div class="am-table-container mq-stats-table-wrap">
+  <table class="am-table" id="queuesTable">
     <thead>
       <tr>
-        <th onclick="sortTable(0)">Destination Name <span class="sort-indicator">▼</span></th>
-        <th onclick="sortTable(1)">Destination Type <span class="sort-indicator">▼</span></th>
-        <th onclick="sortTable(2)">Queue Type <span class="sort-indicator">▼</span></th>
-        <th onclick="sortTable(3)">Messages <span class="sort-indicator">▼</span></th>
-        <th onclick="sortTable(4)">In-Flight <span class="sort-indicator">▼</span></th>
-        <th onclick="sortTable(5)">Default TTL <span class="sort-indicator">▼</span></th>
-        <th onclick="sortTable(6)">Default Lock TTL <span class="sort-indicator">▼</span></th>
-        <th onclick="sortTable(7)">Encrypted <span class="sort-indicator">▼</span></th>
-        <th>Actions <span class="sort-indicator"></span></th>
+        <th class="am-sortable" onclick="sortTable(0)">Destination Name <span class="am-sort-icon">▼</span></th>
+        <th class="am-sortable" onclick="sortTable(1)">Destination Type <span class="am-sort-icon">▼</span></th>
+        <th class="am-sortable" onclick="sortTable(2)">Queue Type <span class="am-sort-icon">▼</span></th>
+        <th class="am-sortable" onclick="sortTable(3)">Messages <span class="am-sort-icon">▼</span></th>
+        <th class="am-sortable" onclick="sortTable(4)">In-Flight <span class="am-sort-icon">▼</span></th>
+        <th class="am-sortable" onclick="sortTable(5)">Default TTL <span class="am-sort-icon">▼</span></th>
+        <th class="am-sortable" onclick="sortTable(6)">Default Lock TTL <span class="am-sort-icon">▼</span></th>
+        <th class="am-sortable" onclick="sortTable(7)">Encrypted <span class="am-sort-icon">▼</span></th>
+        <th>Actions <span class="am-sort-icon"></span></th>
       </tr>
     </thead>
     <tbody id="queuesTableBody">
       ${enrichedQueues.map(queue => {
-        // Extract ID - could be queueId, exchangeId, or just id
         const destinationId = queue.queueId || queue.exchangeId || queue.id;
-
-        // Determine type - check destinationType first, then exchangeId, default to queue
         const destinationType = queue.destinationType || (queue.exchangeId ? 'exchange' : 'queue');
-
-        const queueType = queue.fifo ? 'FIFO' : 'Standard';
         const messages = queue.stats.messages || 0;
         const inflight = queue.stats.inflightMessages || 0;
 
-        let messageClass = 'low';
+        let messageMetricClass = 'mq-metric-low';
         if (messages > 1000) {
-          messageClass = 'high';
+          messageMetricClass = 'mq-metric-high';
         } else if (messages > 100) {
-          messageClass = 'medium';
+          messageMetricClass = 'mq-metric-medium';
         }
 
         const isExchange = destinationType === 'exchange';
+        const destBadge = isExchange
+          ? badge('🔀 Exchange', 'info')
+          : badge('📋 Queue', 'default');
+        const typeBadge = isExchange
+          ? badge('N/A', 'default')
+          : (queue.fifo ? badge('FIFO', 'info') : badge('Standard', 'default'));
+
+        const rowOnclick = `openQueueDetails('${escapeJsString(String(destinationId))}', '${escapeJsString(String(region))}', ${isExchange})`;
 
         return `
-        <tr>
-          <td><span class="queue-name">${destinationId}</span></td>
-          <td><span class="badge ${isExchange ? 'exchange' : 'queue'}">${isExchange ? '🔀 Exchange' : '📋 Queue'}</span></td>
-          <td><span class="badge ${queue.fifo ? 'fifo' : 'standard'}">${isExchange ? 'N/A' : queueType}</span></td>
-          <td><span class="metric-value ${messageClass}">${messages.toLocaleString()}</span></td>
-          <td><span class="metric-value">${inflight.toLocaleString()}</span></td>
+        <tr class="am-row">
+          <td><span class="mq-queue-name">${escapeHtml(String(destinationId))}</span></td>
+          <td>${destBadge}</td>
+          <td>${typeBadge}</td>
+          <td><span class="mq-metric ${messageMetricClass}">${messages.toLocaleString()}</span></td>
+          <td><span class="mq-metric">${inflight.toLocaleString()}</span></td>
           <td>${queue.defaultTtl ? (queue.defaultTtl / 1000 / 60).toFixed(0) + ' min' : 'N/A'}</td>
           <td>${queue.defaultLockTtl ? (queue.defaultLockTtl / 1000).toFixed(0) + ' sec' : 'N/A'}</td>
           <td>${queue.encrypted ? '🔒 Yes' : '🔓 No'}</td>
-          <td><button class="action-btn" onclick="openQueueDetails('${destinationId}', '${region}', ${isExchange})">📋 View Details</button></td>
+          <td class="mq-table-actions">${button('View Details', { variant: 'secondary', onclick: rowOnclick, icon: '📋' })}</td>
         </tr>
         `;
       }).join('')}
     </tbody>
   </table>
-  <div id="noResults" class="no-results" style="display: none;">
+  </div>
+  <div id="noResults" class="mq-no-results">
     No queues match your search criteria.
   </div>
-  ` : `
-  <div class="empty-state">
-    <div class="empty-state-icon">📭</div>
-    <div class="empty-state-title">No Queues Found</div>
-    <p>There are no AnypointMQ queues in this region.</p>
-  </div>
-  `}
+  ` : emptyState({
+    icon: '📭',
+    title: 'No Queues Found',
+    description: 'There are no AnypointMQ queues in this region.'
+  });
 
-  <script>
+  const body = `
+    <div class="am-container">
+      <div class="am-page-header">
+        <div>
+          <h1>AnypointMQ Statistics</h1>
+          <div class="am-page-header-meta mq-header-meta">
+            <div>
+              <span class="mq-meta-label">Environment</span>
+              <span class="mq-meta-value">${escapeHtml(environmentName || 'Unknown')}</span>
+            </div>
+            <div>
+              <span class="mq-meta-label">Region</span>
+              <span class="mq-meta-value">${escapeHtml(regionName)}</span>
+            </div>
+            <div>
+              <span class="mq-meta-label">Last Updated</span>
+              <span class="mq-meta-value">${escapeHtml(updatedAt)}</span>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="am-summary-cards">
+        ${summaryCard({ icon: '📋', value: totalQueues, label: 'Total Queues', animationDelay: '0.05s' })}
+        ${summaryCard({ icon: '💬', value: totalMessages.toLocaleString(), label: 'Total Messages', animationDelay: '0.1s', variant: 'healthy' })}
+        ${summaryCard({ icon: '✈️', value: totalInflight.toLocaleString(), label: 'In-Flight Messages', animationDelay: '0.15s', variant: 'warning' })}
+        ${summaryCard({ icon: '●', value: activeQueues, label: 'Active Queues', animationDelay: '0.2s' })}
+      </div>
+
+      ${enrichedQueues.length > 0 ? `
+      <div class="am-filters mq-actions">
+        ${button('Refresh Statistics', { variant: 'primary', onclick: 'refreshStats()', icon: '🔄' })}
+        ${button('Download CSV', { variant: 'secondary', onclick: 'downloadCsv()', icon: '💾' })}
+        <input type="text" class="am-input" id="searchInput" placeholder="Search queues by name..." onkeyup="filterQueues()">
+      </div>
+      ` : `
+      <div class="am-filters mq-actions">
+        ${button('Refresh Statistics', { variant: 'primary', onclick: 'refreshStats()', icon: '🔄' })}
+        ${button('Download CSV', { variant: 'secondary', onclick: 'downloadCsv()', icon: '💾' })}
+      </div>
+      `}
+
+      ${tableBody}
+    </div>
+  `;
+
+  const scripts = `
     const vscode = acquireVsCodeApi();
     let sortDirection = {};
 
-    const organizationID = '${organizationID || ''}';
-    const environmentId = '${environmentId || ''}';
-    const regionName = '${regionName}';
+    const organizationID = '${escapeJsString(organizationID || '')}';
+    const environmentId = '${escapeJsString(environmentId || '')}';
+    const regionName = '${escapeJsString(regionName)}';
 
     function refreshStats() {
       vscode.postMessage({ command: 'refreshStats' });
@@ -565,10 +397,9 @@ function getAnypointMQStatsHtml(
         let aValue = aCell.textContent || aCell.innerText;
         let bValue = bCell.textContent || bCell.innerText;
 
-        // Handle numeric columns
-        if (columnIndex === 2 || columnIndex === 3) {
-          aValue = parseInt(aValue.replace(/,/g, '')) || 0;
-          bValue = parseInt(bValue.replace(/,/g, '')) || 0;
+        if (columnIndex === 3 || columnIndex === 4) {
+          aValue = parseInt(String(aValue).replace(/,/g, ''), 10) || 0;
+          bValue = parseInt(String(bValue).replace(/,/g, ''), 10) || 0;
         }
 
         if (aValue < bValue) return newDirection === 'asc' ? -1 : 1;
@@ -578,10 +409,9 @@ function getAnypointMQStatsHtml(
 
       rows.forEach(row => tbody.appendChild(row));
 
-      // Update sort indicators
       const headers = table.getElementsByTagName('th');
       for (let i = 0; i < headers.length; i++) {
-        const indicator = headers[i].querySelector('.sort-indicator');
+        const indicator = headers[i].querySelector('.am-sort-icon');
         if (indicator) {
           if (i === columnIndex) {
             indicator.textContent = newDirection === 'asc' ? '▲' : '▼';
@@ -593,10 +423,14 @@ function getAnypointMQStatsHtml(
         }
       }
     }
-  </script>
-</body>
-</html>
   `;
+
+  return wrapWebviewHtml({
+    title: 'AnypointMQ Statistics',
+    body,
+    scripts,
+    extraStyles: mqStatsExtraStyles()
+  });
 }
 
 function generateMQStatsCsv(queues: any[], stats: any[], regionName?: string): string {
@@ -704,8 +538,8 @@ function generateMQStatsCsvAllRegions(regionsData: any[]): string {
 function getAnypointMQStatsHtmlAllRegions(
   regionsData: any[],
   environmentName?: string,
-  webview?: vscode.Webview,
-  extensionUri?: vscode.Uri,
+  _webview?: vscode.Webview,
+  _extensionUri?: vscode.Uri,
   organizationID?: string,
   environmentId?: string
 ): string {
@@ -716,10 +550,8 @@ function getAnypointMQStatsHtmlAllRegions(
     const { regionName, regionId, queues, stats } = regionData;
 
     queues.forEach((queue: any) => {
-      // Extract ID - could be queueId, exchangeId, or just id
       const destinationId = queue.queueId || queue.exchangeId || queue.id;
 
-      // Find matching stats
       const queueStats = stats.find((stat: any) =>
         stat.destination === destinationId ||
         stat.queueId === destinationId ||
@@ -739,362 +571,122 @@ function getAnypointMQStatsHtmlAllRegions(
     });
   });
 
-  // Calculate summary statistics
   const totalQueues = allQueues.length;
   const totalMessages = allQueues.reduce((sum, q) => sum + (q.stats.messages || 0), 0);
   const totalInflight = allQueues.reduce((sum, q) => sum + (q.stats.inflightMessages || 0), 0);
   const activeQueues = allQueues.filter(q => (q.stats.messages || 0) > 0).length;
   const totalRegions = regionsData.length;
 
-  return `
-<!DOCTYPE html>
-<html lang="en">
-<head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>AnypointMQ Statistics - All Regions</title>
-  <style>
-    body {
-      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, 'Open Sans', 'Helvetica Neue', sans-serif;
-      padding: 20px;
-      background: var(--vscode-editor-background);
-      color: var(--vscode-editor-foreground);
-    }
-    .header {
-      margin-bottom: 30px;
-      padding-bottom: 20px;
-      border-bottom: 2px solid var(--vscode-panel-border);
-    }
-    .header h1 {
-      margin: 0 0 10px 0;
-      color: var(--vscode-foreground);
-      display: flex;
-      align-items: center;
-      gap: 10px;
-    }
-    .header-info {
-      display: flex;
-      gap: 20px;
-      margin-top: 10px;
-      flex-wrap: wrap;
-    }
-    .info-item {
-      display: flex;
-      flex-direction: column;
-    }
-    .info-label {
-      font-size: 11px;
-      color: var(--vscode-descriptionForeground);
-      text-transform: uppercase;
-      letter-spacing: 0.5px;
-    }
-    .info-value {
-      font-size: 14px;
-      font-weight: 600;
-      color: var(--vscode-foreground);
-      margin-top: 2px;
-    }
-    .stats-summary {
-      display: grid;
-      grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
-      gap: 15px;
-      margin-bottom: 30px;
-    }
-    .stat-card {
-      background: var(--vscode-editor-background);
-      border: 1px solid var(--vscode-panel-border);
-      border-radius: 8px;
-      padding: 20px;
-      text-align: center;
-    }
-    .stat-label {
-      font-size: 12px;
-      color: var(--vscode-descriptionForeground);
-      text-transform: uppercase;
-      letter-spacing: 0.5px;
-      margin-bottom: 8px;
-    }
-    .stat-value {
-      font-size: 32px;
-      font-weight: 700;
-      color: var(--vscode-charts-blue);
-    }
-    .stat-card.regions .stat-value {
-      color: var(--vscode-charts-purple);
-    }
-    .stat-card.messages .stat-value {
-      color: var(--vscode-charts-green);
-    }
-    .stat-card.inflight .stat-value {
-      color: var(--vscode-charts-orange);
-    }
-    .stat-card.active .stat-value {
-      color: var(--vscode-charts-red);
-    }
-    .actions {
-      display: flex;
-      gap: 10px;
-      margin-bottom: 20px;
-      flex-wrap: wrap;
-    }
-    button {
-      padding: 10px 20px;
-      background: var(--vscode-button-background);
-      color: var(--vscode-button-foreground);
-      border: none;
-      border-radius: 4px;
-      cursor: pointer;
-      font-size: 13px;
-      font-weight: 500;
-      transition: background 0.2s;
-    }
-    button:hover {
-      background: var(--vscode-button-hoverBackground);
-    }
-    button.secondary {
-      background: var(--vscode-button-secondaryBackground);
-      color: var(--vscode-button-secondaryForeground);
-    }
-    button.secondary:hover {
-      background: var(--vscode-button-secondaryHoverBackground);
-    }
-    .search-box {
-      margin-bottom: 20px;
-    }
-    .search-box input {
-      width: 100%;
-      padding: 10px;
-      background: var(--vscode-input-background);
-      color: var(--vscode-input-foreground);
-      border: 1px solid var(--vscode-input-border);
-      border-radius: 4px;
-      font-size: 14px;
-    }
-    .search-box input:focus {
-      outline: 1px solid var(--vscode-focusBorder);
-    }
-    table {
-      width: 100%;
-      border-collapse: collapse;
-      margin-top: 20px;
-      background: var(--vscode-editor-background);
-      box-shadow: 0 1px 3px rgba(0,0,0,0.12), 0 1px 2px rgba(0,0,0,0.24);
-    }
-    thead {
-      background: var(--vscode-editor-background);
-      position: sticky;
-      top: 0;
-      z-index: 10;
-    }
-    th {
-      padding: 15px;
-      text-align: left;
-      font-weight: 600;
-      color: var(--vscode-foreground);
-      border-bottom: 2px solid var(--vscode-panel-border);
-      font-size: 13px;
-      text-transform: uppercase;
-      letter-spacing: 0.5px;
-      cursor: pointer;
-      user-select: none;
-    }
-    th:hover {
-      background: var(--vscode-list-hoverBackground);
-    }
-    th .sort-indicator {
-      margin-left: 5px;
-      font-size: 10px;
-      opacity: 0.5;
-    }
-    td {
-      padding: 15px;
-      border-bottom: 1px solid var(--vscode-panel-border);
-      font-size: 13px;
-    }
-    tr:hover {
-      background: var(--vscode-list-hoverBackground);
-    }
-    .queue-name {
-      font-weight: 600;
-      color: var(--vscode-textLink-foreground);
-    }
-    .region-badge {
-      display: inline-block;
-      padding: 4px 10px;
-      border-radius: 12px;
-      font-size: 11px;
-      font-weight: 600;
-      background: var(--vscode-charts-purple);
-      color: white;
-    }
-    .badge {
-      display: inline-block;
-      padding: 4px 10px;
-      border-radius: 12px;
-      font-size: 11px;
-      font-weight: 600;
-      text-transform: uppercase;
-      letter-spacing: 0.5px;
-    }
-    .badge.fifo {
-      background: var(--vscode-charts-blue);
-      color: white;
-    }
-    .badge.standard {
-      background: var(--vscode-charts-gray);
-      color: white;
-    }
-    .metric-value {
-      font-weight: 600;
-      font-size: 14px;
-    }
-    .metric-value.high {
-      color: var(--vscode-charts-red);
-    }
-    .metric-value.medium {
-      color: var(--vscode-charts-orange);
-    }
-    .metric-value.low {
-      color: var(--vscode-charts-green);
-    }
-    .action-btn {
-      padding: 6px 12px;
-      background: var(--vscode-button-background);
-      color: var(--vscode-button-foreground);
-      border: none;
-      border-radius: 4px;
-      cursor: pointer;
-      font-size: 12px;
-      font-weight: 500;
-      transition: background 0.2s;
-      white-space: nowrap;
-    }
-    .action-btn:hover {
-      background: var(--vscode-button-hoverBackground);
-    }
-    .no-results {
-      text-align: center;
-      padding: 40px;
-      color: var(--vscode-descriptionForeground);
-      font-style: italic;
-    }
-  </style>
-</head>
-<body>
-  <div class="header">
-    <h1>
-      <span>🌍</span>
-      AnypointMQ Statistics - All Regions
-    </h1>
-    <div class="header-info">
-      <div class="info-item">
-        <span class="info-label">Environment</span>
-        <span class="info-value">${environmentName || 'Unknown'}</span>
-      </div>
-      <div class="info-item">
-        <span class="info-label">Regions</span>
-        <span class="info-value">${totalRegions}</span>
-      </div>
-      <div class="info-item">
-        <span class="info-label">Last Updated</span>
-        <span class="info-value">${new Date().toLocaleTimeString()}</span>
-      </div>
-    </div>
-  </div>
+  const updatedAt = new Date().toLocaleTimeString();
 
-  <div class="stats-summary">
-    <div class="stat-card regions">
-      <div class="stat-label">Total Regions</div>
-      <div class="stat-value">${totalRegions}</div>
-    </div>
-    <div class="stat-card">
-      <div class="stat-label">Total Queues</div>
-      <div class="stat-value">${totalQueues}</div>
-    </div>
-    <div class="stat-card messages">
-      <div class="stat-label">Total Messages</div>
-      <div class="stat-value">${totalMessages.toLocaleString()}</div>
-    </div>
-    <div class="stat-card inflight">
-      <div class="stat-label">In-Flight Messages</div>
-      <div class="stat-value">${totalInflight.toLocaleString()}</div>
-    </div>
-    <div class="stat-card active">
-      <div class="stat-label">Active Queues</div>
-      <div class="stat-value">${activeQueues}</div>
-    </div>
-  </div>
-
-  <div class="actions">
-    <button onclick="refreshStats()">🔄 Refresh Statistics</button>
-    <button class="secondary" onclick="downloadCsv()">💾 Download CSV</button>
-  </div>
-
-  <div class="search-box">
-    <input type="text" id="searchInput" placeholder="🔍 Search queues by name or region..." onkeyup="filterQueues()">
-  </div>
-
-  <table id="queuesTable">
+  const tableHtml = `
+  <div class="am-table-container mq-stats-table-wrap">
+  <table class="am-table" id="queuesTable">
     <thead>
       <tr>
-        <th onclick="sortTable(0)">Region <span class="sort-indicator">▼</span></th>
-        <th onclick="sortTable(1)">Destination Name <span class="sort-indicator">▼</span></th>
-        <th onclick="sortTable(2)">Destination Type <span class="sort-indicator">▼</span></th>
-        <th onclick="sortTable(3)">Queue Type <span class="sort-indicator">▼</span></th>
-        <th onclick="sortTable(4)">Messages <span class="sort-indicator">▼</span></th>
-        <th onclick="sortTable(5)">In-Flight <span class="sort-indicator">▼</span></th>
-        <th onclick="sortTable(6)">Default TTL <span class="sort-indicator">▼</span></th>
-        <th onclick="sortTable(7)">Encrypted <span class="sort-indicator">▼</span></th>
-        <th>Actions <span class="sort-indicator"></span></th>
+        <th class="am-sortable" onclick="sortTable(0)">Region <span class="am-sort-icon">▼</span></th>
+        <th class="am-sortable" onclick="sortTable(1)">Destination Name <span class="am-sort-icon">▼</span></th>
+        <th class="am-sortable" onclick="sortTable(2)">Destination Type <span class="am-sort-icon">▼</span></th>
+        <th class="am-sortable" onclick="sortTable(3)">Queue Type <span class="am-sort-icon">▼</span></th>
+        <th class="am-sortable" onclick="sortTable(4)">Messages <span class="am-sort-icon">▼</span></th>
+        <th class="am-sortable" onclick="sortTable(5)">In-Flight <span class="am-sort-icon">▼</span></th>
+        <th class="am-sortable" onclick="sortTable(6)">Default TTL <span class="am-sort-icon">▼</span></th>
+        <th class="am-sortable" onclick="sortTable(7)">Encrypted <span class="am-sort-icon">▼</span></th>
+        <th>Actions <span class="am-sort-icon"></span></th>
       </tr>
     </thead>
     <tbody id="queuesTableBody">
       ${allQueues.map(queue => {
-        // Extract ID - could be queueId, exchangeId, or just id
         const destinationId = queue.queueId || queue.exchangeId || queue.id;
-
-        // Determine type - check destinationType first, then exchangeId, default to queue
         const destinationType = queue.destinationType || (queue.exchangeId ? 'exchange' : 'queue');
-
-        const queueType = queue.fifo ? 'FIFO' : 'Standard';
         const messages = queue.stats.messages || 0;
         const inflight = queue.stats.inflightMessages || 0;
 
-        let messageClass = 'low';
+        let messageMetricClass = 'mq-metric-low';
         if (messages > 1000) {
-          messageClass = 'high';
+          messageMetricClass = 'mq-metric-high';
         } else if (messages > 100) {
-          messageClass = 'medium';
+          messageMetricClass = 'mq-metric-medium';
         }
 
         const isExchange = destinationType === 'exchange';
+        const destBadge = isExchange
+          ? badge('🔀 Exchange', 'info')
+          : badge('📋 Queue', 'default');
+        const typeBadge = isExchange
+          ? badge('N/A', 'default')
+          : (queue.fifo ? badge('FIFO', 'info') : badge('Standard', 'default'));
+
+        const rowOnclick = `openQueueDetails('${escapeJsString(String(destinationId))}', '${escapeJsString(String(queue.regionId))}', '${escapeJsString(String(queue.region))}', ${isExchange ? 'true' : 'false'})`;
 
         return `
-        <tr>
-          <td><span class="region-badge">${queue.region}</span></td>
-          <td><span class="queue-name">${destinationId}</span></td>
-          <td><span class="badge ${isExchange ? 'exchange' : 'queue'}">${isExchange ? '🔀 Exchange' : '📋 Queue'}</span></td>
-          <td><span class="badge ${queue.fifo ? 'fifo' : 'standard'}">${isExchange ? 'N/A' : queueType}</span></td>
-          <td><span class="metric-value ${messageClass}">${messages.toLocaleString()}</span></td>
-          <td><span class="metric-value">${inflight.toLocaleString()}</span></td>
+        <tr class="am-row">
+          <td>${badge(String(queue.region), 'info')}</td>
+          <td><span class="mq-queue-name">${escapeHtml(String(destinationId))}</span></td>
+          <td>${destBadge}</td>
+          <td>${typeBadge}</td>
+          <td><span class="mq-metric ${messageMetricClass}">${messages.toLocaleString()}</span></td>
+          <td><span class="mq-metric">${inflight.toLocaleString()}</span></td>
           <td>${queue.defaultTtl ? (queue.defaultTtl / 1000 / 60).toFixed(0) + ' min' : 'N/A'}</td>
           <td>${queue.encrypted ? '🔒 Yes' : '🔓 No'}</td>
-          <td><button class="action-btn" onclick="openQueueDetails('${destinationId}', '${queue.regionId}', '${queue.region}', ${isExchange})">📋 View Details</button></td>
+          <td class="mq-table-actions">${button('View Details', { variant: 'secondary', onclick: rowOnclick, icon: '📋' })}</td>
         </tr>
         `;
       }).join('')}
     </tbody>
   </table>
-  <div id="noResults" class="no-results" style="display: none;">
+  </div>
+  <div id="noResults" class="mq-no-results">
     No queues match your search criteria.
   </div>
+  `;
 
-  <script>
+  const body = `
+    <div class="am-container">
+      <div class="am-page-header">
+        <div>
+          <h1>AnypointMQ Statistics · All Regions</h1>
+          <div class="am-page-header-meta mq-header-meta">
+            <div>
+              <span class="mq-meta-label">Environment</span>
+              <span class="mq-meta-value">${escapeHtml(environmentName || 'Unknown')}</span>
+            </div>
+            <div>
+              <span class="mq-meta-label">Regions</span>
+              <span class="mq-meta-value">${escapeHtml(String(totalRegions))}</span>
+            </div>
+            <div>
+              <span class="mq-meta-label">Last Updated</span>
+              <span class="mq-meta-value">${escapeHtml(updatedAt)}</span>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="am-summary-cards">
+        ${summaryCard({ icon: '🌍', value: totalRegions, label: 'Total Regions', animationDelay: '0.05s' })}
+        ${summaryCard({ icon: '📋', value: totalQueues, label: 'Total Queues', animationDelay: '0.1s' })}
+        ${summaryCard({ icon: '💬', value: totalMessages.toLocaleString(), label: 'Total Messages', animationDelay: '0.15s', variant: 'healthy' })}
+        ${summaryCard({ icon: '✈️', value: totalInflight.toLocaleString(), label: 'In-Flight Messages', animationDelay: '0.2s', variant: 'warning' })}
+        ${summaryCard({ icon: '●', value: activeQueues, label: 'Active Queues', animationDelay: '0.25s', variant: 'critical' })}
+      </div>
+
+      <div class="am-filters mq-actions">
+        ${button('Refresh Statistics', { variant: 'primary', onclick: 'refreshStats()', icon: '🔄' })}
+        ${button('Download CSV', { variant: 'secondary', onclick: 'downloadCsv()', icon: '💾' })}
+        <input type="text" class="am-input" id="searchInput" placeholder="Search queues by name or region..." onkeyup="filterQueues()">
+      </div>
+
+      ${tableHtml}
+    </div>
+  `;
+
+  const scripts = `
     const vscode = acquireVsCodeApi();
     let sortDirection = {};
 
-    const organizationID = '${organizationID || ''}';
-    const environmentId = '${environmentId || ''}';
+    const organizationID = '${escapeJsString(organizationID || '')}';
+    const environmentId = '${escapeJsString(environmentId || '')}';
 
     function refreshStats() {
       vscode.postMessage({ command: 'refreshStats' });
@@ -1104,12 +696,12 @@ function getAnypointMQStatsHtmlAllRegions(
       vscode.postMessage({ command: 'downloadCsv' });
     }
 
-    function openQueueDetails(queueId, regionId, regionName, isExchange) {
+    function openQueueDetails(queueId, regionId, regionNameParam, isExchange) {
       vscode.postMessage({
         command: 'viewQueueDetails',
         queueId: queueId,
         regionId: regionId,
-        regionName: regionName,
+        regionName: regionNameParam,
         isExchange: isExchange || false
       });
     }
@@ -1177,10 +769,9 @@ function getAnypointMQStatsHtmlAllRegions(
         let aValue = aCell.textContent || aCell.innerText;
         let bValue = bCell.textContent || bCell.innerText;
 
-        // Handle numeric columns (Messages and In-Flight)
-        if (columnIndex === 3 || columnIndex === 4) {
-          aValue = parseInt(aValue.replace(/,/g, '')) || 0;
-          bValue = parseInt(bValue.replace(/,/g, '')) || 0;
+        if (columnIndex === 4 || columnIndex === 5) {
+          aValue = parseInt(String(aValue).replace(/,/g, ''), 10) || 0;
+          bValue = parseInt(String(bValue).replace(/,/g, ''), 10) || 0;
         }
 
         if (aValue < bValue) {
@@ -1194,10 +785,9 @@ function getAnypointMQStatsHtmlAllRegions(
 
       rows.forEach(row => tbody.appendChild(row));
 
-      // Update sort indicators
       const headers = table.getElementsByTagName('th');
       for (let i = 0; i < headers.length; i++) {
-        const indicator = headers[i].querySelector('.sort-indicator');
+        const indicator = headers[i].querySelector('.am-sort-icon');
         if (indicator) {
           if (i === columnIndex) {
             indicator.textContent = newDirection === 'asc' ? '▲' : '▼';
@@ -1209,8 +799,12 @@ function getAnypointMQStatsHtmlAllRegions(
         }
       }
     }
-  </script>
-</body>
-</html>
   `;
+
+  return wrapWebviewHtml({
+    title: 'AnypointMQ Statistics - All Regions',
+    body,
+    scripts,
+    extraStyles: mqStatsExtraStyles()
+  });
 }

@@ -1,566 +1,406 @@
 import * as vscode from 'vscode';
 import { ApiHelper } from '../controllers/apiHelper';
 import { HYBRID_SERVERS_ENDPOINT } from '../constants';
+import { wrapWebviewHtml, badge, summaryCard, button, escapeHtml } from '../webview/ui-kit';
 
 /**
  * Show detailed view of a Hybrid server with actions
  */
 export async function showHybridServerDetails(
-  context: vscode.ExtensionContext,
-  serverData: any,
-  environmentId: string
+    context: vscode.ExtensionContext,
+    serverData: any,
+    environmentId: string
 ) {
-  const panel = vscode.window.createWebviewPanel(
-    'hybridServerDetails',
-    `Server: ${serverData.name}`,
-    vscode.ViewColumn.One,
-    { enableScripts: true, retainContextWhenHidden: true }
-  );
+    const panel = vscode.window.createWebviewPanel(
+        'hybridServerDetails',
+        `Server: ${serverData.name}`,
+        vscode.ViewColumn.One,
+        { enableScripts: true, retainContextWhenHidden: true }
+    );
 
-  panel.webview.html = getServerDetailsHtml(serverData);
+    panel.webview.html = getServerDetailsHtml(serverData);
 
-  panel.webview.onDidReceiveMessage(async (message) => {
-    try {
-      const { AccountService } = await import('../controllers/accountService.js');
-      const accountService = new AccountService(context);
-      const activeAccount = await accountService.getActiveAccount();
+    panel.webview.onDidReceiveMessage(async (message) => {
+        try {
+            const { AccountService } = await import('../controllers/accountService.js');
+            const accountService = new AccountService(context);
+            const activeAccount = await accountService.getActiveAccount();
 
-      if (!activeAccount) {
-        vscode.window.showErrorMessage('No active account found.');
-        return;
-      }
-
-      const organizationID = activeAccount.organizationId;
-      const apiHelper = new ApiHelper(context);
-
-      switch (message.command) {
-        case 'restartServer':
-          const restartConfirm = await vscode.window.showWarningMessage(
-            `Are you sure you want to restart server "${serverData.name}"?`,
-            { modal: true },
-            'Restart'
-          );
-          if (restartConfirm === 'Restart') {
-            try {
-              await apiHelper.post(
-                `${HYBRID_SERVERS_ENDPOINT}/${serverData.id}/restart`,
-                {},
-                {
-                  headers: {
-                    'X-ANYPNT-ENV-ID': environmentId,
-                    'X-ANYPNT-ORG-ID': organizationID,
-                  },
-                }
-              );
-              vscode.window.showInformationMessage(`Restart command sent to server "${serverData.name}"`);
-
-              // Refresh server data after action
-              setTimeout(async () => {
-                const updatedServer = await fetchServerDetails(context, serverData.id, environmentId);
-                panel.webview.html = getServerDetailsHtml(updatedServer || serverData);
-              }, 3000);
-            } catch (error: any) {
-              vscode.window.showErrorMessage(`Failed to restart server: ${error.message}`);
+            if (!activeAccount) {
+                vscode.window.showErrorMessage('No active account found.');
+                return;
             }
-          }
-          break;
 
-        case 'shutdownServer':
-          const shutdownConfirm = await vscode.window.showWarningMessage(
-            `Are you sure you want to shutdown server "${serverData.name}"?\n\n⚠️ Note: After shutdown, you cannot start the server from Runtime Manager. You'll need to manually restart the Mule runtime.`,
-            { modal: true },
-            'Shutdown'
-          );
-          if (shutdownConfirm === 'Shutdown') {
-            try {
-              await apiHelper.post(
-                `${HYBRID_SERVERS_ENDPOINT}/${serverData.id}/shutdown`,
-                {},
-                {
-                  headers: {
-                    'X-ANYPNT-ENV-ID': environmentId,
-                    'X-ANYPNT-ORG-ID': organizationID,
-                  },
-                }
-              );
-              vscode.window.showWarningMessage(
-                `Shutdown command sent to server "${serverData.name}". You'll need to manually restart the Mule runtime on the host system.`
-              );
+            const organizationID = activeAccount.organizationId;
+            const apiHelper = new ApiHelper(context);
 
-              // Refresh server data after action
-              setTimeout(async () => {
-                const updatedServer = await fetchServerDetails(context, serverData.id, environmentId);
-                panel.webview.html = getServerDetailsHtml(updatedServer || serverData);
-              }, 3000);
-            } catch (error: any) {
-              vscode.window.showErrorMessage(`Failed to shutdown server: ${error.message}`);
+            switch (message.command) {
+                case 'restartServer':
+                    const restartConfirm = await vscode.window.showWarningMessage(
+                        `Are you sure you want to restart server "${serverData.name}"?`,
+                        { modal: true },
+                        'Restart'
+                    );
+                    if (restartConfirm === 'Restart') {
+                        try {
+                            await apiHelper.post(
+                                `${HYBRID_SERVERS_ENDPOINT}/${serverData.id}/restart`,
+                                {},
+                                {
+                                    headers: {
+                                        'X-ANYPNT-ENV-ID': environmentId,
+                                        'X-ANYPNT-ORG-ID': organizationID,
+                                    },
+                                }
+                            );
+                            vscode.window.showInformationMessage(`Restart command sent to server "${serverData.name}"`);
+
+                            // Refresh server data after action
+                            setTimeout(async () => {
+                                const updatedServer = await fetchServerDetails(context, serverData.id, environmentId);
+                                panel.webview.html = getServerDetailsHtml(updatedServer || serverData);
+                            }, 3000);
+                        } catch (error: any) {
+                            vscode.window.showErrorMessage(`Failed to restart server: ${error.message}`);
+                        }
+                    }
+                    break;
+
+                case 'shutdownServer':
+                    const shutdownConfirm = await vscode.window.showWarningMessage(
+                        `Are you sure you want to shutdown server "${serverData.name}"?\n\n⚠️ Note: After shutdown, you cannot start the server from Runtime Manager. You'll need to manually restart the Mule runtime.`,
+                        { modal: true },
+                        'Shutdown'
+                    );
+                    if (shutdownConfirm === 'Shutdown') {
+                        try {
+                            await apiHelper.post(
+                                `${HYBRID_SERVERS_ENDPOINT}/${serverData.id}/shutdown`,
+                                {},
+                                {
+                                    headers: {
+                                        'X-ANYPNT-ENV-ID': environmentId,
+                                        'X-ANYPNT-ORG-ID': organizationID,
+                                    },
+                                }
+                            );
+                            vscode.window.showWarningMessage(
+                                `Shutdown command sent to server "${serverData.name}". You'll need to manually restart the Mule runtime on the host system.`
+                            );
+
+                            // Refresh server data after action
+                            setTimeout(async () => {
+                                const updatedServer = await fetchServerDetails(context, serverData.id, environmentId);
+                                panel.webview.html = getServerDetailsHtml(updatedServer || serverData);
+                            }, 3000);
+                        } catch (error: any) {
+                            vscode.window.showErrorMessage(`Failed to shutdown server: ${error.message}`);
+                        }
+                    }
+                    break;
+
+                case 'deleteServer':
+                    const deleteConfirm = await vscode.window.showWarningMessage(
+                        `Are you sure you want to delete server "${serverData.name}" from Runtime Manager?\n\n⚠️ This action cannot be undone.`,
+                        { modal: true },
+                        'Delete'
+                    );
+                    if (deleteConfirm === 'Delete') {
+                        try {
+                            await apiHelper.delete(`${HYBRID_SERVERS_ENDPOINT}/${serverData.id}`, {
+                                headers: {
+                                    'X-ANYPNT-ENV-ID': environmentId,
+                                    'X-ANYPNT-ORG-ID': organizationID,
+                                },
+                            });
+                            vscode.window.showInformationMessage(`Server "${serverData.name}" deleted from Runtime Manager`);
+                            panel.dispose();
+                        } catch (error: any) {
+                            vscode.window.showErrorMessage(`Failed to delete server: ${error.message}`);
+                        }
+                    }
+                    break;
+
+                case 'refreshServer':
+                    try {
+                        const updatedServer = await fetchServerDetails(context, serverData.id, environmentId);
+                        if (updatedServer) {
+                            panel.webview.html = getServerDetailsHtml(updatedServer);
+                            vscode.window.showInformationMessage('Server information refreshed');
+                        }
+                    } catch (error: any) {
+                        vscode.window.showErrorMessage(`Failed to refresh server data: ${error.message}`);
+                    }
+                    break;
             }
-          }
-          break;
-
-        case 'deleteServer':
-          const deleteConfirm = await vscode.window.showWarningMessage(
-            `Are you sure you want to delete server "${serverData.name}" from Runtime Manager?\n\n⚠️ This action cannot be undone.`,
-            { modal: true },
-            'Delete'
-          );
-          if (deleteConfirm === 'Delete') {
-            try {
-              await apiHelper.delete(`${HYBRID_SERVERS_ENDPOINT}/${serverData.id}`, {
-                headers: {
-                  'X-ANYPNT-ENV-ID': environmentId,
-                  'X-ANYPNT-ORG-ID': organizationID,
-                },
-              });
-              vscode.window.showInformationMessage(`Server "${serverData.name}" deleted from Runtime Manager`);
-              panel.dispose();
-            } catch (error: any) {
-              vscode.window.showErrorMessage(`Failed to delete server: ${error.message}`);
-            }
-          }
-          break;
-
-        case 'refreshServer':
-          try {
-            const updatedServer = await fetchServerDetails(context, serverData.id, environmentId);
-            if (updatedServer) {
-              panel.webview.html = getServerDetailsHtml(updatedServer);
-              vscode.window.showInformationMessage('Server information refreshed');
-            }
-          } catch (error: any) {
-            vscode.window.showErrorMessage(`Failed to refresh server data: ${error.message}`);
-          }
-          break;
-      }
-    } catch (error: any) {
-      vscode.window.showErrorMessage(`Error: ${error.message}`);
-    }
-  });
+        } catch (error: any) {
+            vscode.window.showErrorMessage(`Error: ${error.message}`);
+        }
+    });
 }
 
 /**
  * Fetch updated server details
  */
 async function fetchServerDetails(
-  context: vscode.ExtensionContext,
-  serverId: string,
-  environmentId: string
+    context: vscode.ExtensionContext,
+    serverId: string,
+    environmentId: string
 ): Promise<any | null> {
-  try {
-    const { AccountService } = await import('../controllers/accountService.js');
-    const accountService = new AccountService(context);
-    const activeAccount = await accountService.getActiveAccount();
+    try {
+        const { AccountService } = await import('../controllers/accountService.js');
+        const accountService = new AccountService(context);
+        const activeAccount = await accountService.getActiveAccount();
 
-    if (!activeAccount) {
-      return null;
+        if (!activeAccount) {
+            return null;
+        }
+
+        const apiHelper = new ApiHelper(context);
+        const response = await apiHelper.get(`${HYBRID_SERVERS_ENDPOINT}/${serverId}`, {
+            headers: {
+                'X-ANYPNT-ENV-ID': environmentId,
+                'X-ANYPNT-ORG-ID': activeAccount.organizationId,
+            },
+        });
+
+        if (response.status === 200) {
+            return response.data;
+        }
+    } catch (error) {
+        console.error('Failed to fetch server details:', error);
     }
+    return null;
+}
 
-    const apiHelper = new ApiHelper(context);
-    const response = await apiHelper.get(`${HYBRID_SERVERS_ENDPOINT}/${serverId}`, {
-      headers: {
-        'X-ANYPNT-ENV-ID': environmentId,
-        'X-ANYPNT-ORG-ID': activeAccount.organizationId,
-      },
-    });
-
-    if (response.status === 200) {
-      return response.data;
-    }
-  } catch (error) {
-    console.error('Failed to fetch server details:', error);
-  }
-  return null;
+function infoRow(label: string, value: string | number | boolean | null | undefined): string {
+    const display =
+        value === null || value === undefined || value === ''
+            ? 'N/A'
+            : String(value);
+    return `
+              <div class="hybrid-info-item">
+                <div class="hybrid-info-label">${escapeHtml(label)}</div>
+                <div class="hybrid-info-value">${escapeHtml(display)}</div>
+              </div>`;
 }
 
 /**
  * Generate HTML for server details view
  */
 function getServerDetailsHtml(server: any): string {
-  const statusColor = server.status === 'RUNNING' || server.status === 'CONNECTED' ? '#3fb950' : '#f85149';
-  const statusText = server.status || 'UNKNOWN';
+    const statusText = server.status || 'UNKNOWN';
+    const statusOk = server.status === 'RUNNING' || server.status === 'CONNECTED';
+    const statusBadgeVariant = statusOk ? 'success' : 'error';
+    const summaryStatusVariant: 'healthy' | 'critical' = statusOk ? 'healthy' : 'critical';
 
-  // Calculate uptime if available
-  let uptimeText = 'N/A';
-  if (server.lastReportedTime) {
-    const uptimeMs = Date.now() - new Date(server.lastReportedTime).getTime();
-    const uptimeDays = Math.floor(uptimeMs / (1000 * 60 * 60 * 24));
-    const uptimeHours = Math.floor((uptimeMs % (1000 * 60 * 60 * 24)) / (1000 * 60 * 60));
-    const uptimeMinutes = Math.floor((uptimeMs % (1000 * 60 * 60)) / (1000 * 60));
-    uptimeText = `${uptimeDays}d ${uptimeHours}h ${uptimeMinutes}m`;
-  }
+    let uptimeText = 'N/A';
+    if (server.lastReportedTime) {
+        const uptimeMs = Date.now() - new Date(server.lastReportedTime).getTime();
+        const uptimeDays = Math.floor(uptimeMs / (1000 * 60 * 60 * 24));
+        const uptimeHours = Math.floor((uptimeMs % (1000 * 60 * 60 * 24)) / (1000 * 60 * 60));
+        const uptimeMinutes = Math.floor((uptimeMs % (1000 * 60 * 60)) / (1000 * 60));
+        uptimeText = `${uptimeDays}d ${uptimeHours}h ${uptimeMinutes}m`;
+    }
 
-  return /* html */ `
-    <!DOCTYPE html>
-    <html lang="en">
-      <head>
-        <meta charset="UTF-8" />
-        <title>Server Details - ${server.name}</title>
-        <style>
-          :root {
-            --background-primary: #1e2328;
-            --background-secondary: #161b22;
-            --surface-primary: #21262d;
-            --surface-secondary: #30363d;
-            --text-primary: #f0f6fc;
-            --text-secondary: #7d8590;
-            --text-muted: #656d76;
-            --accent-blue: #58a6ff;
-            --accent-light: #79c0ff;
-            --border-primary: #30363d;
-            --border-muted: #21262d;
-            --success: #3fb950;
-            --error: #f85149;
-            --warning: #d29922;
-          }
+    const nameDisplay = server.name || 'Unknown Server';
+    const typeDisplay = server.type || 'Mule Runtime Server';
+    const lastReportedStr = server.lastReportedTime
+        ? new Date(server.lastReportedTime).toLocaleString()
+        : 'N/A';
 
-          * { box-sizing: border-box; margin: 0; padding: 0; }
+    const deploymentsRows =
+        server.deployments && server.deployments.length > 0
+            ? server.deployments
+                  .map(
+                      (app: any) => `
+              <tr class="am-row">
+                <td>${escapeHtml(app.name || 'Unknown App')}</td>
+                <td>${badge(String(app.status || 'N/A'), app.status === 'RUNNING' || app.status === 'STARTED' ? 'success' : 'default')}</td>
+              </tr>`
+                  )
+                  .join('')
+            : '';
 
-          body {
-            background-color: var(--background-primary);
-            color: var(--text-primary);
-            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
-            font-size: 14px;
-            padding: 24px;
-          }
+    const clusterSection = server.clusterNodeId
+        ? `
+          <div class="am-card hybrid-section-card">
+            <div class="am-card-title">Cluster information</div>
+            <div class="hybrid-info-grid">
+              ${infoRow('Cluster Node ID', String(server.clusterNodeId))}
+              ${infoRow('Cluster Name', server.clusterName || 'N/A')}
+            </div>
+          </div>`
+        : '';
 
-          .container {
-            max-width: 1200px;
-            margin: 0 auto;
-          }
+    const serverGroupSection = server.serverGroupId
+        ? `
+          <div class="am-card hybrid-section-card">
+            <div class="am-card-title">Server group information</div>
+            <div class="hybrid-info-grid">
+              ${infoRow('Server Group ID', String(server.serverGroupId))}
+              ${infoRow('Server Group Name', server.serverGroupName || 'N/A')}
+            </div>
+          </div>`
+        : '';
 
-          .header {
-            background-color: var(--background-secondary);
-            border: 1px solid var(--border-primary);
-            border-radius: 12px;
-            padding: 32px;
-            margin-bottom: 24px;
-          }
+    const deploymentsSection =
+        server.deployments && server.deployments.length > 0
+            ? `
+          <div class="am-card hybrid-section-card">
+            <div class="am-card-title">Deployed applications (${server.deployments.length})</div>
+            <div class="am-table-container">
+              <table class="am-table">
+                <thead>
+                  <tr>
+                    <th>Application</th>
+                    <th>Status</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  ${deploymentsRows}
+                </tbody>
+              </table>
+            </div>
+          </div>`
+            : '';
 
-          .header-top {
+    const body = `
+    <div class="am-container">
+      <div class="am-page-header hybrid-page-header">
+        <div class="hybrid-header-top">
+          <div>
+            <h1>🖥️ ${escapeHtml(nameDisplay)}</h1>
+            <div class="hybrid-server-type">${escapeHtml(typeDisplay)}</div>
+          </div>
+          <div class="am-page-header-right">
+            ${badge(statusText, statusBadgeVariant, true)}
+          </div>
+        </div>
+        <div class="hybrid-actions">
+          ${button('Refresh', { variant: 'secondary', onclick: 'refreshServer()', icon: '🔄' })}
+          <button type="button" class="am-btn hybrid-btn-warning" onclick="restartServer()"><span>⚡</span>Restart Server</button>
+          <button type="button" class="am-btn hybrid-btn-warning" onclick="shutdownServer()"><span>🛑</span>Shutdown Server</button>
+          ${button('Delete from Runtime Manager', { variant: 'danger', onclick: 'deleteServer()', icon: '🗑️' })}
+        </div>
+      </div>
+
+      <div class="hybrid-warning-banner">
+        <div class="hybrid-warning-icon">⚠️</div>
+        <div class="hybrid-warning-text">
+          <strong>Important:</strong> After shutting down a server, you cannot start it from Runtime Manager.
+          You'll need to manually restart the Mule runtime on the host system where it's installed.
+        </div>
+      </div>
+
+      <div class="am-summary-cards">
+        ${summaryCard({ icon: '📦', value: server.muleVersion || 'N/A', label: 'Mule version' })}
+        ${summaryCard({ icon: '●', value: statusText, label: 'Status', variant: summaryStatusVariant })}
+        ${summaryCard({ icon: '⏱', value: uptimeText, label: 'Time since last report' })}
+        ${summaryCard({ icon: '🖥', value: server.type || 'N/A', label: 'Server type' })}
+      </div>
+
+      <div class="am-card hybrid-section-card">
+        <div class="am-card-title">Server information</div>
+        <div class="hybrid-info-grid">
+          ${infoRow('Server ID', server.id || 'N/A')}
+          ${infoRow('Server Name', server.name || 'N/A')}
+          ${infoRow('Status', statusText)}
+          ${infoRow('Mule Version', server.muleVersion || 'N/A')}
+          ${infoRow('Agent Version', server.agentVersion || 'N/A')}
+          ${infoRow('Last Reported Time', lastReportedStr)}
+          ${infoRow('Operating System', server.osInfo || server.osName || 'N/A')}
+          ${infoRow('IP Address', server.ipAddress || server.hostAddress || 'N/A')}
+        </div>
+      </div>
+
+      ${clusterSection}
+      ${serverGroupSection}
+      ${deploymentsSection}
+    </div>`;
+
+    const extraStyles = `
+        .hybrid-page-header {
+            flex-direction: column;
+            align-items: stretch;
+            gap: 20px;
+        }
+        .hybrid-header-top {
             display: flex;
             justify-content: space-between;
             align-items: flex-start;
-            margin-bottom: 24px;
-          }
-
-          h1 {
-            font-size: 32px;
-            font-weight: 700;
-            margin-bottom: 8px;
-          }
-
-          .server-type {
+            gap: 16px;
+            width: 100%;
+        }
+        .hybrid-server-type {
             font-size: 14px;
-            color: var(--text-secondary);
-            margin-bottom: 16px;
-          }
-
-          .status-indicator {
-            display: flex;
-            align-items: center;
-            gap: 12px;
-            padding: 12px 24px;
-            background: var(--surface-primary);
-            border: 1px solid var(--border-primary);
-            border-radius: 8px;
-          }
-
-          .status-dot {
-            width: 16px;
-            height: 16px;
-            border-radius: 50%;
-            background-color: ${statusColor};
-            box-shadow: 0 0 12px ${statusColor};
-          }
-
-          .status-text {
-            font-size: 18px;
-            font-weight: 600;
-            color: ${statusColor};
-          }
-
-          .actions {
+            color: var(--am-text-secondary);
+            margin-top: 6px;
+        }
+        .hybrid-actions {
             display: flex;
             gap: 12px;
             flex-wrap: wrap;
-          }
-
-          .button {
-            background-color: var(--surface-primary);
-            border: 1px solid var(--border-primary);
-            color: var(--text-primary);
-            padding: 12px 20px;
-            border-radius: 8px;
-            cursor: pointer;
-            font-size: 14px;
-            font-weight: 500;
-            transition: all 0.3s ease;
-            display: flex;
-            align-items: center;
-            gap: 8px;
-          }
-
-          .button:hover {
-            background-color: var(--surface-secondary);
-            border-color: var(--accent-blue);
-            transform: translateY(-2px);
-          }
-
-          .button-danger {
-            border-color: var(--error);
-          }
-
-          .button-danger:hover {
-            background-color: var(--error);
-            border-color: var(--error);
-          }
-
-          .button-warning {
-            border-color: var(--warning);
-          }
-
-          .button-warning:hover {
-            background-color: var(--warning);
-            border-color: var(--warning);
-          }
-
-          .stats-grid {
-            display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
-            gap: 20px;
-            margin-bottom: 24px;
-          }
-
-          .stat-card {
-            background-color: var(--surface-primary);
-            border: 1px solid var(--border-primary);
-            border-radius: 12px;
-            padding: 24px;
-          }
-
-          .stat-label {
-            font-size: 12px;
-            color: var(--text-secondary);
-            text-transform: uppercase;
-            letter-spacing: 1px;
-            margin-bottom: 8px;
-          }
-
-          .stat-value {
-            font-size: 24px;
-            font-weight: 600;
-            color: var(--text-primary);
-          }
-
-          .card {
-            background-color: var(--surface-primary);
-            border: 1px solid var(--border-primary);
-            border-radius: 12px;
-            padding: 24px;
-            margin-bottom: 24px;
-          }
-
-          .card-title {
-            font-size: 18px;
-            font-weight: 600;
-            margin-bottom: 20px;
-            display: flex;
-            align-items: center;
-            gap: 12px;
-          }
-
-          .info-grid {
-            display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
-            gap: 16px;
-          }
-
-          .info-item {
-            padding: 12px 0;
-            border-bottom: 1px solid var(--border-muted);
-          }
-
-          .info-item:last-child {
-            border-bottom: none;
-          }
-
-          .info-label {
-            font-size: 13px;
-            color: var(--text-secondary);
-            margin-bottom: 4px;
-          }
-
-          .info-value {
-            font-size: 14px;
-            font-weight: 500;
-            color: var(--text-primary);
-          }
-
-          .warning-banner {
-            background-color: rgba(210, 153, 34, 0.1);
-            border: 1px solid var(--warning);
-            border-radius: 8px;
+        }
+        .hybrid-btn-warning {
+            background: color-mix(in srgb, var(--am-warning) 18%, transparent);
+            color: var(--am-warning);
+            border: 1px solid var(--am-warning);
+        }
+        .hybrid-btn-warning:hover {
+            filter: brightness(1.08);
+        }
+        .hybrid-warning-banner {
+            background: color-mix(in srgb, var(--am-warning) 12%, transparent);
+            border: 1px solid var(--am-warning);
+            border-radius: var(--am-radius-md);
             padding: 16px;
             margin-bottom: 24px;
             display: flex;
-            align-items: start;
+            align-items: flex-start;
             gap: 12px;
-          }
-
-          .warning-icon {
+        }
+        .hybrid-warning-icon {
             font-size: 24px;
-            color: var(--warning);
-          }
-
-          .warning-text {
+            line-height: 1;
+            color: var(--am-warning);
+        }
+        .hybrid-warning-text {
             font-size: 14px;
             line-height: 1.5;
-          }
-        </style>
-      </head>
-      <body>
-        <div class="container">
-          <div class="header">
-            <div class="header-top">
-              <div>
-                <h1>🖥️ ${server.name || 'Unknown Server'}</h1>
-                <div class="server-type">${server.type || 'Mule Runtime Server'}</div>
-              </div>
-              <div class="status-indicator">
-                <span class="status-dot"></span>
-                <span class="status-text">${statusText}</span>
-              </div>
-            </div>
+            color: var(--am-text-primary);
+        }
+        .hybrid-section-card {
+            margin-bottom: 24px;
+        }
+        .hybrid-section-card:last-child {
+            margin-bottom: 0;
+        }
+        .hybrid-info-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+            gap: 0 16px;
+        }
+        .hybrid-info-item {
+            padding: 12px 0;
+            border-bottom: 1px solid var(--am-border);
+        }
+        .hybrid-info-item:last-child {
+            border-bottom: none;
+        }
+        .hybrid-info-label {
+            font-size: 13px;
+            color: var(--am-text-secondary);
+            margin-bottom: 4px;
+        }
+        .hybrid-info-value {
+            font-size: 14px;
+            font-weight: 500;
+            color: var(--am-text-primary);
+        }
+    `;
 
-            <div class="actions">
-              <button class="button" onclick="refreshServer()">
-                🔄 Refresh
-              </button>
-              <button class="button button-warning" onclick="restartServer()">
-                ⚡ Restart Server
-              </button>
-              <button class="button button-warning" onclick="shutdownServer()">
-                🛑 Shutdown Server
-              </button>
-              <button class="button button-danger" onclick="deleteServer()">
-                🗑️ Delete from Runtime Manager
-              </button>
-            </div>
-          </div>
-
-          <div class="warning-banner">
-            <div class="warning-icon">⚠️</div>
-            <div class="warning-text">
-              <strong>Important:</strong> After shutting down a server, you cannot start it from Runtime Manager.
-              You'll need to manually restart the Mule runtime on the host system where it's installed.
-            </div>
-          </div>
-
-          <div class="stats-grid">
-            <div class="stat-card">
-              <div class="stat-label">Mule Version</div>
-              <div class="stat-value">${server.muleVersion || 'N/A'}</div>
-            </div>
-            <div class="stat-card">
-              <div class="stat-label">Status</div>
-              <div class="stat-value">${statusText}</div>
-            </div>
-            <div class="stat-card">
-              <div class="stat-label">Time Since Last Report</div>
-              <div class="stat-value">${uptimeText}</div>
-            </div>
-            <div class="stat-card">
-              <div class="stat-label">Server Type</div>
-              <div class="stat-value">${server.type || 'N/A'}</div>
-            </div>
-          </div>
-
-          <div class="card">
-            <div class="card-title">📊 Server Information</div>
-            <div class="info-grid">
-              <div class="info-item">
-                <div class="info-label">Server ID</div>
-                <div class="info-value">${server.id || 'N/A'}</div>
-              </div>
-              <div class="info-item">
-                <div class="info-label">Server Name</div>
-                <div class="info-value">${server.name || 'N/A'}</div>
-              </div>
-              <div class="info-item">
-                <div class="info-label">Status</div>
-                <div class="info-value">${statusText}</div>
-              </div>
-              <div class="info-item">
-                <div class="info-label">Mule Version</div>
-                <div class="info-value">${server.muleVersion || 'N/A'}</div>
-              </div>
-              <div class="info-item">
-                <div class="info-label">Agent Version</div>
-                <div class="info-value">${server.agentVersion || 'N/A'}</div>
-              </div>
-              <div class="info-item">
-                <div class="info-label">Last Reported Time</div>
-                <div class="info-value">${server.lastReportedTime ? new Date(server.lastReportedTime).toLocaleString() : 'N/A'}</div>
-              </div>
-              <div class="info-item">
-                <div class="info-label">Operating System</div>
-                <div class="info-value">${server.osInfo || server.osName || 'N/A'}</div>
-              </div>
-              <div class="info-item">
-                <div class="info-label">IP Address</div>
-                <div class="info-value">${server.ipAddress || server.hostAddress || 'N/A'}</div>
-              </div>
-            </div>
-          </div>
-
-          ${server.clusterNodeId ? `
-          <div class="card">
-            <div class="card-title">🔗 Cluster Information</div>
-            <div class="info-grid">
-              <div class="info-item">
-                <div class="info-label">Cluster Node ID</div>
-                <div class="info-value">${server.clusterNodeId}</div>
-              </div>
-              <div class="info-item">
-                <div class="info-label">Cluster Name</div>
-                <div class="info-value">${server.clusterName || 'N/A'}</div>
-              </div>
-            </div>
-          </div>
-          ` : ''}
-
-          ${server.serverGroupId ? `
-          <div class="card">
-            <div class="card-title">👥 Server Group Information</div>
-            <div class="info-grid">
-              <div class="info-item">
-                <div class="info-label">Server Group ID</div>
-                <div class="info-value">${server.serverGroupId}</div>
-              </div>
-              <div class="info-item">
-                <div class="info-label">Server Group Name</div>
-                <div class="info-value">${server.serverGroupName || 'N/A'}</div>
-              </div>
-            </div>
-          </div>
-          ` : ''}
-
-          ${server.deployments && server.deployments.length > 0 ? `
-          <div class="card">
-            <div class="card-title">📦 Deployed Applications (${server.deployments.length})</div>
-            <div class="info-grid">
-              ${server.deployments.map((app: any) => `
-                <div class="info-item">
-                  <div class="info-label">${app.name || 'Unknown App'}</div>
-                  <div class="info-value">${app.status || 'N/A'}</div>
-                </div>
-              `).join('')}
-            </div>
-          </div>
-          ` : ''}
-        </div>
-
-        <script>
+    const scripts = `
           const vscode = acquireVsCodeApi();
 
           function refreshServer() {
@@ -578,8 +418,12 @@ function getServerDetailsHtml(server: any): string {
           function deleteServer() {
             vscode.postMessage({ command: 'deleteServer' });
           }
-        </script>
-      </body>
-    </html>
-  `;
+    `;
+
+    return wrapWebviewHtml({
+        title: `Server Details - ${nameDisplay}`,
+        body,
+        scripts,
+        extraStyles,
+    });
 }

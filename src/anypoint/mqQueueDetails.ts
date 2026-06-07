@@ -1,6 +1,394 @@
 import * as vscode from 'vscode';
 import { telemetryService } from '../services/telemetryService';
 import { getAnypointMqAdminBase, getAnypointMqStatsBase } from '../constants.js';
+import {
+    wrapWebviewHtml,
+    badge,
+    summaryCard,
+    button,
+    escapeHtml,
+} from '../webview/ui-kit';
+
+/** Escape for single-quoted JavaScript string literals inside inline handlers / script. */
+function escapeJsString(str: string): string {
+    return str
+        .replace(/\\/g, '\\\\')
+        .replace(/'/g, '\\\'')
+        .replace(/\r/g, '\\r')
+        .replace(/\n/g, '\\n')
+        .replace(/\u2028/g, '\\u2028')
+        .replace(/\u2029/g, '\\u2029');
+}
+
+function mqQueueDetailsExtraStyles(): string {
+    return `
+        .mq-loading-wrap {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            min-height: 60vh;
+            text-align: center;
+        }
+        .mq-loading-inner h2 { margin-bottom: 8px; color: var(--am-text-primary); }
+        .mq-loading-inner p { color: var(--am-text-secondary); }
+        .mq-spinner {
+            border: 4px solid var(--am-border);
+            border-top: 4px solid var(--am-accent, var(--am-info));
+            border-radius: 50%;
+            width: 50px;
+            height: 50px;
+            animation: mq-spin 1s linear infinite;
+            margin: 0 auto 20px;
+        }
+        @keyframes mq-spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+        .mq-error-panel {
+            background: color-mix(in srgb, var(--am-error) 12%, transparent);
+            border: 1px solid var(--am-error);
+            padding: 24px;
+            border-radius: var(--am-radius-md);
+        }
+        .mq-error-panel .mq-error-icon {
+            font-size: 48px;
+            margin-bottom: 16px;
+        }
+        .mq-header-meta {
+            display: flex;
+            gap: 20px;
+            margin-top: 10px;
+            flex-wrap: wrap;
+        }
+        .mq-header-meta .mq-meta-block {
+            display: flex;
+            flex-direction: column;
+            gap: 2px;
+        }
+        .mq-meta-label {
+            font-size: 11px;
+            color: var(--am-text-muted);
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+        .mq-meta-value {
+            font-size: 14px;
+            font-weight: 600;
+            color: var(--am-text-primary);
+        }
+        .mq-actions {
+            display: flex;
+            gap: 10px;
+            margin-bottom: 24px;
+            flex-wrap: wrap;
+            align-items: center;
+        }
+        .mq-section-title {
+            font-size: 18px;
+            font-weight: 600;
+            margin-bottom: 16px;
+            color: var(--am-text-primary);
+        }
+        .mq-property-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+            gap: 15px;
+        }
+        .mq-property { display: flex; flex-direction: column; }
+        .mq-property-label {
+            font-size: 12px;
+            color: var(--am-text-secondary);
+            margin-bottom: 4px;
+        }
+        .mq-property-value {
+            font-size: 14px;
+            font-weight: 500;
+            color: var(--am-text-primary);
+        }
+        .mq-stats-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 15px;
+            margin-top: 15px;
+        }
+        .stats-detail-card {
+            background: linear-gradient(135deg, var(--am-bg-surface) 0%, var(--am-bg-secondary) 100%);
+            border: 1px solid var(--am-border);
+            border-radius: var(--am-radius-md);
+            padding: 16px;
+            transition: transform 0.2s, box-shadow 0.2s;
+        }
+        .stats-detail-card:hover {
+            transform: translateY(-2px);
+            box-shadow: var(--am-shadow-md);
+        }
+        .stats-detail-label {
+            font-size: 11px;
+            color: var(--am-text-muted);
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            margin-bottom: 8px;
+            font-weight: 600;
+        }
+        .stats-detail-value {
+            font-size: 28px;
+            font-weight: 700;
+            color: var(--am-info);
+            margin-bottom: 8px;
+        }
+        .stats-detail-bar {
+            height: 4px;
+            background: var(--am-border);
+            border-radius: 2px;
+            overflow: hidden;
+            margin-top: 8px;
+        }
+        .stats-detail-bar-fill {
+            height: 100%;
+            border-radius: 2px;
+            transition: width 0.3s ease;
+        }
+        .loading-messages { text-align: center; padding: 40px; }
+        .loading-messages .mq-spinner {
+            width: 40px;
+            height: 40px;
+            border-width: 3px;
+        }
+        .message-card {
+            background: var(--am-bg-surface);
+            border: 1px solid var(--am-border);
+            border-radius: var(--am-radius-md);
+            padding: 20px;
+            margin-bottom: 20px;
+        }
+        .message-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: flex-start;
+            margin-bottom: 15px;
+            padding-bottom: 15px;
+            border-bottom: 2px solid var(--am-border);
+        }
+        .message-title { display: flex; flex-direction: column; gap: 5px; }
+        .message-number {
+            font-size: 18px;
+            font-weight: 700;
+            color: var(--am-text-primary);
+        }
+        .message-id {
+            font-family: var(--vscode-editor-font-family, monospace);
+            font-size: 11px;
+            color: var(--am-text-muted);
+            word-break: break-all;
+        }
+        .message-actions { display: flex; gap: 8px; }
+        .message-action-btn {
+            padding: 4px 10px;
+            background: var(--am-btn-secondary-bg);
+            color: var(--am-btn-secondary-fg);
+            border: none;
+            border-radius: var(--am-radius-sm);
+            cursor: pointer;
+            font-size: 11px;
+            font-weight: 500;
+            white-space: nowrap;
+        }
+        .message-action-btn:hover {
+            background: var(--am-btn-secondary-hover);
+        }
+        .message-metadata {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 12px;
+            margin-bottom: 15px;
+            padding: 12px;
+            background: var(--am-bg-surface);
+            border: 1px solid var(--am-border);
+            border-radius: var(--am-radius-sm);
+        }
+        .metadata-item { display: flex; flex-direction: column; gap: 4px; }
+        .metadata-label {
+            font-size: 10px;
+            color: var(--am-text-muted);
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            font-weight: 600;
+        }
+        .metadata-value {
+            font-size: 13px;
+            color: var(--am-text-primary);
+            font-family: var(--vscode-editor-font-family, monospace);
+        }
+        .message-body-container { margin-bottom: 15px; }
+        .message-body-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 8px;
+        }
+        .message-body-label {
+            font-size: 12px;
+            font-weight: 600;
+            color: var(--am-text-primary);
+        }
+        .message-body {
+            background: var(--am-bg-secondary);
+            padding: 15px;
+            border-radius: var(--am-radius-md);
+            font-family: var(--vscode-editor-font-family, 'Monaco', 'Menlo', monospace);
+            font-size: 13px;
+            line-height: 1.6;
+            white-space: pre-wrap;
+            word-wrap: break-word;
+            max-height: 400px;
+            overflow-y: auto;
+            border: 1px solid var(--am-border);
+        }
+        .message-properties {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+            gap: 12px;
+            padding: 12px;
+            background: var(--am-bg-surface);
+            border: 1px solid var(--am-border);
+            border-radius: var(--am-radius-sm);
+        }
+        .message-property { display: flex; flex-direction: column; gap: 4px; }
+        .message-property-label {
+            font-size: 10px;
+            color: var(--am-text-muted);
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            font-weight: 600;
+        }
+        .message-property-value {
+            font-size: 12px;
+            color: var(--am-text-primary);
+            font-family: var(--vscode-editor-font-family, monospace);
+            word-break: break-all;
+        }
+        .message-navigation {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 15px;
+            background: var(--am-bg-surface);
+            border: 1px solid var(--am-border);
+            border-radius: var(--am-radius-md);
+            margin-bottom: 20px;
+        }
+        .nav-info {
+            font-size: 13px;
+            color: var(--am-text-primary);
+            font-weight: 600;
+        }
+        .nav-buttons { display: flex; gap: 10px; }
+        .nav-btn {
+            padding: 8px 16px;
+            background: var(--am-btn-bg);
+            color: var(--am-btn-fg);
+            border: none;
+            border-radius: var(--am-radius-sm);
+            cursor: pointer;
+            font-size: 12px;
+            font-weight: 500;
+            display: flex;
+            align-items: center;
+            gap: 6px;
+        }
+        .nav-btn:hover:not(:disabled) {
+            background: var(--am-btn-hover);
+        }
+        .nav-btn:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+        }
+        .mq-msg-count-badge {
+            display: inline-block;
+            margin-left: 8px;
+            vertical-align: middle;
+        }
+        .message-list-item {
+            background: var(--am-bg-surface);
+            border: 1px solid var(--am-border);
+            border-radius: var(--am-radius-md);
+            padding: 15px;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+        .message-list-item:hover {
+            background: var(--am-bg-surface-hover);
+            border-color: var(--am-accent, var(--am-info));
+            transform: translateX(4px);
+            box-shadow: -4px 0 0 var(--am-accent, var(--am-info));
+        }
+        .message-list-header {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            margin-bottom: 8px;
+            flex-wrap: wrap;
+        }
+        .message-list-number {
+            font-weight: 700;
+            font-size: 14px;
+            color: var(--am-accent, var(--am-info));
+            min-width: 30px;
+        }
+        .message-list-id {
+            font-family: var(--vscode-editor-font-family, monospace);
+            font-size: 11px;
+            color: var(--am-text-muted);
+            flex: 1;
+        }
+        .message-list-time {
+            font-size: 11px;
+            color: var(--am-text-muted);
+        }
+        .message-list-badge {
+            padding: 2px 8px;
+            border-radius: 10px;
+            font-size: 10px;
+            font-weight: 600;
+        }
+        .message-list-badge.delivery {
+            background: color-mix(in srgb, var(--am-warning) 25%, transparent);
+            color: var(--am-warning);
+            border: 1px solid color-mix(in srgb, var(--am-warning) 40%, transparent);
+        }
+        .message-list-preview {
+            font-size: 12px;
+            color: var(--am-text-primary);
+            font-family: var(--vscode-editor-font-family, monospace);
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            padding-left: 42px;
+        }
+        .no-messages {
+            text-align: center;
+            padding: 40px;
+            color: var(--am-text-muted);
+        }
+        .bindings-list { margin-top: 0; }
+        .mq-bindings-empty {
+            padding: 20px;
+            text-align: center;
+            color: var(--am-text-muted);
+            background: var(--am-bg-surface);
+            border: 1px dashed var(--am-border);
+            border-radius: var(--am-radius-md);
+            margin-top: 0;
+        }
+        .mq-stat-empty {
+            color: var(--am-text-muted);
+            padding: 20px;
+            text-align: center;
+        }
+        .mq-messages-section { margin-top: 8px; }
+        #messagesSection { display: none; }
+    `;
+}
 
 /**
  * Creates a webview panel and displays detailed queue information
@@ -179,90 +567,38 @@ export async function showQueueDetailsWebview(
 
 function getLoadingHtml(queueId: string, isExchange: boolean = false): string {
   const destinationType = isExchange ? 'Exchange' : 'Queue';
-  return `
-<!DOCTYPE html>
-<html lang="en">
-<head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Loading Queue Details</title>
-  <style>
-    body {
-      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, 'Open Sans', 'Helvetica Neue', sans-serif;
-      padding: 40px;
-      background: var(--vscode-editor-background);
-      color: var(--vscode-editor-foreground);
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      min-height: 100vh;
-    }
-    .loading {
-      text-align: center;
-    }
-    .spinner {
-      border: 4px solid var(--vscode-panel-border);
-      border-top: 4px solid var(--vscode-button-background);
-      border-radius: 50%;
-      width: 50px;
-      height: 50px;
-      animation: spin 1s linear infinite;
-      margin: 0 auto 20px;
-    }
-    @keyframes spin {
-      0% { transform: rotate(0deg); }
-      100% { transform: rotate(360deg); }
-    }
-  </style>
-</head>
-<body>
-  <div class="loading">
-    <div class="spinner"></div>
-    <h2>Loading queue details...</h2>
-    <p>Fetching information for <strong>${queueId}</strong></p>
-  </div>
-</body>
-</html>
+  const body = `
+    <div class="am-container mq-loading-wrap">
+      <div class="mq-loading-inner">
+        <div class="mq-spinner" role="status" aria-label="Loading"></div>
+        <h2>Loading ${destinationType.toLowerCase()} details...</h2>
+        <p>Fetching information for <strong>${escapeHtml(queueId)}</strong></p>
+      </div>
+    </div>
   `;
+  return wrapWebviewHtml({
+    title: `Loading ${destinationType} Details`,
+    body,
+    extraStyles: mqQueueDetailsExtraStyles(),
+  });
 }
 
 function getErrorHtml(queueId: string, errorMessage: string): string {
-  return `
-<!DOCTYPE html>
-<html lang="en">
-<head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Error Loading Queue</title>
-  <style>
-    body {
-      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, 'Open Sans', 'Helvetica Neue', sans-serif;
-      padding: 40px;
-      background: var(--vscode-editor-background);
-      color: var(--vscode-editor-foreground);
-    }
-    .error {
-      background: var(--vscode-inputValidation-errorBackground);
-      border: 1px solid var(--vscode-inputValidation-errorBorder);
-      padding: 20px;
-      border-radius: 8px;
-    }
-    .error-icon {
-      font-size: 48px;
-      margin-bottom: 20px;
-    }
-  </style>
-</head>
-<body>
-  <div class="error">
-    <div class="error-icon">⚠️</div>
-    <h2>Failed to Load Queue Details</h2>
-    <p><strong>Queue:</strong> ${queueId}</p>
-    <p><strong>Error:</strong> ${errorMessage}</p>
-  </div>
-</body>
-</html>
+  const body = `
+    <div class="am-container">
+      <div class="am-card mq-error-panel">
+        <div class="mq-error-icon" aria-hidden="true">⚠️</div>
+        <h2 class="mq-section-title" style="margin-bottom: 12px;">Failed to Load Queue Details</h2>
+        <p><strong>Queue:</strong> ${escapeHtml(queueId)}</p>
+        <p style="margin-top: 8px;"><strong>Error:</strong> ${escapeHtml(errorMessage)}</p>
+      </div>
+    </div>
   `;
+  return wrapWebviewHtml({
+    title: 'Error Loading Queue',
+    body,
+    extraStyles: mqQueueDetailsExtraStyles(),
+  });
 }
 
 function getQueueDetailsHtml(
@@ -286,7 +622,7 @@ function getQueueDetailsHtml(
   let statsAvailable = false;
 
   // Extract all available numeric stats for detailed display
-  const detailedStats: any = {};
+  const detailedStats: Record<string, number> = {};
 
   if (queueStats) {
     statsAvailable = true;
@@ -306,677 +642,215 @@ function getQueueDetailsHtml(
     });
   }
 
-  return `
-<!DOCTYPE html>
-<html lang="en">
-<head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Queue Details: ${queueId}</title>
-  <style>
-    body {
-      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, 'Open Sans', 'Helvetica Neue', sans-serif;
-      padding: 20px;
-      background: var(--vscode-editor-background);
-      color: var(--vscode-editor-foreground);
-    }
-    .header {
-      margin-bottom: 30px;
-      padding-bottom: 20px;
-      border-bottom: 2px solid var(--vscode-panel-border);
-    }
-    .header h1 {
-      margin: 0 0 10px 0;
-      color: var(--vscode-foreground);
-      display: flex;
-      align-items: center;
-      gap: 10px;
-    }
-    .header-info {
-      display: flex;
-      gap: 20px;
-      margin-top: 10px;
-      flex-wrap: wrap;
-    }
-    .info-item {
-      display: flex;
-      flex-direction: column;
-    }
-    .info-label {
-      font-size: 11px;
-      color: var(--vscode-descriptionForeground);
-      text-transform: uppercase;
-      letter-spacing: 0.5px;
-    }
-    .info-value {
-      font-size: 14px;
-      font-weight: 600;
-      color: var(--vscode-foreground);
-      margin-top: 2px;
-    }
-    .badge {
-      display: inline-block;
-      padding: 4px 10px;
-      border-radius: 12px;
-      font-size: 11px;
-      font-weight: 600;
-      text-transform: uppercase;
-      letter-spacing: 0.5px;
-    }
-    .badge.fifo {
-      background: var(--vscode-charts-blue);
-      color: white;
-    }
-    .badge.standard {
-      background: var(--vscode-charts-gray);
-      color: white;
-    }
-    .stats-summary {
-      display: grid;
-      grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
-      gap: 15px;
-      margin-bottom: 30px;
-    }
-    .stat-card {
-      background: var(--vscode-editor-background);
-      border: 1px solid var(--vscode-panel-border);
-      border-radius: 8px;
-      padding: 20px;
-      text-align: center;
-    }
-    .stat-label {
-      font-size: 12px;
-      color: var(--vscode-descriptionForeground);
-      text-transform: uppercase;
-      letter-spacing: 0.5px;
-      margin-bottom: 8px;
-    }
-    .stat-value {
-      font-size: 32px;
-      font-weight: 700;
-      color: var(--vscode-charts-blue);
-    }
-    .stat-card.messages .stat-value {
-      color: var(--vscode-charts-green);
-    }
-    .stat-card.inflight .stat-value {
-      color: var(--vscode-charts-orange);
-    }
-    .stats-detail-card {
-      background: linear-gradient(135deg, var(--vscode-editor-background) 0%, var(--vscode-sideBar-background) 100%);
-      border: 1px solid var(--vscode-panel-border);
-      border-radius: 8px;
-      padding: 16px;
-      transition: transform 0.2s, box-shadow 0.2s;
-    }
-    .stats-detail-card:hover {
-      transform: translateY(-2px);
-      box-shadow: 0 4px 8px rgba(0,0,0,0.2);
-    }
-    .stats-detail-label {
-      font-size: 11px;
-      color: var(--vscode-descriptionForeground);
-      text-transform: uppercase;
-      letter-spacing: 0.5px;
-      margin-bottom: 8px;
-      font-weight: 600;
-    }
-    .stats-detail-value {
-      font-size: 28px;
-      font-weight: 700;
-      color: var(--vscode-charts-blue);
-      margin-bottom: 8px;
-    }
-    .stats-detail-bar {
-      height: 4px;
-      background: var(--vscode-panel-border);
-      border-radius: 2px;
-      overflow: hidden;
-      margin-top: 8px;
-    }
-    .stats-detail-bar-fill {
-      height: 100%;
-      background: var(--vscode-charts-blue);
-      border-radius: 2px;
-      transition: width 0.3s ease;
-    }
-    .actions {
-      display: flex;
-      gap: 10px;
-      margin-bottom: 30px;
-      flex-wrap: wrap;
-    }
-    button {
-      padding: 10px 20px;
-      background: var(--vscode-button-background);
-      color: var(--vscode-button-foreground);
-      border: none;
-      border-radius: 4px;
-      cursor: pointer;
-      font-size: 13px;
-      font-weight: 500;
-      transition: background 0.2s;
-    }
-    button:hover {
-      background: var(--vscode-button-hoverBackground);
-    }
-    .section {
-      margin-bottom: 30px;
-      background: var(--vscode-editor-background);
-      border: 1px solid var(--vscode-panel-border);
-      border-radius: 8px;
-      padding: 20px;
-    }
-    .section-title {
-      font-size: 18px;
-      font-weight: 600;
-      margin-bottom: 15px;
-      color: var(--vscode-foreground);
-    }
-    .property-grid {
-      display: grid;
-      grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
-      gap: 15px;
-    }
-    .property {
-      display: flex;
-      flex-direction: column;
-    }
-    .property-label {
-      font-size: 12px;
-      color: var(--vscode-descriptionForeground);
-      margin-bottom: 4px;
-    }
-    .property-value {
-      font-size: 14px;
-      font-weight: 500;
-      color: var(--vscode-foreground);
-    }
-    .status-badge {
-      display: inline-block;
-      padding: 4px 12px;
-      border-radius: 12px;
-      font-size: 11px;
-      font-weight: 600;
-    }
-    .status-badge.encrypted {
-      background: var(--vscode-charts-green);
-      color: white;
-    }
-    .status-badge.not-encrypted {
-      background: var(--vscode-charts-gray);
-      color: white;
-    }
-    .loading-messages {
-      text-align: center;
-      padding: 40px;
-    }
-    .message-card {
-      background: var(--vscode-editor-background);
-      border: 1px solid var(--vscode-panel-border);
-      border-radius: 8px;
-      padding: 20px;
-      margin-bottom: 20px;
-    }
-    .message-header {
-      display: flex;
-      justify-content: space-between;
-      align-items: flex-start;
-      margin-bottom: 15px;
-      padding-bottom: 15px;
-      border-bottom: 2px solid var(--vscode-panel-border);
-    }
-    .message-title {
-      display: flex;
-      flex-direction: column;
-      gap: 5px;
-    }
-    .message-number {
-      font-size: 18px;
-      font-weight: 700;
-      color: var(--vscode-foreground);
-    }
-    .message-id {
-      font-family: monospace;
-      font-size: 11px;
-      color: var(--vscode-descriptionForeground);
-      word-break: break-all;
-    }
-    .message-actions {
-      display: flex;
-      gap: 8px;
-    }
-    .message-action-btn {
-      padding: 4px 10px;
-      background: var(--vscode-button-secondaryBackground);
-      color: var(--vscode-button-secondaryForeground);
-      border: none;
-      border-radius: 4px;
-      cursor: pointer;
-      font-size: 11px;
-      font-weight: 500;
-      white-space: nowrap;
-    }
-    .message-action-btn:hover {
-      background: var(--vscode-button-secondaryHoverBackground);
-    }
-    .message-metadata {
-      display: grid;
-      grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
-      gap: 12px;
-      margin-bottom: 15px;
-      padding: 12px;
-      background: var(--vscode-editor-background);
-      border: 1px solid var(--vscode-panel-border);
-      border-radius: 4px;
-    }
-    .metadata-item {
-      display: flex;
-      flex-direction: column;
-      gap: 4px;
-    }
-    .metadata-label {
-      font-size: 10px;
-      color: var(--vscode-descriptionForeground);
-      text-transform: uppercase;
-      letter-spacing: 0.5px;
-      font-weight: 600;
-    }
-    .metadata-value {
-      font-size: 13px;
-      color: var(--vscode-foreground);
-      font-family: monospace;
-    }
-    .message-body-container {
-      margin-bottom: 15px;
-    }
-    .message-body-header {
-      display: flex;
-      justify-content: space-between;
-      align-items: center;
-      margin-bottom: 8px;
-    }
-    .message-body-label {
-      font-size: 12px;
-      font-weight: 600;
-      color: var(--vscode-foreground);
-    }
-    .message-body {
-      background: var(--vscode-textCodeBlock-background);
-      padding: 15px;
-      border-radius: 6px;
-      font-family: 'Monaco', 'Menlo', 'Consolas', monospace;
-      font-size: 13px;
-      line-height: 1.6;
-      white-space: pre-wrap;
-      word-wrap: break-word;
-      max-height: 400px;
-      overflow-y: auto;
-      border: 1px solid var(--vscode-panel-border);
-    }
-    .message-properties {
-      display: grid;
-      grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
-      gap: 12px;
-      padding: 12px;
-      background: var(--vscode-editor-background);
-      border: 1px solid var(--vscode-panel-border);
-      border-radius: 4px;
-    }
-    .message-property {
-      display: flex;
-      flex-direction: column;
-      gap: 4px;
-    }
-    .message-property-label {
-      font-size: 10px;
-      color: var(--vscode-descriptionForeground);
-      text-transform: uppercase;
-      letter-spacing: 0.5px;
-      font-weight: 600;
-    }
-    .message-property-value {
-      font-size: 12px;
-      color: var(--vscode-foreground);
-      font-family: monospace;
-      word-break: break-all;
-    }
-    .message-navigation {
-      display: flex;
-      justify-content: space-between;
-      align-items: center;
-      padding: 15px;
-      background: var(--vscode-editor-background);
-      border: 1px solid var(--vscode-panel-border);
-      border-radius: 8px;
-      margin-bottom: 20px;
-    }
-    .nav-info {
-      font-size: 13px;
-      color: var(--vscode-foreground);
-      font-weight: 600;
-    }
-    .nav-buttons {
-      display: flex;
-      gap: 10px;
-    }
-    .nav-btn {
-      padding: 8px 16px;
-      background: var(--vscode-button-background);
-      color: var(--vscode-button-foreground);
-      border: none;
-      border-radius: 4px;
-      cursor: pointer;
-      font-size: 12px;
-      font-weight: 500;
-      display: flex;
-      align-items: center;
-      gap: 6px;
-    }
-    .nav-btn:hover:not(:disabled) {
-      background: var(--vscode-button-hoverBackground);
-    }
-    .nav-btn:disabled {
-      opacity: 0.5;
-      cursor: not-allowed;
-    }
-    .badge-info {
-      display: inline-block;
-      padding: 3px 8px;
-      border-radius: 10px;
-      font-size: 10px;
-      font-weight: 600;
-      background: var(--vscode-charts-blue);
-      color: white;
-      margin-left: 8px;
-    }
-    .message-list-item {
-      background: var(--vscode-editor-background);
-      border: 1px solid var(--vscode-panel-border);
-      border-radius: 8px;
-      padding: 15px;
-      cursor: pointer;
-      transition: all 0.2s;
-    }
-    .message-list-item:hover {
-      background: var(--vscode-list-hoverBackground);
-      border-color: var(--vscode-charts-blue);
-      transform: translateX(4px);
-      box-shadow: -4px 0 0 var(--vscode-charts-blue);
-    }
-    .message-list-header {
-      display: flex;
-      align-items: center;
-      gap: 12px;
-      margin-bottom: 8px;
-      flex-wrap: wrap;
-    }
-    .message-list-number {
-      font-weight: 700;
-      font-size: 14px;
-      color: var(--vscode-charts-blue);
-      min-width: 30px;
-    }
-    .message-list-id {
-      font-family: monospace;
-      font-size: 11px;
-      color: var(--vscode-descriptionForeground);
-      flex: 1;
-    }
-    .message-list-time {
-      font-size: 11px;
-      color: var(--vscode-descriptionForeground);
-    }
-    .message-list-badge {
-      padding: 2px 8px;
-      border-radius: 10px;
-      font-size: 10px;
-      font-weight: 600;
-    }
-    .message-list-badge.delivery {
-      background: var(--vscode-charts-orange);
-      color: white;
-    }
-    .message-list-preview {
-      font-size: 12px;
-      color: var(--vscode-foreground);
-      font-family: monospace;
-      white-space: nowrap;
-      overflow: hidden;
-      text-overflow: ellipsis;
-      padding-left: 42px;
-    }
-    .no-messages {
-      text-align: center;
-      padding: 40px;
-      color: var(--vscode-descriptionForeground);
-    }
-    button.secondary {
-      background: var(--vscode-button-secondaryBackground);
-      color: var(--vscode-button-secondaryForeground);
-    }
-    button.secondary:hover {
-      background: var(--vscode-button-secondaryHoverBackground);
-    }
-    .bindings-list {
-      display: flex;
-      flex-direction: column;
-      gap: 10px;
-      margin-top: 15px;
-    }
-    .binding-item {
-      background: var(--vscode-editor-background);
-      border: 1px solid var(--vscode-panel-border);
-      border-radius: 6px;
-      padding: 12px 15px;
-      transition: all 0.2s;
-    }
-    .binding-item:hover {
-      background: var(--vscode-list-hoverBackground);
-      border-color: var(--vscode-charts-blue);
-      transform: translateX(4px);
-      box-shadow: -4px 0 0 var(--vscode-charts-blue);
-    }
-    .binding-queue-name {
-      font-weight: 600;
-      font-size: 14px;
-      color: var(--vscode-foreground);
-      margin-bottom: 6px;
-    }
-    .binding-rule {
-      font-family: monospace;
-      font-size: 11px;
-      color: var(--vscode-descriptionForeground);
-      background: var(--vscode-textCodeBlock-background);
-      padding: 6px 8px;
-      border-radius: 3px;
-      margin-top: 6px;
-    }
-    .info-message {
-      padding: 20px;
-      text-align: center;
-      color: var(--vscode-descriptionForeground);
-      background: var(--vscode-editor-background);
-      border: 1px dashed var(--vscode-panel-border);
-      border-radius: 6px;
-      margin-top: 15px;
-    }
-  </style>
-</head>
-<body>
-  <div class="header">
-    <h1>
-      <span>📋</span>
-      ${queueId}
-      <span class="badge ${queueDetails.fifo ? 'fifo' : 'standard'}">${queueType}</span>
-    </h1>
-    <div class="header-info">
-      <div class="info-item">
-        <span class="info-label">Environment</span>
-        <span class="info-value">${environmentName}</span>
-      </div>
-      <div class="info-item">
-        <span class="info-label">Region</span>
-        <span class="info-value">${regionName}</span>
-      </div>
-      <div class="info-item">
-        <span class="info-label">Last Updated</span>
-        <span class="info-value">${new Date().toLocaleTimeString()}</span>
-      </div>
-    </div>
-  </div>
+  const typeBadge = badge(queueType, queueDetails.fifo ? 'info' : 'default', true);
+  const encryptedBadge = queueDetails.encrypted
+    ? badge('🔒 Yes', 'success', true)
+    : badge('🔓 No', 'default', true);
 
-  <div class="stats-summary">
-    <div class="stat-card messages">
-      <div class="stat-label">Messages</div>
-      <div class="stat-value">${messages.toLocaleString()}</div>
+  const bindingsTableHtml = bindings && Array.isArray(bindings) && bindings.length > 0
+    ? `
+    <div class="am-table-container bindings-list">
+      <table class="am-table">
+        <thead>
+          <tr>
+            <th>Queue / destination</th>
+            <th>Routing rule</th>
+          </tr>
+        </thead>
+        <tbody>
+          ${bindings.map((binding: any) => {
+            const qName = binding.queueId || binding.destination || 'Unknown Queue';
+            const ruleText = binding.routingRule ? escapeHtml(JSON.stringify(binding.routingRule)) : '—';
+            return `
+            <tr class="am-row">
+              <td><strong>${escapeHtml(String(qName))}</strong></td>
+              <td><code style="font-size: 11px;">${ruleText}</code></td>
+            </tr>`;
+          }).join('')}
+        </tbody>
+      </table>
     </div>
-    <div class="stat-card inflight">
-      <div class="stat-label">In-Flight Messages</div>
-      <div class="stat-value">${inflightMessages.toLocaleString()}</div>
+    `
+    : `
+    <div class="mq-bindings-empty">
+      ${bindings === null
+        ? '⚠️ Unable to fetch bindings. The bindings API may not be available or this exchange may not have any bindings configured.'
+        : '📭 No bindings configured for this exchange yet.'}
     </div>
-  </div>
+    `;
 
-  <div class="actions">
-    <button onclick="refresh()">🔄 Refresh</button>
-    ${isExchange ? `
-    <button class="secondary" onclick="showBindings()">🔗 View Bindings</button>
-    ` : `
-    <button class="secondary" onclick="browseMessages()">📬 Browse Messages</button>
-    `}
-  </div>
-
-  ${isExchange ? `
-  <div id="bindingsSection" style="margin-top: 30px;">
-    <div class="section">
-      <div class="section-title">🔗 Exchange Bindings</div>
-      ${bindings && Array.isArray(bindings) && bindings.length > 0 ? `
-        <div class="bindings-list">
-          ${bindings.map((binding: any) => `
-            <div class="binding-item">
-              <div class="binding-queue-name">📋 ${binding.queueId || binding.destination || 'Unknown Queue'}</div>
-              ${binding.routingRule ? `<div class="binding-rule">Rule: ${JSON.stringify(binding.routingRule)}</div>` : ''}
+  const detailedStatsHtml = statsAvailable && Object.keys(detailedStats).length > 0
+    ? (() => {
+        const maxValue = Math.max(...Object.values(detailedStats), 1);
+        return Object.entries(detailedStats).map(([key, value]) => {
+          const label = key
+            .replace(/([A-Z])/g, ' $1')
+            .replace(/^./, str => str.toUpperCase())
+            .trim();
+          const percentage = maxValue > 0 ? (value / maxValue * 100) : 0;
+          let colorVar = 'var(--am-info)';
+          if (key.toLowerCase().includes('sent') || key.toLowerCase().includes('acked')) {
+            colorVar = 'var(--am-success)';
+          } else if (key.toLowerCase().includes('inflight')) {
+            colorVar = 'var(--am-warning)';
+          } else if (key.toLowerCase().includes('received')) {
+            colorVar = 'var(--am-accent, var(--am-info))';
+          }
+          return `
+          <div class="stats-detail-card">
+            <div class="stats-detail-label">${escapeHtml(label)}</div>
+            <div class="stats-detail-value" style="color: ${colorVar};">${value.toLocaleString()}</div>
+            <div class="stats-detail-bar">
+              <div class="stats-detail-bar-fill" style="width: ${percentage}%; background: ${colorVar};"></div>
             </div>
-          `).join('')}
-        </div>
-      ` : `
-        <div class="info-message">
-          ${bindings === null ?
-            '⚠️ Unable to fetch bindings. The bindings API may not be available or this exchange may not have any bindings configured.' :
-            '📭 No bindings configured for this exchange yet.'}
-        </div>
-      `}
+          </div>
+          `;
+        }).join('');
+      })()
+    : '';
+
+  const statsSectionHtml = statsAvailable && Object.keys(detailedStats).length > 0
+    ? `
+  <div class="am-card" style="margin-bottom: 24px;">
+    <div class="mq-section-title">📊 Statistics Details</div>
+    <div class="mq-stats-grid">
+      ${detailedStatsHtml}
     </div>
   </div>
-  ` : `
-  <div id="messagesSection" style="display: none; margin-top: 30px;">
-    <div class="section">
-      <div class="section-title">Messages Preview</div>
+  `
+    : statsAvailable
+      ? `
+  <div class="am-card" style="margin-bottom: 24px;">
+    <div class="mq-section-title">📊 Statistics Details</div>
+    <p class="mq-stat-empty">No detailed statistics available for this queue.</p>
+  </div>
+  `
+      : '';
+
+  const summaryCardsHtml = !isExchange
+    ? `
+    <div class="am-summary-cards">
+      ${summaryCard({ icon: '📬', value: messages.toLocaleString(), label: 'Messages', variant: 'healthy', animationDelay: '0.05s' })}
+      ${summaryCard({ icon: '✈️', value: inflightMessages.toLocaleString(), label: 'In-Flight Messages', variant: 'warning', animationDelay: '0.1s' })}
+    </div>
+    `
+    : '';
+
+  const destSection = isExchange
+    ? `
+  <div id="bindingsSection" class="mq-messages-section">
+    <div class="am-card" style="margin-bottom: 24px;">
+      <div class="mq-section-title">🔗 Exchange Bindings</div>
+      ${bindingsTableHtml}
+    </div>
+  </div>
+  `
+    : `
+  <div id="messagesSection" class="mq-messages-section">
+    <div class="am-card" style="margin-bottom: 24px;">
+      <div class="mq-section-title">Messages Preview</div>
       <div id="messagesContainer">
         <div class="loading-messages">
-          <div class="spinner"></div>
+          <div class="mq-spinner"></div>
           <p>Loading messages...</p>
         </div>
       </div>
     </div>
   </div>
-  `}
+  `;
 
-  <div class="section">
-    <div class="section-title">Queue Configuration</div>
-    <div class="property-grid">
-      <div class="property">
-        <div class="property-label">Queue ID</div>
-        <div class="property-value">${queueId}</div>
-      </div>
-      <div class="property">
-        <div class="property-label">Type</div>
-        <div class="property-value">${queueType}</div>
-      </div>
-      <div class="property">
-        <div class="property-label">Encrypted</div>
-        <div class="property-value">
-          <span class="status-badge ${queueDetails.encrypted ? 'encrypted' : 'not-encrypted'}">
-            ${queueDetails.encrypted ? '🔒 Yes' : '🔓 No'}
-          </span>
+  const body = `
+  <div class="am-container">
+    <div class="am-page-header">
+      <div>
+        <h1 style="display:flex; align-items:center; gap:10px; flex-wrap:wrap;">
+          <span aria-hidden="true">📋</span>
+          <span>${escapeHtml(queueId)}</span>
+          ${typeBadge}
+        </h1>
+        <div class="mq-header-meta">
+          <div class="mq-meta-block">
+            <span class="mq-meta-label">Environment</span>
+            <span class="mq-meta-value">${escapeHtml(environmentName)}</span>
+          </div>
+          <div class="mq-meta-block">
+            <span class="mq-meta-label">Region</span>
+            <span class="mq-meta-value">${escapeHtml(regionName)}</span>
+          </div>
+          <div class="mq-meta-block">
+            <span class="mq-meta-label">Last Updated</span>
+            <span class="mq-meta-value">${escapeHtml(new Date().toLocaleTimeString())}</span>
+          </div>
         </div>
       </div>
-      <div class="property">
-        <div class="property-label">Default TTL</div>
-        <div class="property-value">${queueDetails.defaultTtl ? (queueDetails.defaultTtl / 1000 / 60).toFixed(0) + ' minutes' : 'N/A'}</div>
-      </div>
-      <div class="property">
-        <div class="property-label">Default Lock TTL</div>
-        <div class="property-value">${queueDetails.defaultLockTtl ? (queueDetails.defaultLockTtl / 1000).toFixed(0) + ' seconds' : 'N/A'}</div>
-      </div>
-      <div class="property">
-        <div class="property-label">Max Deliveries</div>
-        <div class="property-value">${queueDetails.maxDeliveries || 'N/A'}</div>
-      </div>
-      ${queueDetails.deadLetterQueueId ? `
-      <div class="property">
-        <div class="property-label">Dead Letter Queue</div>
-        <div class="property-value">${queueDetails.deadLetterQueueId}</div>
-      </div>
-      ` : ''}
     </div>
-  </div>
 
-  ${statsAvailable && Object.keys(detailedStats).length > 0 ? `
-  <div class="section">
-    <div class="section-title">📊 Statistics Details</div>
-    <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 15px; margin-top: 15px;">
-      ${(() => {
-        // Find the maximum value for percentage calculation
-        const maxValue = Math.max(...Object.values(detailedStats).map(v => v as number), 1);
+    ${summaryCardsHtml}
 
-        return Object.entries(detailedStats).map(([key, value]) => {
-          // Convert camelCase to readable format
-          const label = key
-            .replace(/([A-Z])/g, ' $1')
-            .replace(/^./, str => str.toUpperCase())
-            .trim();
-
-          // Calculate percentage for visual bar
-          const percentage = maxValue > 0 ? ((value as number) / maxValue * 100) : 0;
-
-          // Determine color based on stat type
-          let color = 'var(--vscode-charts-blue)';
-          if (key.toLowerCase().includes('sent') || key.toLowerCase().includes('acked')) {
-            color = 'var(--vscode-charts-green)';
-          } else if (key.toLowerCase().includes('inflight')) {
-            color = 'var(--vscode-charts-orange)';
-          } else if (key.toLowerCase().includes('received')) {
-            color = 'var(--vscode-charts-purple)';
-          }
-
-          return `
-          <div class="stats-detail-card">
-            <div class="stats-detail-label">${label}</div>
-            <div class="stats-detail-value" style="color: ${color};">${(value as number).toLocaleString()}</div>
-            <div class="stats-detail-bar">
-              <div class="stats-detail-bar-fill" style="width: ${percentage}%; background: ${color};"></div>
-            </div>
-          </div>
-          `;
-        }).join('');
-      })()}
+    <div class="mq-actions">
+      ${button('Refresh', { variant: 'primary', icon: '🔄', onclick: 'refresh()' })}
+      ${isExchange
+    ? button('View Bindings', { variant: 'secondary', icon: '🔗', onclick: 'showBindings()' })
+    : button('Browse Messages', { variant: 'secondary', icon: '📬', onclick: 'browseMessages()' })}
     </div>
-  </div>
-  ` : statsAvailable ? `
-  <div class="section">
-    <div class="section-title">📊 Statistics Details</div>
-    <p style="color: var(--vscode-descriptionForeground); padding: 20px; text-align: center;">
-      No detailed statistics available for this queue.
-    </p>
-  </div>
-  ` : ''}
 
-  <script>
+    ${destSection}
+
+    <div class="am-card" style="margin-bottom: 24px;">
+      <div class="mq-section-title">Queue Configuration</div>
+      <div class="mq-property-grid">
+        <div class="mq-property">
+          <div class="mq-property-label">Queue ID</div>
+          <div class="mq-property-value">${escapeHtml(String(queueId))}</div>
+        </div>
+        <div class="mq-property">
+          <div class="mq-property-label">Type</div>
+          <div class="mq-property-value">${escapeHtml(queueType)}</div>
+        </div>
+        <div class="mq-property">
+          <div class="mq-property-label">Encrypted</div>
+          <div class="mq-property-value">${encryptedBadge}</div>
+        </div>
+        <div class="mq-property">
+          <div class="mq-property-label">Default TTL</div>
+          <div class="mq-property-value">${queueDetails.defaultTtl ? (queueDetails.defaultTtl / 1000 / 60).toFixed(0) + ' minutes' : 'N/A'}</div>
+        </div>
+        <div class="mq-property">
+          <div class="mq-property-label">Default Lock TTL</div>
+          <div class="mq-property-value">${queueDetails.defaultLockTtl ? (queueDetails.defaultLockTtl / 1000).toFixed(0) + ' seconds' : 'N/A'}</div>
+        </div>
+        <div class="mq-property">
+          <div class="mq-property-label">Max Deliveries</div>
+          <div class="mq-property-value">${queueDetails.maxDeliveries !== null && queueDetails.maxDeliveries !== undefined ? escapeHtml(String(queueDetails.maxDeliveries)) : 'N/A'}</div>
+        </div>
+        ${queueDetails.deadLetterQueueId ? `
+        <div class="mq-property">
+          <div class="mq-property-label">Dead Letter Queue</div>
+          <div class="mq-property-value">${escapeHtml(String(queueDetails.deadLetterQueueId))}</div>
+        </div>
+        ` : ''}
+      </div>
+    </div>
+
+    ${statsSectionHtml}
+  </div>
+  `;
+
+  const qidJs = escapeJsString(String(queueId));
+  const regionJs = escapeJsString(String(regionId));
+  const orgJs = escapeJsString(String(organizationID));
+  const envJs = escapeJsString(String(environmentId));
+
+  const scripts = `
     const vscode = acquireVsCodeApi();
 
     function refresh() {
       vscode.postMessage({ command: 'refresh' });
+    }
+
+    function showBindings() {
+      const el = document.getElementById('bindingsSection');
+      if (el) el.scrollIntoView({ behavior: 'smooth' });
     }
 
     function browseMessages() {
@@ -986,21 +860,20 @@ function getQueueDetailsHtml(
       messagesSection.style.display = 'block';
       messagesContainer.innerHTML = \`
         <div class="loading-messages">
-          <div class="spinner"></div>
+          <div class="mq-spinner"></div>
           <p>Loading messages...</p>
         </div>
       \`;
 
       vscode.postMessage({
         command: 'browseMessages',
-        queueId: '${queueId}',
-        regionId: '${regionId}',
-        organizationID: '${organizationID}',
-        environmentId: '${environmentId}'
+        queueId: '${qidJs}',
+        regionId: '${regionJs}',
+        organizationID: '${orgJs}',
+        environmentId: '${envJs}'
       });
     }
 
-    // Listen for messages from the extension
     window.addEventListener('message', event => {
       const message = event.data;
 
@@ -1010,7 +883,7 @@ function getQueueDetailsHtml(
     });
 
     let allMessages = [];
-    let currentView = 'list'; // 'list' or 'detail'
+    let currentView = 'list';
     let selectedMessageIndex = -1;
 
     function displayMessages(messages) {
@@ -1041,9 +914,9 @@ function getQueueDetailsHtml(
       const html = \`
         <div style="margin-bottom: 20px;">
           <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px;">
-            <h3 style="margin: 0; color: var(--vscode-foreground);">
+            <h3 style="margin: 0; color: var(--am-text-primary);">
               📬 Messages in Queue
-              <span class="badge-info">\${allMessages.length} message\${allMessages.length !== 1 ? 's' : ''}</span>
+              <span class="am-badge am-badge-info mq-msg-count-badge">\${allMessages.length} message\${allMessages.length !== 1 ? 's' : ''}</span>
             </h3>
           </div>
 
@@ -1054,7 +927,6 @@ function getQueueDetailsHtml(
               const timestamp = headers.timestamp || msg.timestamp || new Date().toISOString();
               const deliveryCount = headers.deliveryCount || 0;
 
-              // Get a preview of the body
               let bodyPreview = msg.body || 'No body';
               if (typeof bodyPreview === 'object') {
                 bodyPreview = JSON.stringify(bodyPreview);
@@ -1112,7 +984,6 @@ function getQueueDetailsHtml(
 
         console.log('Rendering message detail', index + 1, 'of', allMessages.length);
 
-      // Parse message body for better display
       let body = msg.body || 'No body';
       let isJSON = false;
 
@@ -1126,10 +997,8 @@ function getQueueDetailsHtml(
           isJSON = true;
         }
       } catch (e) {
-        // Not JSON, keep as is
       }
 
-      // Extract metadata from headers
       const headers = msg.headers || {};
       const messageId = headers.messageId || msg.messageId || msg.id || \`Message \${index + 1}\`;
       const deliveryCount = headers.deliveryCount || 0;
@@ -1270,7 +1139,6 @@ function getQueueDetailsHtml(
           body = JSON.stringify(body, null, 2);
         }
       } catch (e) {
-        // Keep as is
       }
 
       copyToClipboard(body);
@@ -1314,8 +1182,12 @@ function getQueueDetailsHtml(
       div.textContent = text;
       return div.innerHTML;
     }
-  </script>
-</body>
-</html>
   `;
+
+  return wrapWebviewHtml({
+    title: `${destinationType}: ${queueId}`,
+    body,
+    scripts,
+    extraStyles: mqQueueDetailsExtraStyles(),
+  });
 }

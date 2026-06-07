@@ -5,6 +5,17 @@ import { AccountService } from '../controllers/accountService';
 import { showApplicationCommandCenter } from './applicationCommandCenter';
 import { showRealTimeLogs } from './realTimeLogs';
 import { telemetryService } from '../services/telemetryService';
+import {
+    wrapWebviewHtml,
+    summaryCard,
+    badge,
+    healthIndicator,
+    button,
+    iconButton,
+    emptyState,
+    escapeHtml as uiEscapeHtml,
+    escapeAttr
+} from '../webview/ui-kit';
 
 // ============================================================================
 // INTERFACES
@@ -1178,75 +1189,27 @@ async function getEffectiveOrganizationId(context: vscode.ExtensionContext, fall
 // ============================================================================
 
 function getLoadingHtml(environmentName: string): string {
-    return `<!DOCTYPE html>
-<html lang="en">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Loading...</title>
-    <style>
-        ${getBaseStyles()}
-        .loading-container {
-            display: flex;
-            flex-direction: column;
-            align-items: center;
-            justify-content: center;
-            height: 100vh;
-            gap: 20px;
-        }
-        .spinner {
-            width: 50px;
-            height: 50px;
-            border: 4px solid var(--border-primary);
-            border-top-color: var(--accent-blue);
-            border-radius: 50%;
-            animation: spin 1s linear infinite;
-        }
-        @keyframes spin {
-            to { transform: rotate(360deg); }
-        }
-    </style>
-</head>
-<body>
-    <div class="loading-container">
-        <div class="spinner"></div>
-        <div class="loading-text">Loading applications for ${environmentName}...</div>
-    </div>
-</body>
-</html>`;
+    return wrapWebviewHtml({
+        title: 'Loading...',
+        body: `
+            <div style="display:flex;flex-direction:column;align-items:center;justify-content:center;height:90vh;gap:20px;">
+                <div style="width:48px;height:48px;border:3px solid var(--am-border);border-top-color:var(--am-info);border-radius:50%;animation:am-spin 0.8s linear infinite;"></div>
+                <div style="color:var(--am-text-secondary);">Loading applications for ${uiEscapeHtml(environmentName)}...</div>
+            </div>
+        `,
+        extraStyles: `@keyframes am-spin { to { transform: rotate(360deg); } }`
+    });
 }
 
 function getErrorHtml(errorMessage: string, environmentName: string): string {
-    return `<!DOCTYPE html>
-<html lang="en">
-<head>
-    <meta charset="UTF-8">
-    <title>Error</title>
-    <style>
-        ${getBaseStyles()}
-        .error-container {
-            display: flex;
-            flex-direction: column;
-            align-items: center;
-            justify-content: center;
-            height: 100vh;
-            gap: 20px;
-            text-align: center;
-            padding: 20px;
-        }
-        .error-icon { font-size: 48px; }
-        .error-message { color: var(--error); max-width: 600px; }
-    </style>
-</head>
-<body>
-    <div class="error-container">
-        <div class="error-icon">&#9888;</div>
-        <h2>Failed to Load Dashboard</h2>
-        <div class="error-message">${escapeHtml(errorMessage)}</div>
-        <p>Environment: ${escapeHtml(environmentName)}</p>
-    </div>
-</body>
-</html>`;
+    return wrapWebviewHtml({
+        title: 'Error',
+        body: emptyState({
+            icon: '&#9888;',
+            title: 'Failed to Load Dashboard',
+            description: `${uiEscapeHtml(errorMessage)} — Environment: ${uiEscapeHtml(environmentName)}`
+        })
+    });
 }
 
 function getMultiAppDashboardHtml(data: DashboardData): string {
@@ -1254,90 +1217,56 @@ function getMultiAppDashboardHtml(data: DashboardData): string {
 
     const appRows = applications.map(app => renderAppRow(app)).join('');
 
-    return `<!DOCTYPE html>
-<html lang="en">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Multi-App Dashboard - ${escapeHtml(environmentName)}</title>
-    <style>
-        ${getBaseStyles()}
-        ${getDashboardStyles()}
-    </style>
-</head>
-<body>
-    <div class="container">
-        <!-- Header -->
-        <header class="dashboard-header">
-            <div class="header-left">
+    const noAppsHtml = applications.length === 0
+        ? emptyState({ icon: '&#128269;', title: 'No Applications Found', description: 'No applications were found in this environment.' })
+        : '';
+
+    const body = `
+    <div class="am-container">
+        <header class="am-page-header">
+            <div>
                 <h1>Multi-App Overview</h1>
-                <div class="header-badges">
-                    <span class="badge env-badge">${escapeHtml(environmentName)}</span>
-                    <span class="badge org-badge">${escapeHtml(organizationName)}</span>
+                <div class="am-page-header-meta">
+                    ${badge(uiEscapeHtml(environmentName), 'info')}
+                    ${badge(uiEscapeHtml(organizationName), 'default')}
                 </div>
             </div>
-            <div class="header-right">
-                <span class="last-updated">Updated: ${new Date(lastRefreshed).toLocaleTimeString()}</span>
-                <button class="btn btn-primary" onclick="refreshDashboard()">
-                    <span class="btn-icon">&#8635;</span> Refresh
-                </button>
-                <button class="btn btn-secondary" onclick="exportCSV()">
-                    <span class="btn-icon">&#8681;</span> Export
-                </button>
+            <div class="am-page-header-right">
+                <span class="am-timestamp">Updated: ${new Date(lastRefreshed).toLocaleTimeString()}</span>
+                ${button('Refresh', { variant: 'secondary', onclick: 'refreshDashboard()', icon: '&#8635;' })}
+                ${button('Export', { variant: 'ghost', onclick: 'exportCSV()', icon: '&#8681;' })}
             </div>
         </header>
 
-        <!-- Summary Cards -->
-        <section class="summary-cards">
-            <div class="summary-card total">
-                <div class="card-value">${summary.total}</div>
-                <div class="card-label">Total Apps</div>
-                <div class="card-breakdown">${summary.ch1Count} CH1 | ${summary.ch2Count} CH2 | ${summary.hybridCount} Hybrid</div>
-            </div>
-            <div class="summary-card healthy">
-                <div class="card-icon">&#9679;</div>
-                <div class="card-value">${summary.healthy}</div>
-                <div class="card-label">Healthy</div>
-            </div>
-            <div class="summary-card warning">
-                <div class="card-icon">&#9679;</div>
-                <div class="card-value">${summary.warning}</div>
-                <div class="card-label">Warning</div>
-            </div>
-            <div class="summary-card critical">
-                <div class="card-icon">&#9679;</div>
-                <div class="card-value">${summary.critical}</div>
-                <div class="card-label">Critical</div>
-            </div>
-            <div class="summary-card running">
-                <div class="card-value">${summary.running}</div>
-                <div class="card-label">Running</div>
-            </div>
+        <section class="am-summary-cards">
+            ${summaryCard({ icon: '', value: summary.total, label: 'Total Apps', breakdown: `${summary.ch1Count} CH1 | ${summary.ch2Count} CH2 | ${summary.hybridCount} Hybrid`, animationDelay: '0s' })}
+            ${summaryCard({ icon: '●', value: summary.healthy, label: 'Healthy', variant: 'healthy', animationDelay: '0.05s' })}
+            ${summaryCard({ icon: '▲', value: summary.warning, label: 'Warning', variant: 'warning', animationDelay: '0.1s' })}
+            ${summaryCard({ icon: '✖', value: summary.critical, label: 'Critical', variant: 'critical', animationDelay: '0.15s' })}
+            ${summaryCard({ icon: '', value: summary.running, label: 'Running', animationDelay: '0.2s' })}
         </section>
 
-        <!-- Metrics Progress -->
-        <div id="metrics-progress" class="metrics-progress" style="display: none;">
-            <div class="progress-bar">
-                <div id="progress-fill" class="progress-fill" style="width: 0%"></div>
+        <div id="metrics-progress" class="am-progress-container" style="display: none;">
+            <div class="am-progress-bar">
+                <div id="progress-fill" class="am-progress-fill" style="width: 0%"></div>
             </div>
-            <span id="progress-text">Loading metrics...</span>
+            <span id="progress-text" class="am-progress-text">Loading metrics...</span>
         </div>
 
-        <!-- Filters -->
-        <section class="filters-section">
-            <input type="text" id="search-input" class="search-input" placeholder="Search applications..." oninput="filterApps()">
-            <select id="status-filter" class="filter-select" onchange="filterApps()">
+        <section class="am-filters">
+            <input type="text" id="search-input" class="am-input" placeholder="Search applications..." oninput="filterApps()">
+            <select id="status-filter" class="am-select" onchange="filterApps()">
                 <option value="all">All Status</option>
                 <option value="running">Running</option>
                 <option value="stopped">Stopped</option>
             </select>
-            <select id="health-filter" class="filter-select" onchange="filterApps()">
+            <select id="health-filter" class="am-select" onchange="filterApps()">
                 <option value="all">All Health</option>
                 <option value="healthy">Healthy</option>
                 <option value="warning">Warning</option>
                 <option value="critical">Critical</option>
             </select>
-            <select id="type-filter" class="filter-select" onchange="filterApps()">
+            <select id="type-filter" class="am-select" onchange="filterApps()">
                 <option value="all">All Types</option>
                 <option value="CH1">CloudHub 1.0</option>
                 <option value="CH2">CloudHub 2.0</option>
@@ -1345,17 +1274,16 @@ function getMultiAppDashboardHtml(data: DashboardData): string {
             </select>
         </section>
 
-        <!-- Applications Table -->
-        <section class="table-container">
-            <table class="apps-table" id="apps-table">
+        <section class="am-table-container">
+            <table class="am-table" id="apps-table">
                 <thead>
                     <tr>
-                        <th class="sortable" onclick="sortTable('name')">Application <span class="sort-icon" data-col="name"></span></th>
-                        <th class="sortable" onclick="sortTable('type')">Type <span class="sort-icon" data-col="type"></span></th>
-                        <th class="sortable" onclick="sortTable('status')">Status <span class="sort-icon" data-col="status"></span></th>
-                        <th class="sortable" onclick="sortTable('health')">Health <span class="sort-icon" data-col="health"></span></th>
-                        <th class="sortable" onclick="sortTable('cpu')">CPU <span class="sort-icon" data-col="cpu"></span></th>
-                        <th class="sortable" onclick="sortTable('memory')">Memory <span class="sort-icon" data-col="memory"></span></th>
+                        <th class="am-sortable" onclick="sortTable('name')">Application <span class="am-sort-icon" data-col="name"></span></th>
+                        <th class="am-sortable" onclick="sortTable('type')">Type <span class="am-sort-icon" data-col="type"></span></th>
+                        <th class="am-sortable" onclick="sortTable('status')">Status <span class="am-sort-icon" data-col="status"></span></th>
+                        <th class="am-sortable" onclick="sortTable('health')">Health <span class="am-sort-icon" data-col="health"></span></th>
+                        <th class="am-sortable" onclick="sortTable('cpu')">CPU <span class="am-sort-icon" data-col="cpu"></span></th>
+                        <th class="am-sortable" onclick="sortTable('memory')">Memory <span class="am-sort-icon" data-col="memory"></span></th>
                         <th>Actions</th>
                     </tr>
                 </thead>
@@ -1363,11 +1291,11 @@ function getMultiAppDashboardHtml(data: DashboardData): string {
                     ${appRows}
                 </tbody>
             </table>
-            ${applications.length === 0 ? '<div class="no-apps">No applications found in this environment</div>' : ''}
+            ${noAppsHtml}
         </section>
-    </div>
+    </div>`;
 
-    <script>
+    const scripts = `
         const vscode = acquireVsCodeApi();
     let applications = ${JSON.stringify(applications)};
         let currentSort = { column: 'name', direction: 'asc' };
@@ -1665,41 +1593,36 @@ function getMultiAppDashboardHtml(data: DashboardData): string {
             if (!str) return '';
             return str.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
         }
-    </script>
-</body>
-</html>`;
+    `;
+
+    return wrapWebviewHtml({
+        title: `Multi-App Dashboard - ${uiEscapeHtml(environmentName)}`,
+        body,
+        scripts
+    });
 }
 
 function renderAppRow(app: ApplicationSummary): string {
-    const healthIcon = '&#9679;';
-    const statusClass = ['RUNNING', 'STARTED', 'APPLIED'].includes(app.applicationStatus?.toUpperCase()) ? 'status-running' : 'status-stopped';
-    const typeIcon = app.cloudhubVersion === 'CH1' ? '&#9729;' : app.cloudhubVersion === 'CH2' ? '&#9730;' : '&#9731;';
+    const isRunning = ['RUNNING', 'STARTED', 'APPLIED'].includes(app.applicationStatus?.toUpperCase());
+    const statusVariant: 'success' | 'error' = isRunning ? 'success' : 'error';
+    const typeVariant: 'info' | 'success' | 'warning' = app.cloudhubVersion === 'CH1' ? 'info' : app.cloudhubVersion === 'CH2' ? 'success' : 'warning';
     const tooltip = buildHealthTooltip(app);
+    const rowWarning = app.healthStatus === 'warning' ? ' am-row-warning' : app.healthStatus === 'critical' ? ' am-row-critical' : '';
 
     return `
-        <tr class="app-row ${app.healthStatus}" data-app-id="${app.id}">
-            <td class="app-name"><span class="type-icon">${typeIcon}</span> ${escapeHtml(app.name)}</td>
-            <td><span class="type-badge ${app.cloudhubVersion.toLowerCase()}">${app.cloudhubVersion}</span></td>
-            <td><span class="status-badge ${statusClass}">${app.applicationStatus || 'Unknown'}</span></td>
-            <td class="health-cell">
-                <div class="health-indicator ${app.healthStatus}" data-tooltip="${escapeHtml(tooltip)}" aria-label="${escapeHtml(tooltip)}" tabindex="0">
-                    <span class="health-icon">${healthIcon}</span>
-                    <span class="health-score">${app.healthScore}%</span>
-                </div>
-            </td>
+        <tr class="am-row${rowWarning}" data-app-id="${app.id}">
+            <td style="font-weight:500;">${uiEscapeHtml(app.name)}</td>
+            <td>${badge(app.cloudhubVersion, typeVariant)}</td>
+            <td>${badge(app.applicationStatus || 'Unknown', statusVariant, true)}</td>
+            <td class="health-cell">${healthIndicator(app.healthScore, app.healthStatus, tooltip)}</td>
             <td class="cpu-cell">${app.metrics?.cpu !== undefined ? app.metrics.cpu.toFixed(1) + '%' : 'N/A'}</td>
             <td class="mem-cell">${app.metrics?.memory !== undefined ? app.metrics.memory + ' MB' : 'N/A'}</td>
-            <td class="actions-cell">
-                <button class="action-btn" onclick="openCommandCenter('${app.id}')" title="Command Center">&#127919;</button>
-                <button class="action-btn" onclick="openLogs('${app.id}')" title="View Logs">&#128203;</button>
+            <td class="am-actions">
+                ${iconButton('&#127919;', { onclick: `openCommandCenter('${escapeAttr(app.id)}')`, title: 'Command Center' })}
+                ${iconButton('&#128203;', { onclick: `openLogs('${escapeAttr(app.id)}')`, title: 'View Logs' })}
             </td>
         </tr>
     `;
-}
-
-function escapeHtml(str: string): string {
-    if (!str) return '';
-    return str.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
 }
 
 function buildHealthTooltip(app: ApplicationSummary): string {
@@ -1757,484 +1680,3 @@ function buildHealthTooltip(app: ApplicationSummary): string {
     return lines.join('\n');
 }
 
-function getBaseStyles(): string {
-    return `
-        :root {
-            --background-primary: #1e2328;
-            --background-secondary: #161b22;
-            --surface-primary: #21262d;
-            --surface-secondary: #30363d;
-            --surface-accent: #0d1117;
-            --text-primary: #f0f6fc;
-            --text-secondary: #7d8590;
-            --text-muted: #656d76;
-            --accent-blue: #58a6ff;
-            --accent-light: #79c0ff;
-            --border-primary: #30363d;
-            --border-muted: #21262d;
-            --success: #3fb950;
-            --warning: #d29922;
-            --error: #f85149;
-        }
-
-        * {
-            margin: 0;
-            padding: 0;
-            box-sizing: border-box;
-        }
-
-        body {
-            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', 'Oxygen', 'Ubuntu', 'Cantarell', sans-serif;
-            background: var(--background-primary);
-            color: var(--text-primary);
-            line-height: 1.5;
-            padding: 24px;
-            overflow-x: hidden;
-        }
-
-        .container {
-            max-width: 1400px;
-            margin: 0 auto;
-            animation: fadeIn 0.6s ease-out;
-        }
-
-        @keyframes fadeIn {
-            from { opacity: 0; transform: translateY(20px); }
-            to { opacity: 1; transform: translateY(0); }
-        }
-    `;
-}
-
-function getDashboardStyles(): string {
-    return `
-        /* Header */
-        .dashboard-header {
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-            margin-bottom: 24px;
-            padding: 24px;
-            background: var(--background-secondary);
-            border: 1px solid var(--border-primary);
-            border-radius: 12px;
-            animation: slideDown 0.6s ease-out;
-            position: relative;
-            overflow: hidden;
-        }
-
-        .dashboard-header::before {
-            content: '';
-            position: absolute;
-            top: 0;
-            left: 0;
-            right: 0;
-            height: 4px;
-            background: linear-gradient(90deg, var(--accent-blue), var(--success), var(--accent-light));
-        }
-
-        @keyframes slideDown {
-            from { opacity: 0; transform: translateY(-30px); }
-            to { opacity: 1; transform: translateY(0); }
-        }
-
-        .dashboard-header h1 {
-            font-size: 24px;
-            font-weight: 700;
-            margin-bottom: 8px;
-        }
-
-        .header-badges {
-            display: flex;
-            gap: 8px;
-        }
-
-        .badge {
-            padding: 4px 12px;
-            border-radius: 6px;
-            font-size: 12px;
-            font-weight: 500;
-            border: 1px solid var(--border-primary);
-            background: var(--surface-primary);
-            color: var(--text-secondary);
-        }
-
-        .env-badge {
-            background: var(--surface-primary);
-            color: var(--text-primary);
-        }
-
-        .org-badge {
-            background: var(--surface-primary);
-            color: var(--text-secondary);
-        }
-
-        .header-right {
-            display: flex;
-            align-items: center;
-            gap: 12px;
-        }
-
-        .last-updated {
-            color: var(--text-muted);
-            font-size: 12px;
-        }
-
-        .btn {
-            display: flex;
-            align-items: center;
-            gap: 6px;
-            padding: 10px 18px;
-            border: 1px solid var(--border-primary);
-            border-radius: 8px;
-            font-size: 14px;
-            font-weight: 600;
-            cursor: pointer;
-            transition: all 0.3s ease;
-        }
-
-        .btn-primary {
-            background: var(--surface-primary);
-            color: var(--text-primary);
-        }
-
-        .btn-primary:hover {
-            background: var(--surface-secondary);
-            border-color: var(--accent-blue);
-            transform: translateY(-2px);
-        }
-
-        .btn-secondary {
-            background: var(--surface-primary);
-            color: var(--text-primary);
-        }
-
-        .btn-secondary:hover {
-            background: var(--surface-secondary);
-            border-color: var(--accent-blue);
-            transform: translateY(-2px);
-        }
-
-        /* Summary Cards */
-        .summary-cards {
-            display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
-            gap: 16px;
-            margin-bottom: 24px;
-        }
-
-        .summary-card {
-            position: relative;
-            background: var(--surface-primary);
-            border-radius: 8px;
-            padding: 20px;
-            text-align: center;
-            border: 1px solid var(--border-primary);
-            transition: all 0.3s ease;
-            animation: slideUp 0.6s ease-out 0.1s both;
-        }
-
-        .summary-card .card-icon {
-            font-size: 12px;
-            margin-bottom: 4px;
-        }
-
-        .summary-card .card-value {
-            font-size: 32px;
-            font-weight: 700;
-            margin-bottom: 4px;
-        }
-
-        .summary-card .card-label {
-            font-size: 14px;
-            color: var(--text-secondary);
-        }
-
-        .summary-card .card-breakdown {
-            font-size: 11px;
-            color: var(--text-muted);
-            margin-top: 8px;
-        }
-
-        .summary-card:hover {
-            background: var(--surface-secondary);
-            transform: translateY(-4px);
-            border-color: var(--accent-blue);
-        }
-
-        .summary-card.healthy .card-icon { color: var(--success); }
-        .summary-card.healthy .card-value { color: var(--success); }
-        .summary-card.warning .card-icon { color: var(--warning); }
-        .summary-card.warning .card-value { color: var(--warning); }
-        .summary-card.critical .card-icon { color: var(--error); }
-        .summary-card.critical .card-value { color: var(--error); }
-
-        /* Metrics Progress */
-        .metrics-progress {
-            display: flex;
-            align-items: center;
-            gap: 12px;
-            margin-bottom: 16px;
-            padding: 12px 16px;
-            background: var(--surface-primary);
-            border-radius: 8px;
-            border: 1px solid var(--border-primary);
-        }
-
-        .progress-bar {
-            flex: 1;
-            height: 8px;
-            background: var(--surface-secondary);
-            border-radius: 4px;
-            overflow: hidden;
-        }
-
-        .progress-fill {
-            height: 100%;
-            background: var(--accent-blue);
-            transition: width 0.3s ease;
-        }
-
-        #progress-text {
-            font-size: 12px;
-            color: var(--text-secondary);
-            min-width: 150px;
-        }
-
-        /* Filters */
-        .filters-section {
-            display: flex;
-            gap: 12px;
-            margin-bottom: 16px;
-            flex-wrap: wrap;
-        }
-
-        .search-input {
-            flex: 1;
-            min-width: 200px;
-            padding: 10px 16px;
-            background: var(--surface-primary);
-            border: 1px solid var(--border-primary);
-            border-radius: 8px;
-            color: var(--text-primary);
-            font-size: 14px;
-        }
-
-        .search-input:focus {
-            outline: none;
-            border-color: var(--accent-blue);
-        }
-
-        .filter-select {
-            padding: 10px 16px;
-            background: var(--surface-primary);
-            border: 1px solid var(--border-primary);
-            border-radius: 8px;
-            color: var(--text-primary);
-            font-size: 14px;
-            cursor: pointer;
-        }
-
-        .search-input::placeholder {
-            color: var(--text-muted);
-        }
-
-        /* Table */
-        .table-container {
-            background: var(--surface-primary);
-            border-radius: 12px;
-            border: 1px solid var(--border-primary);
-            overflow: hidden;
-        }
-
-        .apps-table {
-            width: 100%;
-            border-collapse: collapse;
-        }
-
-        .apps-table th {
-            background: var(--background-secondary);
-            padding: 14px 16px;
-            text-align: left;
-            font-size: 12px;
-            font-weight: 600;
-            text-transform: uppercase;
-            color: var(--text-secondary);
-            border-bottom: 1px solid var(--border-primary);
-        }
-
-        .apps-table th.sortable {
-            cursor: pointer;
-        }
-
-        .apps-table th.sortable:hover {
-            color: var(--accent-blue);
-        }
-
-        .apps-table td {
-            padding: 14px 16px;
-            border-bottom: 1px solid var(--border-primary);
-        }
-
-        .app-row {
-            transition: background 0.2s, transform 0.2s;
-        }
-
-        .app-row:hover {
-            background: var(--surface-secondary);
-        }
-
-        .app-row.warning {
-            border-left: 3px solid var(--warning);
-        }
-
-        .app-row.critical {
-            border-left: 3px solid var(--error);
-        }
-
-        .app-name {
-            font-weight: 500;
-        }
-
-        .type-icon {
-            margin-right: 8px;
-            opacity: 0.7;
-        }
-
-        .type-badge {
-            display: inline-block;
-            padding: 4px 8px;
-            border-radius: 4px;
-            font-size: 11px;
-            font-weight: 600;
-            border: 1px solid var(--border-primary);
-        }
-
-        .type-badge.ch1 { background: var(--surface-primary); color: var(--accent-light); }
-        .type-badge.ch2 { background: var(--surface-primary); color: var(--success); }
-        .type-badge.hybrid { background: var(--surface-primary); color: var(--warning); }
-
-        .status-badge {
-            display: inline-block;
-            padding: 4px 10px;
-            border-radius: 12px;
-            font-size: 11px;
-            font-weight: 500;
-            border: 1px solid var(--border-primary);
-        }
-
-        .status-badge.status-running {
-            background: rgba(63, 185, 80, 0.2);
-            color: var(--success);
-        }
-
-        .status-badge.status-stopped {
-            background: rgba(248, 81, 73, 0.2);
-            color: var(--error);
-        }
-
-        .health-indicator {
-            display: flex;
-            align-items: center;
-            gap: 8px;
-            padding: 4px 10px;
-            border-radius: 999px;
-            background: var(--surface-primary);
-            border: 1px solid var(--border-primary);
-            width: fit-content;
-            position: relative;
-            cursor: help;
-        }
-
-        .health-indicator.healthy .health-icon { color: var(--success); }
-        .health-indicator.warning .health-icon { color: var(--warning); }
-        .health-indicator.critical .health-icon { color: var(--error); }
-
-        .health-score {
-            font-weight: 500;
-        }
-
-        .health-indicator::after {
-            content: attr(data-tooltip);
-            position: absolute;
-            left: 50%;
-            bottom: calc(100% + 12px);
-            transform: translateX(-50%) translateY(6px);
-            background: var(--background-secondary);
-            border: 1px solid var(--border-primary);
-            color: var(--text-primary);
-            font-size: 12px;
-            line-height: 1.4;
-            padding: 8px 10px;
-            border-radius: 8px;
-            white-space: pre-line;
-            min-width: 200px;
-            max-width: 260px;
-            opacity: 0;
-            pointer-events: none;
-            box-shadow: 0 8px 24px rgba(0, 0, 0, 0.35);
-            z-index: 10;
-            transition: opacity 0.2s ease, transform 0.2s ease;
-        }
-
-        .health-indicator::before {
-            content: '';
-            position: absolute;
-            left: 50%;
-            bottom: calc(100% + 4px);
-            transform: translateX(-50%);
-            border: 6px solid transparent;
-            border-top-color: var(--background-secondary);
-            opacity: 0;
-            transition: opacity 0.2s ease;
-            z-index: 11;
-        }
-
-        .health-indicator:hover::after,
-        .health-indicator:focus-visible::after,
-        .health-indicator:hover::before,
-        .health-indicator:focus-visible::before {
-            opacity: 1;
-        }
-
-        .health-indicator:hover::after,
-        .health-indicator:focus-visible::after {
-            transform: translateX(-50%) translateY(0);
-        }
-
-        .actions-cell {
-            display: flex;
-            gap: 8px;
-        }
-
-        .action-btn {
-            background: var(--surface-primary);
-            border: 1px solid var(--border-primary);
-            border-radius: 6px;
-            padding: 6px 10px;
-            cursor: pointer;
-            font-size: 14px;
-            transition: all 0.2s;
-        }
-
-        .action-btn:hover {
-            background: var(--surface-secondary);
-            border-color: var(--accent-blue);
-        }
-
-        .no-apps {
-            padding: 48px;
-            text-align: center;
-            color: var(--text-muted);
-        }
-
-        .sort-icon {
-            font-size: 10px;
-            margin-left: 4px;
-        }
-
-        @keyframes slideUp {
-            from { opacity: 0; transform: translateY(30px); }
-            to { opacity: 1; transform: translateY(0); }
-        }
-    `;
-}

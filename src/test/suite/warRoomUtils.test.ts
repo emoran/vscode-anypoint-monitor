@@ -9,8 +9,8 @@ suite('War Room Utilities Test Suite', () => {
             const prefixes = extractCommonPrefixes(['meraki-ccw-sfdc-papi-prod']);
 
             assert.ok(prefixes.length > 0, 'should extract at least one prefix');
-            // Should pick the shortest meaningful prefix (2 segments): "meraki-ccw-"
-            assert.ok(prefixes.includes('meraki-ccw-'), `expected "meraki-ccw-" in ${JSON.stringify(prefixes)}`);
+            // Loop starts at min(n-1, 3) segments and breaks on first match (3-segment prefix)
+            assert.ok(prefixes.includes('meraki-ccw-sfdc-'), `expected "meraki-ccw-sfdc-" in ${JSON.stringify(prefixes)}`);
         });
 
         test('should append a trailing dash to each prefix', () => {

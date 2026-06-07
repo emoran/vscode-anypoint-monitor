@@ -4,6 +4,7 @@ import * as fs from 'fs';
 import {getCH2Deployments } from './cloudhub2Applications';
 import { ApiHelper } from '../controllers/apiHelper.js';
 import { telemetryService } from '../services/telemetryService';
+import { wrapWebviewHtml, badge } from '../webview/ui-kit';
 
 // ==================== MAIN APPLICATION DETAILS WEBVIEW ====================
 
@@ -1448,571 +1449,183 @@ const updatedScript = `
 </script>
 `;
 
-return /* html */ `
-    <!DOCTYPE html>
-    <html lang="en">
-      <head>
-        <meta charset="UTF-8" />
-        <title>Application Details - ${appName}</title>
-        <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Fira+Code:wght@400;600&display=swap" />
-        <style>
-          /* Code Time inspired theme */
-          :root {
-            --background-primary: #1e2328;
-            --background-secondary: #161b22;
-            --surface-primary: #21262d;
-            --surface-secondary: #30363d;
-            --surface-accent: #0d1117;
-            --text-primary: #f0f6fc;
-            --text-secondary: #7d8590;
-            --text-muted: #656d76;
-            --accent-blue: #58a6ff;
-            --accent-light: #79c0ff;
-            --border-primary: #30363d;
-            --border-muted: #21262d;
-            --success: #3fb950;
-            --warning: #d29922;
-            --error: #f85149;
-          }
-
-          * {
-            box-sizing: border-box;
-          }
-
-          body {
-            margin: 0;
-            padding: 0;
-            background-color: var(--background-primary);
-            color: var(--text-primary);
-            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Noto Sans', Helvetica, Arial, sans-serif;
-            font-size: 14px;
-            line-height: 1.5;
-          }
-
-          /* Header Section */
-          .header {
-            background-color: var(--background-secondary);
-            border-bottom: 1px solid var(--border-primary);
-            padding: 24px 32px;
-          }
-
-          .header-content {
-            max-width: 1200px;
-            margin: 0 auto;
-          }
-
-          .header h1 {
-            font-size: 28px;
-            font-weight: 600;
-            margin: 0 0 8px 0;
-            color: var(--text-primary);
-          }
-
-          .header p {
-            font-size: 16px;
-            color: var(--text-secondary);
-            margin: 0;
-          }
-
-          /* Main Content */
-          .container {
-            max-width: 1200px;
-            margin: 0 auto;
-            padding: 32px;
-          }
-
-          /* Tabs */
-          .tabs {
-            margin-top: 0;
-          }
-
-          .tab-header {
-            display: flex;
-            gap: 8px;
-            margin-bottom: 24px;
-            border-bottom: 1px solid var(--border-primary);
-            padding-bottom: 0;
-          }
-
-          .tab-btn {
-            background: none;
-            border: none;
-            color: var(--text-secondary);
-            padding: 12px 16px;
-            cursor: pointer;
-            font-size: 14px;
-            font-weight: 500;
-            border-bottom: 2px solid transparent;
-            transition: all 0.2s;
-          }
-
-          .tab-btn:hover {
-            color: var(--text-primary);
-            background-color: var(--surface-secondary);
-          }
-
-          .tab-btn.active {
-            color: var(--accent-blue);
-            border-bottom-color: var(--accent-blue);
-          }
-
-          .tab-content {
-            display: none;
-          }
-
-          .tab-content.active {
-            display: block;
-          }
-
-          /* Cards */
-          .card {
-            background-color: var(--surface-primary);
-            border: 1px solid var(--border-primary);
-            border-radius: 12px;
-            padding: 24px;
-            margin-bottom: 24px;
-            transition: all 0.2s;
-          }
-
-          .card:hover {
-            border-color: var(--border-muted);
-            transform: translateY(-1px);
-          }
-
-          .card-header {
-            display: flex;
-            align-items: center;
-            justify-content: space-between;
-            margin-bottom: 20px;
-            padding-bottom: 16px;
-            border-bottom: 1px solid var(--border-muted);
-          }
-
-          .card-header h2 {
-            font-size: 18px;
-            font-weight: 600;
-            margin: 0;
-            color: var(--text-primary);
-          }
-
-          /* Buttons */
-          .button-group {
-            display: flex;
-            gap: 8px;
-          }
-
-          .button {
-            padding: 8px 16px;
-            font-size: 13px;
-            font-weight: 500;
-            color: var(--text-primary);
-            background-color: var(--accent-blue);
-            border: 1px solid var(--accent-blue);
-            border-radius: 6px;
-            cursor: pointer;
-            transition: all 0.2s;
-          }
-
-          .button:hover {
-            background-color: var(--accent-light);
-            border-color: var(--accent-light);
-          }
-
-          .button:disabled {
-            background-color: var(--surface-secondary);
-            border-color: var(--surface-secondary);
-            color: var(--text-muted);
-            cursor: not-allowed;
-          }
-
-          /* Tables */
-          .table-container {
-            width: 100%;
-            overflow-x: auto;
-            border: 1px solid var(--border-primary);
-            border-radius: 8px;
-          }
-
-          table {
-            width: 100%;
-            border-collapse: collapse;
-            font-size: 13px;
-          }
-
-          th {
-            background-color: var(--surface-secondary);
-            color: var(--text-secondary);
-            font-weight: 500;
-            padding: 12px 16px;
-            text-align: left;
-            border-bottom: 1px solid var(--border-primary);
-          }
-
-          td {
-            padding: 12px 16px;
-            border-bottom: 1px solid var(--border-muted);
-            color: var(--text-primary);
-          }
-
-          tr:hover {
-            background-color: var(--surface-secondary);
-          }
-
-          tr:last-child td {
-            border-bottom: none;
-          }
-
-          /* Status Badges */
-          .status-badge {
-            display: inline-flex;
-            align-items: center;
-            gap: 6px;
-            padding: 4px 8px;
-            border-radius: 6px;
-            font-size: 12px;
-            font-weight: 500;
-          }
-
-          .status-running {
-            background-color: rgba(63, 185, 80, 0.15);
-            color: var(--success);
-          }
-
-          .status-stopped {
-            background-color: rgba(248, 81, 73, 0.15);
-            color: var(--error);
-          }
-
-          .status-dot {
-            width: 6px;
-            height: 6px;
-            border-radius: 50%;
-            background-color: currentColor;
-          }
-
-          /* Logs specific styling */
-          .logs-table {
-            font-family: 'Fira Code', monospace;
-            font-size: 12px;
-          }
-
-          .logs-table td {
-            padding: 8px 12px;
-            vertical-align: top;
-          }
-
-          .logs-filters {
-            display: flex;
-            gap: 12px;
-            align-items: center;
-            margin-bottom: 16px;
-            flex-wrap: wrap;
-          }
-
-          .logs-filters input,
-          .logs-filters select {
-            padding: 8px 12px;
-            background-color: var(--surface-secondary);
-            color: var(--text-primary);
-            border: 1px solid var(--border-primary);
-            border-radius: 6px;
-            font-size: 13px;
-          }
-
-          .logs-filters input {
-            min-width: 250px;
-          }
-
-          .logs-pagination {
-            display: flex;
-            align-items: center;
-            gap: 12px;
-            margin-top: 16px;
-            padding-top: 16px;
-            border-top: 1px solid var(--border-muted);
-          }
-
-          .logs-pagination .button {
-            padding: 6px 12px;
-            font-size: 12px;
-          }
-
-          .logs-info {
-            font-size: 13px;
-            color: var(--text-secondary);
-          }
-
-          /* Responsive Design */
-          @media (max-width: 768px) {
-            .header {
-              padding: 16px;
-            }
-            
-            .container {
-              padding: 16px;
-            }
-            
-            .card {
-              padding: 16px;
-            }
-            
-            .card-header {
-              flex-direction: column;
-              align-items: flex-start;
-              gap: 12px;
-            }
-            
-            .button-group {
-              width: 100%;
-            }
-            
-            .button {
-              flex: 1;
-            }
-            
-            .logs-filters {
-              flex-direction: column;
-              align-items: stretch;
-            }
-            
-            .logs-filters input {
-              min-width: auto;
-              width: 100%;
-            }
-          }
-        </style>
-      </head>
-      <body>
-        <!-- Header Section -->
-        <div class="header">
-          <div class="header-content">
-            <h1>${appName}</h1>
-            <p>CloudHub 2.0 Application Dashboard</p>
+const ch2dBody = `
+    <div class="am-container">
+      <div class="am-page-header">
+        <div>
+          <h1>${appName}</h1>
+          <div class="am-page-header-meta">
+            ${badge('CloudHub 2.0', 'info', true)}
           </div>
         </div>
+      </div>
 
-        <div class="container">
-          <div class="tabs">
-            <nav class="tab-header">
-              <button data-tab="app-info" class="tab-btn active">Application Info</button>
-              <button data-tab="schedulers" class="tab-btn">Schedulers</button>
-              <button data-tab="alerts" class="tab-btn">Alerts</button>
-              <button data-tab="logs" class="tab-btn">Logs</button>
-            </nav>
-            <div class="tab-content active" id="tab-app-info">
-              ${applicationHtml}
-            </div>
-            <div class="tab-content" id="tab-schedulers">
-              ${schedulersHtml}
-            </div>
-            <div class="tab-content" id="tab-alerts">
-              ${alertsHtml}
-            </div>
-            <div class="tab-content" id="tab-logs">
-              ${logsHtml}
-            </div>
-          </div>
+      <div class="ch2d-tabs">
+        <nav class="ch2d-tab-header">
+          <button data-tab="app-info" class="ch2d-tab-btn active">Application Info</button>
+          <button data-tab="schedulers" class="ch2d-tab-btn">Schedulers</button>
+          <button data-tab="alerts" class="ch2d-tab-btn">Alerts</button>
+          <button data-tab="logs" class="ch2d-tab-btn">Logs</button>
+        </nav>
+        <div class="tab-content active" id="tab-app-info">
+          ${applicationHtml}
         </div>
+        <div class="tab-content" id="tab-schedulers">
+          ${schedulersHtml}
+        </div>
+        <div class="tab-content" id="tab-alerts">
+          ${alertsHtml}
+        </div>
+        <div class="tab-content" id="tab-logs">
+          ${logsHtml}
+        </div>
+      </div>
+    </div>`;
 
-        <script>
-          const vscode = acquireVsCodeApi();
+  const ch2dScripts = `
+    const vscode = acquireVsCodeApi();
 
-          // Tab switching logic
-          const tabBtns = document.querySelectorAll('.tab-btn');
-          const tabContents = document.querySelectorAll('.tab-content');
-          tabBtns.forEach((btn) => {
-            btn.addEventListener('click', () => {
-              tabBtns.forEach(b => b.classList.remove('active'));
-              tabContents.forEach(tc => tc.classList.remove('active'));
-              btn.classList.add('active');
-              const tabId = 'tab-' + btn.dataset.tab;
-              document.getElementById(tabId)?.classList.add('active');
-            });
-          });
+    document.querySelectorAll('.ch2d-tab-btn').forEach(btn => {
+      btn.addEventListener('click', () => {
+        document.querySelectorAll('.ch2d-tab-btn').forEach(b => b.classList.remove('active'));
+        document.querySelectorAll('.tab-content').forEach(tc => tc.classList.remove('active'));
+        btn.classList.add('active');
+        document.getElementById('tab-' + btn.dataset.tab)?.classList.add('active');
+      });
+    });
 
-          // Logs filtering & paging
-          const logsRaw = ${JSON.stringify(additionalData.logs || [])};
-          let logsData = Array.isArray(logsRaw) ? logsRaw : [];
-          let filteredLogs = [...logsData];
-          let currentPage = 1;
-          const pageSize = 10;
+    const logsRaw = ${JSON.stringify(additionalData.logs || [])};
+    let logsData = Array.isArray(logsRaw) ? logsRaw : [];
+    let filteredLogs = [...logsData];
+    let currentPage = 1;
+    const pageSize = 10;
 
-          const logFilter = document.getElementById('logFilter');
-          const logsTbody = document.getElementById('logsTbody');
-          const logsPrev = document.getElementById('logsPrev');
-          const logsNext = document.getElementById('logsNext');
-          const logsPageInfo = document.getElementById('logsPageInfo');
+    const logFilter = document.getElementById('logFilter');
+    const logsTbody = document.getElementById('logsTbody');
+    const logsPrev = document.getElementById('logsPrev');
+    const logsNext = document.getElementById('logsNext');
+    const logsPageInfo = document.getElementById('logsPageInfo');
 
-          // Listen for messages from extension
-          window.addEventListener('message', event => {
-            const message = event.data;
-            switch (message.command) {
-              case 'searchResults':
-                // Replace current logs with search results
-                logsData = message.logs;
-                filteredLogs = [...logsData];
-                currentPage = 1;
-                renderLogsTable();
-                break;
-            }
-          });
+    window.addEventListener('message', event => {
+      if (event.data.command === 'searchResults') {
+        logsData = event.data.logs;
+        filteredLogs = [...logsData];
+        currentPage = 1;
+        renderLogsTable();
+      }
+    });
 
-          function renderLogsTable() {
-            const startIndex = (currentPage - 1) * pageSize;
-            const endIndex = startIndex + pageSize;
-            const pageLogs = filteredLogs.slice(startIndex, endIndex);
-            const rowsHtml = pageLogs.map(log => {
-              const dateStr = log.timestamp ? new Date(log.timestamp).toISOString() : 'Unknown';
-              const msg = (log.message || '').replace(/\\n/g, '<br/>').replace(/\\r/g, '');
-              return \`
-                <tr>
-                  <td>\${dateStr}</td>
-                  <td>\${log.priority || log.level || ''}</td>
-                  <td style="max-width: 400px; word-wrap: break-word;">\${msg}</td>
-                </tr>
-              \`;
-            }).join('');
-            
-            logsTbody.innerHTML = rowsHtml || '<tr><td colspan="3" style="text-align: center;">No logs available</td></tr>';
-            
-            const totalPages = Math.ceil(filteredLogs.length / pageSize);
-            logsPageInfo.textContent = \`Page \${currentPage} of \${totalPages} (\${filteredLogs.length} total logs)\`;
-            logsPrev.disabled = (currentPage <= 1);
-            logsNext.disabled = (currentPage >= totalPages);
-          }
+    function renderLogsTable() {
+      const si = (currentPage - 1) * pageSize;
+      const pageLogs = filteredLogs.slice(si, si + pageSize);
+      logsTbody.innerHTML = pageLogs.map(log => {
+        const dateStr = log.timestamp ? new Date(log.timestamp).toISOString() : 'Unknown';
+        const msg = (log.message || '').replace(/\\n/g, '<br/>').replace(/\\r/g, '');
+        return \`<tr><td>\${dateStr}</td><td>\${log.priority || log.level || ''}</td><td style="max-width:400px;word-wrap:break-word">\${msg}</td></tr>\`;
+      }).join('') || '<tr><td colspan="3" style="text-align:center">No logs available</td></tr>';
+      const totalPages = Math.ceil(filteredLogs.length / pageSize);
+      logsPageInfo.textContent = \`Page \${currentPage} of \${totalPages} (\${filteredLogs.length} total logs)\`;
+      logsPrev.disabled = (currentPage <= 1);
+      logsNext.disabled = (currentPage >= totalPages);
+    }
 
-          function applyLogFilter() {
-            const term = (logFilter.value || '').toLowerCase();
-            const selectedPriority = document.getElementById('priorityFilter')?.value || '';
-            
-            filteredLogs = logsData.filter(log => {
-              if (!log) return false;
-              
-              // Text filter
-              let textMatch = true;
-              if (term) {
-                const combined = [log.threadName, log.priority, log.level, log.message, log.logger]
-                  .filter(val => val != null)
-                  .join(' ')
-                  .toLowerCase();
-                textMatch = combined.includes(term);
-              }
-              
-              // Priority filter
-              let priorityMatch = true;
-              if (selectedPriority) {
-                priorityMatch = (log.priority || log.level || '').toLowerCase() === selectedPriority.toLowerCase();
-              }
-              
-              return textMatch && priorityMatch;
-            });
-            
-            currentPage = 1;
-            renderLogsTable();
-          }
+    function applyLogFilter() {
+      const term = (logFilter.value || '').toLowerCase();
+      const selectedPriority = document.getElementById('priorityFilter')?.value || '';
+      filteredLogs = logsData.filter(log => {
+        if (!log) return false;
+        let textMatch = true;
+        if (term) {
+          textMatch = [log.threadName, log.priority, log.level, log.message, log.logger]
+            .filter(v => v != null).join(' ').toLowerCase().includes(term);
+        }
+        let priorityMatch = true;
+        if (selectedPriority) {
+          priorityMatch = (log.priority || log.level || '').toLowerCase() === selectedPriority.toLowerCase();
+        }
+        return textMatch && priorityMatch;
+      });
+      currentPage = 1;
+      renderLogsTable();
+    }
 
-          // Event listeners
-          logsPrev?.addEventListener('click', () => {
-            if (currentPage > 1) {
-              currentPage--;
-              renderLogsTable();
-            }
-          });
-          
-          logsNext?.addEventListener('click', () => {
-            const totalPages = Math.ceil(filteredLogs.length / pageSize);
-            if (currentPage < totalPages) {
-              currentPage++;
-              renderLogsTable();
-            }
-          });
-          
-          // Real-time filtering
-          logFilter?.addEventListener('input', applyLogFilter);
-          
-          // Priority filter change
-          document.getElementById('priorityFilter')?.addEventListener('change', applyLogFilter);
-          
-          // Initial render
-          renderLogsTable();
+    logsPrev?.addEventListener('click', () => { if (currentPage > 1) { currentPage--; renderLogsTable(); } });
+    logsNext?.addEventListener('click', () => {
+      if (currentPage < Math.ceil(filteredLogs.length / pageSize)) { currentPage++; renderLogsTable(); }
+    });
+    logFilter?.addEventListener('input', applyLogFilter);
+    document.getElementById('priorityFilter')?.addEventListener('change', applyLogFilter);
+    renderLogsTable();
 
-          // Application control buttons
-          document.getElementById('btnStopApp')?.addEventListener('click', () => {
-            vscode.postMessage({ command: 'stopApp' });
-          });
-          document.getElementById('btnStartApp')?.addEventListener('click', () => {
-            vscode.postMessage({ command: 'startApp' });
-          });
-          document.getElementById('btnRestartApp')?.addEventListener('click', () => {
-            vscode.postMessage({ command: 'restartApp' });
-          });
-
-          // Download logs button
-          document.getElementById('btnDownloadLogs')?.addEventListener('click', () => {
-            vscode.postMessage({ command: 'downloadLogs' });
-          });
-
-\
-
-          /*
-          // COMMENTED OUT DATE FILTER FUNCTIONALITY
-          const now = new Date();
-          const yesterday = new Date(now.getTime() - 24 * 60 * 60 * 1000);
-          
-          const startTimeInput = document.getElementById('startTime');
-          const endTimeInput = document.getElementById('endTime');
-          
-          if (startTimeInput) {
-            startTimeInput.value = yesterday.toISOString().slice(0, 16);
-          }
-          if (endTimeInput) {
-            endTimeInput.value = now.toISOString().slice(0, 16);
-          }
-
-          document.getElementById('btnApplyTimeFilter')?.addEventListener('click', () => {
-            const startTime = document.getElementById('startTime')?.value || '';
-            const endTime = document.getElementById('endTime')?.value || '';
-            const priority = document.getElementById('priorityFilter')?.value || '';
-
-            if (!startTime && !endTime && !priority) {
-              alert('Please select at least a start time, end time, or priority level.');
-              return;
-            }
-
-            vscode.postMessage({
-              command: 'searchLogs',
-              searchTerm: '',
-              priority: priority ? [priority] : [],
-              startTime: startTime ? new Date(startTime).toISOString() : '',
-              endTime: endTime ? new Date(endTime).toISOString() : '',
-              limit: 200
-            });
-          });
-
-          document.getElementById('btnLoadMoreLogs')?.addEventListener('click', () => {
-            vscode.postMessage({ 
-              command: 'loadMoreLogs', 
-              offset: totalLogsOffset 
-            });
-          });
-
-          document.getElementById('btnAdvancedSearch')?.addEventListener('click', () => {
-            const searchTerm = document.getElementById('logFilter')?.value || '';
-            const priority = document.getElementById('priorityFilter')?.value || '';
-            const startTime = document.getElementById('startTime')?.value || '';
-            const endTime = document.getElementById('endTime')?.value || '';
-
-            vscode.postMessage({
-              command: 'searchLogs',
-              searchTerm,
-              priority: priority ? [priority] : [],
-              startTime: startTime ? new Date(startTime).toISOString() : '',
-              endTime: endTime ? new Date(endTime).toISOString() : ''
-            });
-          });
-          */
-        </script>
-      </body>
-    </html>
+    document.getElementById('btnStopApp')?.addEventListener('click', () => vscode.postMessage({ command: 'stopApp' }));
+    document.getElementById('btnStartApp')?.addEventListener('click', () => vscode.postMessage({ command: 'startApp' }));
+    document.getElementById('btnRestartApp')?.addEventListener('click', () => vscode.postMessage({ command: 'restartApp' }));
+    document.getElementById('btnDownloadLogs')?.addEventListener('click', () => vscode.postMessage({ command: 'downloadLogs' }));
   `;
+
+  return wrapWebviewHtml({
+    title: `Application Details - ${appName}`,
+    body: ch2dBody,
+    scripts: ch2dScripts,
+    extraStyles: `
+      .ch2d-tabs { margin-top: 16px; }
+      .ch2d-tab-header {
+        display: flex; gap: 0; margin-bottom: 24px;
+        border-bottom: 1px solid var(--am-border);
+      }
+      .ch2d-tab-btn {
+        background: none; border: none; border-bottom: 2px solid transparent;
+        color: var(--am-text-muted); padding: 12px 16px; cursor: pointer;
+        font-size: 13px; font-weight: 500; transition: all 0.2s; font-family: inherit;
+      }
+      .ch2d-tab-btn:hover { color: var(--am-text-primary); background: var(--am-bg-surface-hover); }
+      .ch2d-tab-btn.active { color: var(--am-accent); border-bottom-color: var(--am-accent); }
+      .tab-content { display: none; }
+      .tab-content.active { display: block; }
+      .card {
+        background: var(--am-bg-surface); border: 1px solid var(--am-border);
+        border-radius: var(--am-radius-md); padding: 24px; margin-bottom: 24px;
+      }
+      .card-header {
+        display: flex; align-items: center; justify-content: space-between;
+        margin-bottom: 20px; padding-bottom: 16px; border-bottom: 1px solid var(--am-border);
+      }
+      .card-header h2 { font-size: 16px; font-weight: 600; margin: 0; }
+      .button-group { display: flex; gap: 8px; }
+      .button {
+        padding: 8px 16px; font-size: 13px; font-weight: 500;
+        color: var(--am-btn-fg); background: var(--am-btn-bg);
+        border: none; border-radius: var(--am-radius-sm); cursor: pointer;
+      }
+      .button:hover { background: var(--am-btn-hover); }
+      .button:disabled { opacity: 0.5; cursor: not-allowed; }
+      .table-container {
+        width: 100%; overflow-x: auto; border-radius: var(--am-radius-md);
+        border: 1px solid var(--am-border);
+      }
+      table { border-collapse: collapse; width: 100%; font-size: 13px; }
+      th { background: var(--am-bg-secondary); color: var(--am-text-muted); font-weight: 600; padding: 10px 14px; text-align: left; border-bottom: 1px solid var(--am-border); }
+      td { padding: 10px 14px; border-bottom: 1px solid var(--am-border); }
+      tr:hover { background: var(--am-bg-surface-hover); }
+      tr:last-child td { border-bottom: none; }
+      .logs-table { font-family: var(--vscode-editor-font-family, monospace); font-size: 12px; }
+      .logs-table td { padding: 8px 12px; vertical-align: top; }
+      .logs-filters {
+        display: flex; gap: 12px; align-items: center; margin-bottom: 16px; flex-wrap: wrap;
+      }
+      .logs-filters input, .logs-filters select {
+        padding: 6px 12px; background: var(--am-bg-secondary); color: var(--am-text-primary);
+        border: 1px solid var(--am-border); border-radius: var(--am-radius-sm); font-size: 13px;
+      }
+      .logs-filters input { min-width: 250px; }
+      .logs-pagination {
+        display: flex; align-items: center; gap: 12px; margin-top: 16px;
+        padding-top: 16px; border-top: 1px solid var(--am-border);
+      }
+      .logs-info { font-size: 13px; color: var(--am-text-muted); }
+      details { margin-top: 12px; }
+      summary { cursor: pointer; font-weight: 500; color: var(--am-accent); padding: 8px 0; }
+      summary:hover { filter: brightness(1.15); }
+    `
+  });
 }

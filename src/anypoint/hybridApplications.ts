@@ -4,6 +4,14 @@ import { ApiHelper } from '../controllers/apiHelper.js';
 import { AccountService } from '../controllers/accountService.js';
 import { HYBRID_APPLICATIONS_ENDPOINT } from '../constants';
 import { telemetryService } from '../services/telemetryService';
+import {
+    wrapWebviewHtml,
+    summaryCard,
+    badge,
+    button,
+    emptyState,
+    escapeHtml as uiEscapeHtml
+} from '../webview/ui-kit';
 
 /**
  * Creates a webview panel and displays Hybrid applications
@@ -108,13 +116,94 @@ export function showHybridApplicationsWebview(
   });
 }
 
+function hybridApplicationsExtraStyles(): string {
+    return `
+    .hybrid-page-desc { font-size: 13px; color: var(--am-text-secondary); }
+    .hybrid-apps-panel { margin-bottom: 24px; }
+    .hybrid-apps-panel-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-bottom: 20px;
+      flex-wrap: wrap;
+      gap: 12px;
+    }
+    .hybrid-apps-title {
+      font-size: 18px;
+      font-weight: 600;
+      color: var(--am-text-primary);
+      margin: 0;
+    }
+    .hybrid-button-group { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+    .hybrid-table-controls {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 16px;
+      flex-wrap: wrap;
+      gap: 16px;
+    }
+    .hybrid-entries-control {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      font-size: 13px;
+      color: var(--am-text-secondary);
+    }
+    .hybrid-search-control {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      color: var(--am-text-secondary);
+      font-size: 13px;
+    }
+    .hybrid-bulk-row {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 16px;
+      flex-wrap: wrap;
+      gap: 12px;
+    }
+    .hybrid-selection-summary {
+      color: var(--am-text-muted);
+      font-size: 13px;
+    }
+    .hybrid-table-scroll.am-table-container { overflow-x: auto; }
+    .hybrid-checkbox-cell {
+      width: 40px;
+      text-align: center;
+    }
+    .hybrid-pagination {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-top: 16px;
+      font-size: 13px;
+      color: var(--am-text-secondary);
+    }
+    .hybrid-pagination-controls { display: flex; gap: 8px; flex-wrap: wrap; }
+    .app-name-link { font-weight: 500; cursor: pointer; }
+    #selectAll,
+    .row-select {
+      width: 16px;
+      height: 16px;
+    }
+    .hybrid-initial-empty { margin-bottom: 20px; }
+    .hybrid-initial-empty .am-empty-state { padding: 24px 16px; }
+    @media (max-width: 768px) {
+      .hybrid-table-controls { flex-direction: column; align-items: stretch; }
+      .hybrid-search-control .am-input { width: 100%; }
+    }
+  `;
+}
+
 function getHybridApplicationsHtml(
   apps: any[],
-  webview: vscode.Webview,
-  extensionUri: vscode.Uri,
+  _webview: vscode.Webview,
+  _extensionUri: vscode.Uri,
   environmentName?: string
 ): string {
-  // Calculate statistics
   const totalApps = apps.length;
   const runningApps = apps.filter(app =>
     app.status === 'STARTED' || app.status === 'RUNNING' || app.lastReportedStatus === 'RUNNING'
@@ -123,521 +212,128 @@ function getHybridApplicationsHtml(
     app.status === 'STOPPED' || app.status === 'UNDEPLOYED' || app.lastReportedStatus === 'STOPPED'
   ).length;
 
-  // Count deployment targets
   const servers = new Set(apps.map(app => app.target?.targetId || app.targetId).filter(Boolean));
   const totalTargets = servers.size;
 
-  return /* html */ `
-    <!DOCTYPE html>
-    <html lang="en">
-      <head>
-        <meta charset="UTF-8" />
-        <title>Hybrid Applications</title>
-        <style>
-          /* Code Time inspired theme */
-          :root {
-            --background-primary: #1e2328;
-            --background-secondary: #161b22;
-            --surface-primary: #21262d;
-            --surface-secondary: #30363d;
-            --surface-accent: #0d1117;
-            --text-primary: #f0f6fc;
-            --text-secondary: #7d8590;
-            --text-muted: #656d76;
-            --accent-blue: #58a6ff;
-            --accent-light: #79c0ff;
-            --border-primary: #30363d;
-            --border-muted: #21262d;
-            --success: #3fb950;
-            --warning: #d29922;
-            --error: #f85149;
-            --hybrid-purple: #8b5cf6;
-          }
+  const initialEmpty =
+    apps.length === 0
+      ? `<div class="hybrid-initial-empty">${emptyState({
+            icon: '🖥️',
+            title: 'No hybrid applications',
+            description:
+                'No applications were returned for this environment. Deploy to on-premises runtimes or refresh after connecting.'
+        })}</div>`
+      : '';
 
-          * {
-            box-sizing: border-box;
-          }
+  const body = `
+    <div class="am-container">
+      <div class="am-page-header">
+        <div>
+          <h1>${uiEscapeHtml('Hybrid Applications')}</h1>
+          <div class="am-page-header-meta">
+            <span class="hybrid-page-desc">${uiEscapeHtml('On-premises Mule Runtime deployments')}</span>
+            ${badge('HYBRID', 'info', true)}
+          </div>
+        </div>
+      </div>
 
-          body {
-            margin: 0;
-            padding: 0;
-            background-color: var(--background-primary);
-            color: var(--text-primary);
-            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Noto Sans', Helvetica, Arial, sans-serif;
-            font-size: 14px;
-            line-height: 1.5;
-          }
+      <div class="am-summary-cards">
+        ${summaryCard({
+            icon: '📦',
+            value: totalApps,
+            label: 'Total Applications',
+            breakdown: 'Deployed applications',
+            animationDelay: '0.05s'
+        })}
+        ${summaryCard({
+            icon: '▶',
+            value: runningApps,
+            label: 'Running Applications',
+            breakdown: 'Currently active',
+            variant: 'healthy',
+            animationDelay: '0.1s'
+        })}
+        ${summaryCard({
+            icon: '■',
+            value: stoppedApps,
+            label: 'Stopped Applications',
+            breakdown: 'Currently inactive',
+            variant: 'critical',
+            animationDelay: '0.15s'
+        })}
+        ${summaryCard({
+            icon: '🎯',
+            value: totalTargets,
+            label: 'Deployment Targets',
+            breakdown: 'Servers/Clusters',
+            animationDelay: '0.2s'
+        })}
+      </div>
 
-          /* Header Section */
-          .header {
-            background-color: var(--background-secondary);
-            border-bottom: 1px solid var(--border-primary);
-            padding: 24px 32px;
-          }
-
-          .header-content {
-            max-width: 1200px;
-            margin: 0 auto;
-          }
-
-          .header h1 {
-            font-size: 28px;
-            font-weight: 600;
-            margin: 0 0 8px 0;
-            color: var(--text-primary);
-          }
-
-          .header-subtitle {
-            display: flex;
-            align-items: center;
-            gap: 8px;
-          }
-
-          .header p {
-            font-size: 16px;
-            color: var(--text-secondary);
-            margin: 0;
-          }
-
-          .hybrid-badge {
-            background-color: rgba(139, 92, 246, 0.15);
-            color: var(--hybrid-purple);
-            padding: 4px 12px;
-            border-radius: 6px;
-            font-size: 12px;
-            font-weight: 600;
-          }
-
-          /* Main Content */
-          .container {
-            max-width: 1200px;
-            margin: 0 auto;
-            padding: 32px;
-          }
-
-          /* Statistics Grid */
-          .stats-grid {
-            display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
-            gap: 20px;
-            margin-bottom: 32px;
-          }
-
-          .stat-card {
-            background-color: var(--surface-primary);
-            border: 1px solid var(--border-primary);
-            border-radius: 12px;
-            padding: 24px;
-            transition: all 0.2s;
-          }
-
-          .stat-card:hover {
-            border-color: var(--border-muted);
-            transform: translateY(-1px);
-          }
-
-          .stat-header {
-            display: flex;
-            align-items: center;
-            justify-content: space-between;
-            margin-bottom: 16px;
-          }
-
-          .stat-title {
-            font-size: 14px;
-            font-weight: 500;
-            color: var(--text-secondary);
-            margin: 0;
-          }
-
-          .stat-value {
-            font-size: 32px;
-            font-weight: 600;
-            color: var(--text-primary);
-            margin: 0 0 8px 0;
-            line-height: 1.2;
-          }
-
-          .stat-subtitle {
-            font-size: 13px;
-            color: var(--text-muted);
-            margin: 0;
-          }
-
-          /* Applications Table Card */
-          .applications-card {
-            background-color: var(--surface-primary);
-            border: 1px solid var(--border-primary);
-            border-radius: 12px;
-            padding: 24px;
-          }
-
-          .card-header {
-            display: flex;
-            align-items: center;
-            justify-content: space-between;
-            margin-bottom: 20px;
-          }
-
-          .card-title {
-            font-size: 18px;
-            font-weight: 600;
-            color: var(--text-primary);
-            margin: 0;
-          }
-
-          .button {
-            background-color: var(--accent-blue);
-            color: var(--text-primary);
-            border: none;
-            border-radius: 8px;
-            padding: 12px 16px;
-            font-size: 14px;
-            font-weight: 500;
-            cursor: pointer;
-            transition: all 0.2s;
-          }
-
-          .button:hover {
-            background-color: var(--accent-light);
-          }
-
-          .button-ghost {
-            background-color: transparent;
-            border: 1px solid var(--border-primary);
-          }
-
-          .button-danger {
-            background-color: var(--error);
-            color: var(--text-primary);
-          }
-
-          .button-danger:hover {
-            background-color: #ff6b6b;
-          }
-
-          .button-group {
-            display: flex;
-            gap: 8px;
-          }
-
-          /* Table Controls */
-          .table-controls {
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-            margin-bottom: 16px;
-            flex-wrap: wrap;
-            gap: 16px;
-          }
-
-          .entries-control {
-            display: flex;
-            align-items: center;
-            gap: 8px;
-            font-size: 14px;
-            color: var(--text-secondary);
-          }
-
-          .entries-control select {
-            background-color: var(--surface-secondary);
-            color: var(--text-primary);
-            border: 1px solid var(--border-primary);
-            border-radius: 6px;
-            padding: 6px 8px;
-            font-size: 14px;
-          }
-
-          .search-control {
-            display: flex;
-            align-items: center;
-            gap: 8px;
-          }
-
-          .search-input {
-            background-color: var(--surface-secondary);
-            color: var(--text-primary);
-            border: 1px solid var(--border-primary);
-            border-radius: 6px;
-            padding: 8px 12px;
-            font-size: 14px;
-            width: 250px;
-          }
-
-          .search-input:focus {
-            outline: none;
-            border-color: var(--accent-blue);
-          }
-
-          /* Table Styles */
-          .table-wrapper {
-            overflow-x: auto;
-            border-radius: 8px;
-            border: 1px solid var(--border-primary);
-          }
-
-          table {
-            width: 100%;
-            border-collapse: collapse;
-            background-color: var(--surface-secondary);
-          }
-
-          .checkbox-cell {
-            width: 40px;
-            text-align: center;
-          }
-
-          input[type="checkbox"] {
-            width: 16px;
-            height: 16px;
-          }
-
-          th {
-            background-color: var(--background-secondary);
-            color: var(--text-primary);
-            font-weight: 600;
-            padding: 16px 12px;
-            text-align: left;
-            border-bottom: 1px solid var(--border-primary);
-            font-size: 13px;
-          }
-
-          td {
-            padding: 16px 12px;
-            border-bottom: 1px solid var(--border-muted);
-            color: var(--text-primary);
-            font-size: 14px;
-          }
-
-          tr:last-child td {
-            border-bottom: none;
-          }
-
-          tr:hover {
-            background-color: var(--border-muted);
-          }
-
-          /* Status Badges */
-          .status-badge {
-            display: inline-flex;
-            align-items: center;
-            gap: 6px;
-            padding: 4px 8px;
-            border-radius: 6px;
-            font-size: 12px;
-            font-weight: 500;
-          }
-
-          .status-running {
-            background-color: rgba(63, 185, 80, 0.15);
-            color: var(--success);
-          }
-
-          .status-stopped {
-            background-color: rgba(248, 81, 73, 0.15);
-            color: var(--error);
-          }
-
-          .status-default {
-            background-color: rgba(125, 133, 144, 0.15);
-            color: var(--text-secondary);
-          }
-
-          .status-dot {
-            width: 6px;
-            height: 6px;
-            border-radius: 50%;
-            background-color: currentColor;
-          }
-
-          /* Pagination */
-          .pagination {
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-            margin-top: 16px;
-            font-size: 14px;
-            color: var(--text-secondary);
-          }
-
-          .pagination-controls {
-            display: flex;
-            gap: 8px;
-          }
-
-          .pagination-btn {
-            background-color: var(--surface-secondary);
-            color: var(--text-primary);
-            border: 1px solid var(--border-primary);
-            border-radius: 6px;
-            padding: 8px 12px;
-            font-size: 14px;
-            cursor: pointer;
-            transition: all 0.2s;
-          }
-
-          .pagination-btn:hover:not(:disabled) {
-            background-color: var(--accent-blue);
-          }
-
-          .pagination-btn:disabled {
-            opacity: 0.5;
-            cursor: not-allowed;
-          }
-
-          /* Clickable app name links */
-          .app-name-link {
-            color: var(--accent-blue);
-            text-decoration: none;
-            cursor: pointer;
-            font-weight: 500;
-            transition: color 0.2s ease;
-          }
-
-          .app-name-link:hover {
-            color: var(--accent-light);
-            text-decoration: underline;
-          }
-
-          /* Responsive Design */
-          @media (max-width: 768px) {
-            .container {
-              padding: 16px;
-            }
-
-            .header {
-              padding: 16px;
-            }
-
-            .stats-grid {
-              grid-template-columns: 1fr;
-            }
-
-            .table-controls {
-              flex-direction: column;
-              align-items: stretch;
-            }
-
-            .search-input {
-              width: 100%;
-            }
-          }
-        </style>
-      </head>
-      <body>
-        <!-- Header -->
-        <div class="header">
-          <div class="header-content">
-            <h1>Hybrid Applications</h1>
-            <div class="header-subtitle">
-              <p>On-premises Mule Runtime deployments</p>
-              <span class="hybrid-badge">HYBRID</span>
-            </div>
+      <div class="am-card hybrid-apps-panel">
+        ${initialEmpty}
+        <div class="hybrid-apps-panel-header">
+          <h2 class="hybrid-apps-title">${uiEscapeHtml('Applications')}</h2>
+          <div class="hybrid-button-group">
+            ${button('Refresh', { variant: 'ghost', id: 'refreshApps' })}
+            ${button('Download as CSV', { variant: 'primary', id: 'downloadAllCsv' })}
           </div>
         </div>
 
-        <!-- Main Content -->
-        <div class="container">
-          <!-- Statistics Grid -->
-          <div class="stats-grid">
-            <div class="stat-card">
-              <div class="stat-header">
-                <h3 class="stat-title">Total Applications</h3>
-              </div>
-              <div class="stat-value">${totalApps}</div>
-              <p class="stat-subtitle">Deployed applications</p>
-            </div>
-
-            <div class="stat-card">
-              <div class="stat-header">
-                <h3 class="stat-title">Running Applications</h3>
-              </div>
-              <div class="stat-value">${runningApps}</div>
-              <p class="stat-subtitle">Currently active</p>
-            </div>
-
-            <div class="stat-card">
-              <div class="stat-header">
-                <h3 class="stat-title">Stopped Applications</h3>
-              </div>
-              <div class="stat-value">${stoppedApps}</div>
-              <p class="stat-subtitle">Currently inactive</p>
-            </div>
-
-            <div class="stat-card">
-              <div class="stat-header">
-                <h3 class="stat-title">Deployment Targets</h3>
-              </div>
-              <div class="stat-value">${totalTargets}</div>
-              <p class="stat-subtitle">Servers/Clusters</p>
-            </div>
+        <div class="hybrid-table-controls">
+          <div class="hybrid-entries-control">
+            <label for="entriesPerPage">Show</label>
+            <select id="entriesPerPage" class="am-select" aria-label="Entries per page">
+              <option value="10">10</option>
+              <option value="25">25</option>
+              <option value="50">50</option>
+              <option value="100">100</option>
+            </select>
+            <span>entries</span>
           </div>
-
-          <!-- Applications Table -->
-          <div class="applications-card">
-            <div class="card-header">
-              <h2 class="card-title">Applications</h2>
-              <div class="button-group">
-                <button id="refreshApps" class="button button-ghost">Refresh</button>
-                <button id="downloadAllCsv" class="button">Download as CSV</button>
-              </div>
-            </div>
-
-            <div class="table-controls">
-              <div class="entries-control">
-                <label>Show</label>
-                <select id="entriesPerPage">
-                  <option value="10">10</option>
-                  <option value="25">25</option>
-                  <option value="50">50</option>
-                  <option value="100">100</option>
-                </select>
-                <label>entries</label>
-              </div>
-              <div class="search-control">
-                <label>Search:</label>
-                <input type="text" id="searchInput" class="search-input" placeholder="Search applications...">
-              </div>
-            </div>
-
-            <div class="table-controls" style="justify-content: space-between; align-items: center;">
-              <div id="selectionSummary" style="color: var(--text-secondary); font-size: 13px;">No applications selected</div>
-              <div class="button-group">
-                <button id="btnStartSelected" class="button" disabled>Start Selected</button>
-                <button id="btnStopSelected" class="button button-danger" disabled>Stop Selected</button>
-              </div>
-            </div>
-
-            <div class="table-wrapper">
-              <table id="appTable">
-                <thead>
-                  <tr>
-                    <th class="checkbox-cell"><input type="checkbox" id="selectAll"></th>
-                    <th>Application Name</th>
-                    <th>Status</th>
-                    <th>Target Type</th>
-                    <th>Target Name</th>
-                    <th>Runtime Version</th>
-                    <th>Last Update</th>
-                  </tr>
-                </thead>
-                <tbody id="appTableBody">
-                  <!-- Table content will be populated by JavaScript -->
-                </tbody>
-              </table>
-            </div>
-
-            <div class="pagination">
-              <div id="paginationInfo">Showing 0 to 0 of 0 entries</div>
-              <div class="pagination-controls">
-                <button id="prevBtn" class="pagination-btn">Previous</button>
-                <button id="nextBtn" class="pagination-btn">Next</button>
-              </div>
-            </div>
+          <div class="hybrid-search-control">
+            <label for="searchInput">Search</label>
+            <input type="text" id="searchInput" class="am-input" placeholder="Search applications..." />
           </div>
         </div>
 
-        <script>
+        <div class="hybrid-bulk-row">
+          <div id="selectionSummary" class="hybrid-selection-summary">No applications selected</div>
+          <div class="hybrid-button-group">
+            ${button('Start Selected', { variant: 'primary', id: 'btnStartSelected', disabled: true })}
+            ${button('Stop Selected', { variant: 'danger', id: 'btnStopSelected', disabled: true })}
+          </div>
+        </div>
+
+        <div class="am-table-container hybrid-table-scroll">
+          <table id="appTable" class="am-table">
+            <thead>
+              <tr>
+                <th class="hybrid-checkbox-cell"><input type="checkbox" id="selectAll" /></th>
+                <th>Application Name</th>
+                <th>Status</th>
+                <th>Target Type</th>
+                <th>Target Name</th>
+                <th>Runtime Version</th>
+                <th>Last Update</th>
+              </tr>
+            </thead>
+            <tbody id="appTableBody"></tbody>
+          </table>
+        </div>
+
+        <div class="hybrid-pagination">
+          <div id="paginationInfo">Showing 0 to 0 of 0 entries</div>
+          <div class="hybrid-pagination-controls">
+            <button type="button" id="prevBtn" class="am-btn am-btn-secondary">Previous</button>
+            <button type="button" id="nextBtn" class="am-btn am-btn-secondary">Next</button>
+          </div>
+        </div>
+      </div>
+    </div>
+  `;
+
+  const scripts = `
           const vscode = acquireVsCodeApi();
           const appsData = ${JSON.stringify(apps)};
           const environmentName = ${JSON.stringify(environmentName || 'Unknown')};
@@ -704,21 +400,17 @@ function getHybridApplicationsHtml(
             });
           }
 
-          // Render status badge
           function renderStatus(status) {
             const normalizedStatus = status?.toUpperCase() || 'UNKNOWN';
-            const statusClass =
-              (normalizedStatus === 'STARTED' || normalizedStatus === 'RUNNING') ? 'status-running' :
-              (normalizedStatus === 'STOPPED' || normalizedStatus === 'UNDEPLOYED') ? 'status-stopped' :
-              'status-default';
-
-            return \`<span class="status-badge \${statusClass}">
-              <span class="status-dot"></span>
-              \${normalizedStatus}
-            </span>\`;
+            let extraClass = '';
+            if (normalizedStatus === 'STARTED' || normalizedStatus === 'RUNNING') {
+              extraClass = ' am-badge-success';
+            } else if (normalizedStatus === 'STOPPED' || normalizedStatus === 'UNDEPLOYED') {
+              extraClass = ' am-badge-error';
+            }
+            return \`<span class="am-badge\${extraClass}">\${normalizedStatus}</span>\`;
           }
 
-          // Render table
           function renderTable() {
             const { startIndex, endIndex } = getPaginationBounds();
             const pageData = filteredData.slice(startIndex, endIndex);
@@ -733,8 +425,8 @@ function getHybridApplicationsHtml(
               const isSelected = appId && selectedAppIds.has(appId);
 
               return \`
-              <tr>
-                <td class="checkbox-cell">
+              <tr class="am-row">
+                <td class="hybrid-checkbox-cell">
                   <input type="checkbox" class="row-select" data-app-index="\${startIndex + index}" data-app-id="\${appId || ''}" \${appId ? '' : 'disabled'} \${isSelected ? 'checked' : ''}>
                 </td>
                 <td><a href="#" class="app-name-link" data-app-name="\${app.name || app.artifact?.name || ''}" data-app-index="\${startIndex + index}">\${app.name || app.artifact?.name || 'N/A'}</a></td>
@@ -752,7 +444,6 @@ function getHybridApplicationsHtml(
             syncSelectAll();
           }
 
-          // Update pagination
           function updatePagination() {
             const totalItems = filteredData.length;
             const totalPages = Math.ceil(totalItems / entriesPerPage);
@@ -767,7 +458,6 @@ function getHybridApplicationsHtml(
             document.getElementById('nextBtn').disabled = currentPage >= totalPages;
           }
 
-          // Apply search filter
           function applyFilter() {
             const searchTerm = document.getElementById('searchInput').value.toLowerCase();
             filteredData = appsData.filter(app =>
@@ -777,7 +467,6 @@ function getHybridApplicationsHtml(
             renderTable();
           }
 
-          // Event listeners
           document.getElementById('searchInput').addEventListener('input', applyFilter);
 
           document.getElementById('entriesPerPage').addEventListener('change', (e) => {
@@ -852,7 +541,6 @@ function getHybridApplicationsHtml(
             vscode.postMessage({ command: 'downloadAllCsv' });
           });
 
-          // Handle app name clicks to open Command Center
           document.addEventListener('click', (e) => {
             if (e.target.classList.contains('app-name-link')) {
               e.preventDefault();
@@ -871,12 +559,15 @@ function getHybridApplicationsHtml(
             }
           });
 
-          // Initial render
           renderTable();
-        </script>
-      </body>
-    </html>
   `;
+
+  return wrapWebviewHtml({
+    title: 'Hybrid Applications',
+    body,
+    scripts,
+    extraStyles: hybridApplicationsExtraStyles()
+  });
 }
 
 /**
